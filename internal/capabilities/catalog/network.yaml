@@ -1,0 +1,41 @@
+network:
+  - provider: Calico
+    daemonSets: [calico-node, canal, rke2-canal]
+    containers: [calico-node]
+  - provider: Cilium
+    daemonSets: [cilium]
+    containers: [cilium-agent]
+    configMap: cilium-config
+    disabledConfig:
+      enable-policy: never
+      enable-k8s-networkpolicy: "false"
+    disabledArgs: [--enable-policy=never, --enable-k8s-networkpolicy=false]
+  - provider: OVN-Kubernetes
+    daemonSets: [ovnkube-node]
+    containers: [ovnkube-node, ovnkube-controller]
+  - provider: Antrea
+    daemonSets: [antrea-agent]
+    containers: [antrea-agent]
+  - provider: Weave Net
+    daemonSets: [weave-net]
+    containers: [weave-npc]
+    missingContainerStatus: Unsupported
+  - provider: Azure NPM
+    daemonSets: [azure-npm]
+    containers: [azure-npm]
+  - provider: AWS VPC CNI
+    daemonSets: [aws-node]
+    containers: [aws-network-policy-agent, aws-eks-nodeagent]
+    missingContainerStatus: Unsupported
+    requiredArgs: [--enable-network-policy=true]
+    missingArgsStatus: Unsupported
+  - provider: kube-router
+    daemonSets: [kube-router]
+    requiredArgs: [--run-firewall=true, --run-firewall]
+    missingArgsStatus: Unknown
+  - provider: Flannel
+    daemonSets: [kube-flannel-ds, kube-flannel]
+    status: Unsupported
+  - provider: kindnet
+    daemonSets: [kindnet]
+    status: Unsupported

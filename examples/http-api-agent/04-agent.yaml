@@ -1,0 +1,54 @@
+apiVersion: arally.io/v1alpha1
+kind: AgentClaim
+metadata:
+  name: http-api-agent
+  namespace: arally-http-api-agent
+spec:
+  agentGroupRef:
+    name: http-api-agent
+  template: generic
+  runtime:
+    image: registry.example.com/http-api-agent:replace-me
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+    imagePullSecrets:
+    - name: http-api-agent-registry
+    env:
+    - name: DATABASE
+      value: data/agent.sqlite
+    - name: MODEL_NAME
+      value: REPLACE_WITH_MODEL_NAME
+    - name: MODEL_BASE_URL
+      value: https://models.example.com/v1
+    - name: MODEL_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: http-api-agent-credentials
+          key: MODEL_API_KEY
+    - name: TOOL_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: http-api-agent-credentials
+          key: TOOL_API_KEY
+    - name: API_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: http-api-agent-credentials
+          key: API_TOKEN
+    ports:
+    - name: http
+      containerPort: 8000
+      protocol: TCP
+  operatingMode: Running
+  interaction:
+    type: HTTPRoute
+  # For persistence, create this PVC first and uncomment the mount.
+  # workspace:
+  #   claimName: http-api-agent-data
+  #   mountPath: /app/data

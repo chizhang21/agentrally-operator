@@ -1,0 +1,17 @@
+apiVersion: arally.io/v1alpha1
+kind: AgentGroup
+metadata:
+  name: demo
+spec:
+  namespace: arally-demo
+  quota:
+    hard:
+      count/agentclaims.arally.io: "20"
+  # Optional defaults for Claims using HTTPRoute; ignored by OpenShiftRoute.
+  # interactionDefaults:
+  #   httpRoute:
+  #     gatewayRef:
+  #       name: shared
+  #       namespace: gateway-system
+  #       sectionName: https
+  #     domain: agents.example.com

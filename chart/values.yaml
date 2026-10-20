@@ -1,0 +1,53 @@
+replicaCount: 1
+imagePullSecrets: []
+image:
+  repository: arally-operator
+  # Empty uses Chart.appVersion; set explicitly for a custom image build.
+  tag: ""
+  # Optional sha256 digest takes precedence over tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+# Leave runAsUser unset so OpenShift SCC can allocate the namespace UID.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+# Published images currently support linux/amd64.
+nodeSelector:
+  kubernetes.io/os: linux
+  kubernetes.io/arch: amd64
+affinity: {}
+tolerations: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: health
+  failureThreshold: 60
+  periodSeconds: 5
+  timeoutSeconds: 2
+metrics:
+  networkPolicy:
+    # Allow metrics ingress from matching namespaces when enabled.
+    enabled: false
+    namespaceSelector:
+      matchLabels:
+        metrics: enabled
+  serviceMonitor:
+    # Requires the Prometheus Operator CRD, also used by OpenShift monitoring.
+    enabled: false
+    labels: {}
+# Optional outbound relay in the elected Operator process.
+connector:
+  enabled: false
+  endpoint: ""
+  id: ""
+  # Existing Secret with token and optional ca.crt; never place tokens in values.
+  credentialsSecret: ""
+  caFile: ""

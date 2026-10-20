@@ -1,0 +1,21 @@
+# Order matters: local storage cannot be classified as durable remote storage.
+storage:
+  - type: Local
+    provisioners: [rancher.io/local-path, kubernetes.io/no-provisioner]
+    contains: [hostpath, local-path]
+  - type: NFS
+    contains: [nfs-subdir-external-provisioner, nfs-client]
+    legacy: true
+  - type: Unknown
+    provisioners: [csi.san.synology.com]
+    protocolTypes:
+      nfs: NFS
+      "": Block
+      iscsi: Block
+      nvme: Block
+  - type: NFS
+    provisioners: [efs.csi.aws.com]
+    contains: [nfs.csi]
+  - type: Block
+    provisioners: [ebs.csi.aws.com, disk.csi.azure.com, pd.csi.storage.gke.io, driver.longhorn.io, csi.vsphere.vmware.com, rbd.csi.ceph.com]
+    suffixes: [.rbd.csi.ceph.com]

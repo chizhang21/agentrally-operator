@@ -1,0 +1,27 @@
+# Optional user-access role; apply and bind explicitly.
+# The operator ServiceAccount does not use this role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: arally-operator
+  name: agentclaim-editor-role
+rules:
+- apiGroups:
+  - arally.io
+  resources:
+  - agentclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - arally.io
+  resources:
+  - agentclaims/status
+  verbs:
+  - get

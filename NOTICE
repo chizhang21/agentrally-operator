@@ -1,0 +1,9 @@
+Arally Operator
+Copyright 2026 Arally contributors
+
+Includes Apache-2.0 Operator SDK / Kubebuilder generated scaffolding.
+Linked Kubernetes and controller-runtime dependencies retain their own licenses.
+The container build collects dependency licenses with go-licenses and includes
+them under /licenses/dependencies. Retain these notices when redistributing images.
+Build tools and the separately installed agent-sandbox controllers are not
+included in the Arally runtime image.

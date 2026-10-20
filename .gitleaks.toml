@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+# Dependency index keys are resource identifiers, not API credentials.
+[[allowlists]]
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = ['''^PersistentVolumeClaim/$''']

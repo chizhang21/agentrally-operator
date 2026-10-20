@@ -1,0 +1,26 @@
+{{- $metrics := .Values.metrics | default dict }}
+{{- $policy := $metrics.networkPolicy | default dict }}
+{{- if $policy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/component: manager
+    {{- include "arally-operator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: arally-operator
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml $policy.namespaceSelector | nindent 12 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+{{- end }}

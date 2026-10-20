@@ -1,0 +1,50 @@
+# Project-owned recognition catalog, embedded in the Operator image.
+runtimes:
+  - family: runc
+    category: Container
+    imageContract: LinuxOCI
+    handlers: [runc]
+  - family: crun
+    category: Container
+    imageContract: LinuxOCI
+    handlers: [crun]
+  - family: youki
+    category: Container
+    imageContract: LinuxOCI
+    handlers: [youki]
+  - family: containerd
+    category: Container
+    imageContract: LinuxOCI
+    handlers: [containerd]
+  - family: cri-o
+    category: Container
+    imageContract: LinuxOCI
+    handlers: [cri-o]
+  - family: gvisor
+    category: UserSpaceKernel
+    imageContract: LinuxOCI
+    handlers: [runsc, gvisor, runsc-kvm, runsc-systrap]
+  - family: kata
+    category: VirtualMachine
+    imageContract: LinuxOCI
+    handlers: [kata, kata-qemu, kata-qemu-runtime-rs, kata-clh, kata-clh-runtime-rs, kata-dragonball, kata-fc, kata-clh-azure, kata-clh-azure-runtime-rs]
+  - family: wasm
+    category: WebAssembly
+    imageContract: WasmWASI
+    handlers: [wasm]
+  - family: wasmtime
+    category: WebAssembly
+    imageContract: WasmWASI
+    handlers: [wasmtime]
+  - family: wasmedge
+    category: WebAssembly
+    imageContract: WasmWASI
+    handlers: [wasmedge]
+  - family: wasmer
+    category: WebAssembly
+    imageContract: WasmWASI
+    handlers: [wasmer]
+  - family: wamr
+    category: WebAssembly
+    imageContract: WasmWASI
+    handlers: [wamr]

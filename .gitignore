@@ -1,0 +1,53 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+# Local build/release outputs (including legacy output locations)
+/bin/
+/dist/
+/Dockerfile.cross
+*.tgz
+/chart/charts/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+/coverage/
+/coverage.*
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Generated API/installation sources remain versioned: DeepCopy, CRDs and RBAC.
+
+# editor and IDE paraphernalia
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+.venv/
+.cache/
+__pycache__/
+*.pyc
+*.kubeconfig
+.env
+values.*.private.yaml
+
+# Local credentials, overrides and review artifacts
+.env.*
+!.env.example
+*.kubeconfig.*
+values.*.local.yaml
+/secrets/
+/.work/
+/.kube/
+/.aws/
+/.ssh/

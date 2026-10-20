@@ -1,0 +1,35 @@
+{{- if .Values.connector.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-connector
+  labels:
+    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/component: connector
+    {{- include "arally-operator.labels" . | nindent 4 }}
+# Other CR permissions are already granted by the manager role.
+rules:
+  - apiGroups: [arally.io]
+    resources: [agentgroups]
+    verbs: [create, delete]
+  - apiGroups: [arally.io]
+    resources: [agentclaims]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-connector
+  labels:
+    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/component: connector
+    {{- include "arally-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-connector
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

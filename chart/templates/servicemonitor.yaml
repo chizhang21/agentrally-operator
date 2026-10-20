@@ -1,0 +1,32 @@
+{{- $metrics := .Values.metrics | default dict }}
+{{- $monitor := $metrics.serviceMonitor | default dict }}
+{{- if $monitor.enabled }}
+{{- if not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+{{- fail "metrics.serviceMonitor.enabled requires monitoring.coreos.com/v1/ServiceMonitor" }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/component: manager
+    {{- include "arally-operator.labels" . | nindent 4 }}
+    {{- /* User labels extend the monitor without replacing chart identity. */}}
+    {{- with omit ($monitor.labels | default dict)
+      "app.kubernetes.io/name" "app.kubernetes.io/component"
+      "app.kubernetes.io/instance" "app.kubernetes.io/version"
+      "app.kubernetes.io/managed-by" "helm.sh/chart" }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arally-operator
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: http
+{{- end }}

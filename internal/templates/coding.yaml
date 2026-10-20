@@ -1,0 +1,54 @@
+# Built-in Pod environment; application settings come from AgentClaim.runtime.
+metadata:
+  labels:
+    arally.io/category: coding
+spec:
+  nodeSelector:
+    kubernetes.io/os: linux
+  automountServiceAccountToken: false
+  containers:
+  - env:
+    - name: HOME
+      value: /workspace
+    - name: TMPDIR
+      value: /tmp
+    - name: LOG_LEVEL
+      value: info
+    imagePullPolicy: IfNotPresent
+    name: agent
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      runAsNonRoot: true
+    workingDir: /workspace
+    volumeMounts:
+    - mountPath: /workspace
+      name: arally-workspace
+    - mountPath: /dev/shm
+      name: browser-shm
+    - mountPath: /tmp
+      name: arally-tmp
+  terminationGracePeriodSeconds: 30
+  restartPolicy: Always
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+  - emptyDir: {}
+    name: arally-tmp
+  - name: browser-shm
+    emptyDir:
+      medium: Memory
+      sizeLimit: 512Mi
+  - name: arally-workspace
+    emptyDir: {}

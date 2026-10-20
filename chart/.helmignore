@@ -1,0 +1,17 @@
+# Development files are not chart installation inputs.
+.DS_Store
+.work/
+.cache/
+.git/
+.idea/
+.vscode/
+.env
+.env.*
+*.kubeconfig
+*.kubeconfig.*
+values.*.private.yaml
+values.*.local.yaml
+secrets/
+.kube/
+.aws/
+.ssh/

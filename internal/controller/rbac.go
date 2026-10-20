@@ -1,0 +1,37 @@
+package controller
+
+// +kubebuilder:rbac:groups=arally.io,resources=agentgroups,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=arally.io,resources=agentclaims,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=arally.io,resources=agentgroups/status;agentclaims/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=arally.io,resources=agentgroups/finalizers;agentclaims/finalizers,verbs=update
+// +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=core,resources=namespaces;resourcequotas,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;create;update;patch;delete
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;create;update;patch;delete
+// Secrets are read by explicit reference; no global Secret list, watch or cache.
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch
+// Event reads are UID-filtered diagnostics; the Operator never watches all Events.
+// +kubebuilder:rbac:groups=core,resources=events,verbs=list;create;patch
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch,namespace=system
+
+// Capability discovery only reads native resources. It creates the default report
+// when absent, preserving spec/metadata on existing reports.
+// +kubebuilder:rbac:groups=arally.io,resources=clustercapabilities,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=arally.io,resources=clustercapabilities/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=core,resources=nodes;configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses;csidrivers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch
+
+// Pods are observed only; Core retains all Pod lifecycle writes.
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get
+// ServiceAccounts are administrator-managed; the Operator only verifies references.
+// +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get
+// Allocation and managed pool setup use upstream CRs; Pod/refill lifecycle stays upstream.
+// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxclaims,verbs=get;list;create;delete
+// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxwarmpools,verbs=get;list;create;delete
+// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxtemplates,verbs=get;list;watch;create;delete

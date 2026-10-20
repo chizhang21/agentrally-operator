@@ -1,0 +1,17 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - copyloopvar
+    - errcheck
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      # Correctness and simplification checks; avoid API-marker comment/style gates.
+      checks: ['SA*', 'S*', ST1005]
+  exclusions:
+    generated: strict

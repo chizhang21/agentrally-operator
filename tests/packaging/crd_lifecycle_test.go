@@ -1,0 +1,303 @@
+//go:build integration
+
+package packaging_test
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	v1 "arally/operator/api/v1alpha1"
+	"arally/operator/internal/controller/clustercapabilities"
+	"arally/operator/internal/podconfig"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/yaml"
+)
+
+// Exercise the Helm CLI against an isolated API server, never the user's cluster.
+func TestHelmCRDLifecycle(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Fatal("set KUBEBUILDER_ASSETS to envtest binaries")
+	}
+	stage, _ := packageStage(t)
+	environment := &envtest.Environment{BinaryAssetsDirectory: os.Getenv("KUBEBUILDER_ASSETS")}
+	cfg, err := environment.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := environment.Stop(); err != nil {
+			t.Error(err)
+		}
+	})
+	kubeconfig := isolatedKubeconfig(t, cfg)
+	chart := filepath.Join(stage, "chart")
+	runHelm(t, kubeconfig, "install", "arally-operator", chart, "-n", "arally-system", "--create-namespace")
+
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{v1.AddToScheme, apiextensionsv1.AddToScheme, corev1.AddToScheme, appsv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	k8s, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyReportBootstrap(t, cfg, scheme, k8s)
+	verifyPodAdmissionDefaults(t, k8s)
+
+	group := &v1.AgentGroup{}
+	group.Name = "retained"
+	if err := k8s.Create(context.Background(), group); err != nil {
+		t.Fatal(err)
+	}
+	uid := verifySchemaUpgrade(t, k8s, kubeconfig, chart)
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	key := client.ObjectKey{Name: "agentclaims.arally.io"}
+	runHelm(t, kubeconfig, "uninstall", "arally-operator", "-n", "arally-system")
+	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid {
+		t.Fatalf("uninstall removed CRD: %v", err)
+	}
+	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(group), &v1.AgentGroup{}); err != nil {
+		t.Fatalf("uninstall removed existing AgentGroup: %v", err)
+	}
+	verifyLegacyAdoption(t, k8s, kubeconfig, chart)
+	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid || crd.Annotations["meta.helm.sh/release-name"] != "arally-legacy" || crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Description != "schema updated by helm upgrade" {
+		t.Fatalf("retained CRD was not adopted in place: %v", err)
+	}
+	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(group), &v1.AgentGroup{}); err != nil {
+		t.Fatalf("adoption removed existing AgentGroup: %v", err)
+	}
+}
+
+// Real API defaults must not make a matching Pod appear to need a restart.
+// Construct desired inputs independently and compare against API-server output.
+func verifyPodAdmissionDefaults(t *testing.T, kube client.Client) {
+	t.Helper()
+	ctx := context.Background()
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "pod-defaults"}}
+	if err := kube.Create(ctx, namespace); err != nil {
+		t.Fatal(err)
+	}
+	account := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: namespace.Name}}
+	if err := kube.Create(ctx, account); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"http-probe", "downward-api", "projected-token"} {
+		t.Run(scenario, func(t *testing.T) {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: scenario, Namespace: namespace.Name},
+				Spec: corev1.PodSpec{
+					ServiceAccountName:           "default",
+					AutomountServiceAccountToken: ptr.To(false),
+					Containers:                   []corev1.Container{{Name: "agent", Image: "example/agent:v1"}},
+				},
+			}
+			switch scenario {
+			case "http-probe":
+				pod.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
+					ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt32(8080)}},
+				}
+			case "downward-api":
+				pod.Spec.Volumes = []corev1.Volume{{Name: "metadata", VolumeSource: corev1.VolumeSource{
+					DownwardAPI: &corev1.DownwardAPIVolumeSource{Items: []corev1.DownwardAPIVolumeFile{{
+						Path: "name", FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+					}}},
+				}}}
+			case "projected-token":
+				pod.Spec.Volumes = []corev1.Volume{{Name: "token", VolumeSource: corev1.VolumeSource{
+					Projected: &corev1.ProjectedVolumeSource{Sources: []corev1.VolumeProjection{{
+						ServiceAccountToken: &corev1.ServiceAccountTokenProjection{Path: "token"},
+					}}},
+				}}}
+			}
+			desired := pod.Spec.DeepCopy()
+			if err := kube.Create(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			if !podconfig.MatchesAdmitted(desired, &pod.Spec) {
+				t.Fatal("API defaulting introduced false configuration drift")
+			}
+		})
+	}
+}
+
+func verifySchemaUpgrade(t *testing.T, k8s client.Client, kubeconfig, chart string) types.UID {
+	t.Helper()
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	key := client.ObjectKey{Name: "agentclaims.arally.io"}
+	if err := k8s.Get(context.Background(), key, crd); err != nil {
+		t.Fatal(err)
+	}
+	uid := crd.UID
+	const description = "schema updated by helm upgrade"
+	source := filepath.Join(chart, "templates/crds/arally.io_agentclaims.yaml")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep templated metadata while replacing only the schema in this chart copy.
+	header, _, found := strings.Cut(string(data), "\nspec:\n")
+	if !found {
+		t.Fatal("generated CRD template has no spec")
+	}
+	crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Description = description
+	data, err = yaml.Marshal(struct {
+		Spec apiextensionsv1.CustomResourceDefinitionSpec `json:"spec"`
+	}{Spec: crd.Spec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, append([]byte(header+"\n"), data...), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runHelm(t, kubeconfig, "upgrade", "arally-operator", chart, "-n", "arally-system")
+	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid || crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Description != description {
+		t.Fatalf("CRD was not upgraded in place: %v", err)
+	}
+	return uid
+}
+
+func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart string) {
+	t.Helper()
+	for _, name := range []string{"agentgroups.arally.io", "agentclaims.arally.io", "clustercapabilities.arally.io"} {
+		retained := &apiextensionsv1.CustomResourceDefinition{}
+		if err := k8s.Get(context.Background(), client.ObjectKey{Name: name}, retained); err != nil {
+			t.Fatal(err)
+		}
+		delete(retained.Annotations, "meta.helm.sh/release-name")
+		delete(retained.Annotations, "meta.helm.sh/release-namespace")
+		delete(retained.Labels, "app.kubernetes.io/managed-by")
+		if err := k8s.Update(context.Background(), retained); err != nil {
+			t.Fatal(err)
+		}
+		// An earlier manual SSA upgrade may also own the schema. Helm must still
+		// adopt and update it through its normal patch operation without conflict.
+		applied := &apiextensionsv1.CustomResourceDefinition{
+			TypeMeta:   metav1.TypeMeta{APIVersion: apiextensionsv1.SchemeGroupVersion.String(), Kind: "CustomResourceDefinition"},
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       *retained.Spec.DeepCopy(),
+		}
+		applied.Spec.Versions[0].Schema.OpenAPIV3Schema.Description = "schema applied before adoption"
+		if err := k8s.Patch(context.Background(), applied, client.Apply, client.FieldOwner("arally-operator-install"), client.ForceOwnership); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Old charts installed CRDs from crds/, outside the release manifest.
+	stage, _ := packageStage(t)
+	legacy := filepath.Join(stage, "chart")
+	if err := os.Mkdir(filepath.Join(legacy, "crds"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	objects := renderChartObjects(t, legacy)
+	for _, plural := range []string{"agentgroups", "agentclaims", "clustercapabilities"} {
+		data, exists := objects["CustomResourceDefinition/"+plural+".arally.io"]
+		if !exists {
+			t.Fatalf("legacy chart fixture omitted %s CRD", plural)
+		}
+		name := "arally.io_" + plural + ".yaml"
+		if err := os.WriteFile(filepath.Join(legacy, "crds", name), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(legacy, "templates/crds", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runHelm(t, kubeconfig, "install", "arally-legacy", legacy, "-n", "arally-system")
+	runHelm(t, kubeconfig, "upgrade", "arally-legacy", chart, "-n", "arally-system", "--take-ownership")
+	runHelm(t, kubeconfig, "upgrade", "arally-legacy", chart, "-n", "arally-system")
+}
+
+func isolatedKubeconfig(t *testing.T, cfg *rest.Config) string {
+	t.Helper()
+	config := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{"isolated": {Server: cfg.Host, CertificateAuthorityData: cfg.CAData}},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{"isolated": {
+			ClientCertificateData: cfg.CertData, ClientKeyData: cfg.KeyData,
+		}},
+		Contexts:       map[string]*clientcmdapi.Context{"isolated": {Cluster: "isolated", AuthInfo: "isolated"}},
+		CurrentContext: "isolated",
+	}
+	data, err := clientcmd.Write(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func runHelm(t *testing.T, kubeconfig string, args ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "helm", args...)
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "KUBECONFIG=") && !strings.HasPrefix(entry, "HELM_KUBE") && !strings.HasPrefix(entry, "HELM_NAMESPACE=") {
+			command.Env = append(command.Env, entry)
+		}
+	}
+	command.Env = append(command.Env, "KUBECONFIG="+kubeconfig)
+	if out, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("helm %s: %v\n%s", args[0], err, out)
+	}
+}
+
+func verifyReportBootstrap(t *testing.T, cfg *rest.Config, scheme *runtime.Scheme, k8s client.Client) {
+	t.Helper()
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&clustercapabilities.Reconciler{}).SetupWithManager(mgr); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- mgr.Start(ctx) }()
+	err = wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 10*time.Second, true, func(ctx context.Context) (bool, error) {
+		report := &v1.ClusterCapabilities{}
+		if err := k8s.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
+			return false, client.IgnoreNotFound(err)
+		}
+		return report.Status.ObservedAt != nil, nil
+	})
+	cancel()
+	select {
+	case managerErr := <-done:
+		if managerErr != nil {
+			t.Fatal(managerErr)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("discovery controller did not stop")
+	}
+	if err != nil {
+		t.Fatalf("controller did not bootstrap and refresh the default report: %v", err)
+	}
+}

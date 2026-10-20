@@ -1,0 +1,11 @@
+# Apply custom-template.yaml first.
+apiVersion: arally.io/v1alpha1
+kind: AgentClaim
+metadata:
+  name: custom-agent
+  namespace: arally-demo
+spec:
+  agentGroupRef:
+    name: demo
+  templateRef:
+    name: custom-agent

@@ -1,0 +1,31 @@
+# Only send inputs used by Dockerfile to the builder.
+**
+!Dockerfile
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!api/
+!api/**
+!internal/
+!internal/**
+!LICENSE
+!NOTICE
+
+# Tests and local data are never image build inputs, including under source paths.
+**/.DS_Store
+**/*_test.go
+**/testdata/
+**/.git/
+**/.cache/
+**/.work/
+**/.env
+**/.env.*
+**/*.kubeconfig
+**/*.kubeconfig.*
+**/values.*.private.yaml
+**/values.*.local.yaml
+**/secrets/
+**/.kube/
+**/.aws/
+**/.ssh/

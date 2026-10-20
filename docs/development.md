@@ -1,7 +1,8 @@
 # Development
 
 Run commands from the repository root. Installation instructions are in
-[Installation](installation.md).
+[Installation](installation.md); GitHub workflows and published artifacts are
+described in [CI and publication](ci.md).
 
 ## Local development
 

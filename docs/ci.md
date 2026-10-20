@@ -1,6 +1,6 @@
 # CI and image publication
 
-[The workflow](workflows/ci.yml) runs on PR creation, updates and reopening,
+[The workflow](../.github/workflows/ci.yml) runs on PR creation, updates and reopening,
 and on `v*` tag pushes. It runs lint, source/generated-file checks, unit tests,
 Helm chart checks, credential scanning and `govulncheck`, then builds the image.
 It also runs CRD lifecycle and Connector election/readiness integration tests
@@ -26,18 +26,18 @@ so their packages need an accessible image override before installation.
 CI uses `GITHUB_TOKEN` with `packages: write`; no registry password Secret is needed.
 It does not deploy to existing clusters or create GitHub Releases.
 
-Version tags must also pass the [real lifecycle E2E gate](workflows/e2e.yml)
+Version tags must also pass the [real lifecycle E2E gate](../.github/workflows/e2e.yml)
 before image publication. It creates and deletes a temporary kind cluster with
 Core, Extensions and Arally. The same workflow supports manual dispatch; PRs
 compile its test code but do not run the cluster test. See
-[local E2E instructions](../docs/development.md#real-lifecycle-release-gate).
+[local E2E instructions](development.md#real-lifecycle-release-gate).
 
 After first publication, set the GHCR package to **Public** for anonymous pulls.
 A public repository does not make its package public automatically. See
 [GHCR documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pushing-container-images).
 
-For manual builds and packaging, see [Development](../docs/development.md).
+For manual builds and packaging, see [Development](development.md).
 
-The separate [Build Codex Mobile image](workflows/codex-mobile.yml) workflow runs
+The separate [Build Codex Mobile image](../.github/workflows/codex-mobile.yml) workflow runs
 only on manual request. It builds an optional agent image and publishes to the
 user's selected registry. See [inputs, credentials and fork setup](../examples/codex-mobile/README.md).

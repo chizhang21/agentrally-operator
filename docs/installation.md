@@ -4,8 +4,14 @@ Use Helm 3.17 or later and an account that can create and update CRDs and cluste
 Install one Arally Operator release per cluster. The chart installs and upgrades
 Arally's CRDs as part of that release.
 
-Published images support Linux amd64 nodes, selected by default in the chart.
+CI images and the default chart target Linux amd64 nodes.
 Custom images for other architectures require a matching node selector.
+
+For the current source checkout, use the
+[local installation workflow](#local-development-and-testing). CI saves Chart
+archives as Actions artifacts; OCI Chart publication is a separate
+[`make chart-push` step](development.md#upload-image-and-chart).
+The OCI commands below require an accessible, published Chart version.
 
 ## Standard installation
 
@@ -31,10 +37,13 @@ eventually time out. The readiness probe does not verify upstream controller hea
 
 ### Install Arally
 
-Install with the default values:
+For an OCI installation, replace `x.y.z` with an accessible, published Chart
+version. See [CI packaging](ci.md) for the current distribution workflow.
 
 ```sh
+CHART_VERSION=x.y.z
 helm install arally-operator oci://ghcr.io/chizhang21/helm/arally-operator \
+  --version "$CHART_VERSION" \
   -n arally-system --create-namespace --wait --timeout 5m
 ```
 
@@ -53,8 +62,13 @@ fixed-UID Agent images on OpenShift. Continue with [deploying an agent](usage.md
 
 ### Upgrade Arally
 
+For an OCI installation, select the published Chart version to install.
+For a local archive, use [Updating a dev build](#updating-a-dev-build).
+
 ```sh
+CHART_VERSION=x.y.z
 helm upgrade arally-operator oci://ghcr.io/chizhang21/helm/arally-operator \
+  --version "$CHART_VERSION" \
   -n arally-system --reset-then-reuse-values --wait --timeout 5m
 ```
 

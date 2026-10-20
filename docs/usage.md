@@ -297,4 +297,4 @@ or delays are reported without deleting the allocated execution; use
 waiting for valid allocation removes the native Claim; change restartToken to retry.
 Existing external pools must match the source template and configuration.
 Configuration edits do not switch an active allocation. See
-[resource ownership and cleanup](architecture.md#mandatory-upstream-pools).
+[resource ownership and cleanup](architecture.md#resources-and-ownership).

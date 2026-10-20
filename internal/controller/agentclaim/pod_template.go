@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"path"
 	"strings"
 
 	v1 "arally/operator/api/v1alpha1"
@@ -16,43 +15,46 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func desiredExecution(ctx context.Context, c client.Reader, workload *v1.AgentClaim) (*corev1.PodTemplateSpec, bool, error) {
+func desiredExecution(ctx context.Context, c client.Reader, workload *v1.AgentClaim) (*resolvedTemplate, error) {
 	resolved, err := resolveSandboxTemplate(ctx, c, workload)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	template := resolved.PodTemplate
 	if err := validateConfigurationMarker(template); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	// Agents have no Kubernetes API credentials unless explicitly requested.
 	if template.Spec.AutomountServiceAccountToken == nil {
 		template.Spec.AutomountServiceAccountToken = ptr.To(false)
 	}
 	if len(template.Spec.Containers) == 0 {
-		return nil, false, diagnostics.New("InvalidConfiguration", "SandboxTemplate requires at least one container", nil)
+		return nil, diagnostics.New("InvalidConfiguration", "SandboxTemplate requires at least one container", nil)
 	}
 	if err := applyAgentSecurity(ctx, c, workload, template); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	index := podconfig.AgentIndex(template.Spec.Containers, workload.Spec.AgentContainer)
 	if index < 0 {
-		return nil, false, diagnostics.New("InvalidConfiguration", fmt.Sprintf("agentContainer %q is absent from SandboxTemplate", workload.Spec.AgentContainer), nil)
+		return nil, diagnostics.New("InvalidConfiguration", fmt.Sprintf("agentContainer %q is absent from SandboxTemplate", workload.Spec.AgentContainer), nil)
 	}
 	container := &template.Spec.Containers[index]
 	if err := applyModelProvider(ctx, c, workload, container); err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	if err := applyWorkspace(ctx, c, workload, template, container); err != nil {
-		return nil, false, err
+	if err := applyWorkspace(workload, resolved, container); err != nil {
+		return nil, err
 	}
 	if err := applyBuiltinWorkspacePermissions(ctx, c, workload, template); err != nil {
-		return nil, false, err
+		return nil, err
+	}
+	if err := validateVolumeClaimTemplates(resolved.VolumeClaimTemplates, &template.Spec); err != nil {
+		return nil, err
 	}
 	if err := validateNativeReferences(ctx, c, workload.Namespace, template); err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return template, resolved.Service, nil
+	return resolved, nil
 }
 
 func applyModelProvider(ctx context.Context, c client.Reader, workload *v1.AgentClaim, container *corev1.Container) error {
@@ -83,37 +85,6 @@ func applyModelProvider(ctx context.Context, c client.Reader, workload *v1.Agent
 		setEnv(container, corev1.EnvVar{Name: "OPENAI_BASE_URL", Value: provider.BaseURL})
 		setEnv(container, corev1.EnvVar{Name: "ARALLY_MODEL_NAME", Value: provider.Model})
 		setEnv(container, corev1.EnvVar{Name: "OPENAI_API_KEY", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &ref}})
-	}
-	return nil
-}
-
-func applyWorkspace(ctx context.Context, c client.Reader, workload *v1.AgentClaim, template *corev1.PodTemplateSpec, container *corev1.Container) error {
-	if workspace := workload.Spec.Workspace; workspace != nil {
-		if workspace.ClaimName == "" || !path.IsAbs(workspace.MountPath) || workspace.MountPath == "/" || path.Clean(workspace.MountPath) != workspace.MountPath {
-			return diagnostics.New("InvalidConfiguration", "workspace requires claimName and a clean absolute mountPath below /", nil)
-		}
-		claim := &corev1.PersistentVolumeClaim{}
-		if err := c.Get(ctx, client.ObjectKey{Namespace: workload.Namespace, Name: workspace.ClaimName}, claim); err != nil {
-			return diagnostics.ReferenceError("PVC", workload.Namespace, workspace.ClaimName, err)
-		}
-		if claim.DeletionTimestamp != nil {
-			return diagnostics.New("DependencyTerminating", fmt.Sprintf("workspace PVC %s/%s is terminating", workload.Namespace, claim.Name), nil)
-		}
-		// Do not wait for Bound: WaitForFirstConsumer needs Core to create the Pod.
-		for _, volume := range template.Spec.Volumes {
-			if volume.Name == "arally-workspace" {
-				return diagnostics.New("InvalidConfiguration", "SandboxTemplate already declares the reserved arally-workspace volume", nil)
-			}
-		}
-		for _, mount := range container.VolumeMounts {
-			if mount.MountPath == workspace.MountPath {
-				return diagnostics.New("InvalidConfiguration", "workspace mountPath is already used in SandboxTemplate", nil)
-			}
-		}
-		template.Spec.Volumes = append(template.Spec.Volumes, corev1.Volume{Name: "arally-workspace", VolumeSource: corev1.VolumeSource{
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim.Name, ReadOnly: workspace.ReadOnly}}})
-		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: "arally-workspace", MountPath: workspace.MountPath, ReadOnly: workspace.ReadOnly})
-		setEnv(container, corev1.EnvVar{Name: "ARALLY_WORKSPACE_PATH", Value: workspace.MountPath})
 	}
 	return nil
 }

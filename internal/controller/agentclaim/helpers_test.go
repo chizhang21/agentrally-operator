@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,8 +25,23 @@ import (
 
 var ctx = context.Background()
 
+func workspaceVolumeSpec() corev1.PersistentVolumeClaimSpec {
+	return corev1.PersistentVolumeClaimSpec{
+		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+		Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
+	}
+}
+
+func desiredExecutionForTest(ctx context.Context, c client.Reader, w *v1.AgentClaim) (*corev1.PodTemplateSpec, bool, error) {
+	resolved, err := desiredExecution(ctx, c, w)
+	if err != nil {
+		return nil, false, err
+	}
+	return resolved.PodTemplate, resolved.Service, nil
+}
+
 func desiredPodTemplate(ctx context.Context, c client.Reader, workload *v1.AgentClaim) (*corev1.PodTemplateSpec, error) {
-	template, _, err := desiredExecution(ctx, c, workload)
+	template, _, err := desiredExecutionForTest(ctx, c, workload)
 	return template, err
 }
 
@@ -108,7 +124,11 @@ func simulateUpstreamAllocation(t *testing.T, r *Reconciler, w *v1.AgentClaim, c
 		t.Fatal(err)
 	}
 	service, _, _ := unstructured.NestedBool(template.Object, "spec", "service")
-	object, err := sandbox.Encode(&sandbox.Sandbox{Metadata: metav1.ObjectMeta{Name: w.Name, Namespace: w.Namespace, UID: "sandbox-uid", OwnerReferences: []metav1.OwnerReference{{APIVersion: sandbox.ExtensionsGroupVersion.String(), Kind: "SandboxClaim", Name: claim.GetName(), UID: claim.GetUID(), Controller: ptr.To(true)}}}, Spec: sandbox.Spec{PodTemplate: *pod, Service: service, OperatingMode: sandbox.Running}})
+	claims, err := sandbox.TemplateVolumeClaims(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := sandbox.Encode(&sandbox.Sandbox{Metadata: metav1.ObjectMeta{Name: w.Name, Namespace: w.Namespace, UID: "sandbox-uid", OwnerReferences: []metav1.OwnerReference{{APIVersion: sandbox.ExtensionsGroupVersion.String(), Kind: "SandboxClaim", Name: claim.GetName(), UID: claim.GetUID(), Controller: ptr.To(true)}}}, Spec: sandbox.Spec{PodTemplate: *pod, VolumeClaimTemplates: claims, Service: service, OperatingMode: sandbox.Running}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +222,7 @@ func ownedExecutionPod(t *testing.T, c client.Client, w *v1.AgentClaim) *corev1.
 	if err != nil {
 		t.Fatal(err)
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: object.GetName(), Namespace: w.Namespace, UID: "pod-uid", OwnerReferences: []metav1.OwnerReference{{APIVersion: sandbox.GroupVersion.String(), Kind: "Sandbox", Name: object.GetName(), UID: object.GetUID(), Controller: ptr.To(true)}}}, Spec: *current.Spec.PodTemplate.Spec.DeepCopy()}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: object.GetName(), Namespace: w.Namespace, UID: "pod-uid", OwnerReferences: []metav1.OwnerReference{{APIVersion: sandbox.GroupVersion.String(), Kind: "Sandbox", Name: object.GetName(), UID: object.GetUID(), Controller: ptr.To(true)}}}, Spec: sandbox.ExecutionPodTemplate(object.GetName(), &current.Spec.PodTemplate, current.Spec.VolumeClaimTemplates).Spec}
 	if err := c.Create(ctx, pod); err != nil {
 		t.Fatal(err)
 	}

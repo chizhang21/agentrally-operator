@@ -156,24 +156,24 @@ use a new restart token to apply them to the process. See the
 or map these variables. `agentContainer` selects the target container; the default
 is the first container.
 
-For persistent data, create a PVC in the Group namespace, for example:
+For a private workspace, declare a native PVC spec in the Claim. Core provisions
+one PVC per Sandbox, including each unassigned warm instance:
 
 ```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: agent-workspace
-  namespace: arally-demo
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests:
-      storage: 20Gi
+workspace:
+  mountPath: /workspace
+  volumeClaimTemplate:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 20Gi
+    # storageClassName: your-storage-class
 ```
 
-Then set `workspace.claimName: agent-workspace` and `workspace.mountPath: /workspace`
-in the Claim. This also sets `ARALLY_WORKSPACE_PATH`. Arally does not create or own
-the PVC. Pending WaitForFirstConsumer claims can bind after the Pod is created.
+This also sets `ARALLY_WORKSPACE_PATH`. Omit `storageClassName` to use the cluster
+default. Arally carries the spec through the pool template; Core creates and owns
+the PVC. `status.volumeClaims` maps logical volume names to their allocated PVCs.
+Pending WaitForFirstConsumer claims can bind after Core creates the Pod.
 See [workspace permissions and defaults](agent-templates.md#persistent-state-and-credentials).
 
 ## Status and diagnostics
@@ -240,7 +240,9 @@ alone report RestartRequired and leave the process running. ConfigurationApplied
 checks the owned Pod's creation revision; it does not prove application hot reload.
 Secret volumes retain Kubernetes update behavior; Arally does not freeze or copy
 Secret contents. The pending-update condition describes creation evidence.
-Arally replaces execution through its owning Claim and retains external PVCs.
+Arally replaces execution through its owning Claim. **Replacement gets a fresh
+workspace:** the old Sandbox and its PVCs are removed by upstream garbage collection.
+Suspend/resume and Pod recreation within the same Sandbox retain its PVCs.
 
 Delete AgentClaims before the Group. Wait for execution cleanup, then inspect
 remaining Sandboxes and PVCs before moving or removing data:
@@ -265,7 +267,9 @@ The optional `lifecycle` block in [full.yaml](../examples/full.yaml) controls ex
 | `shutdownPolicy: Retain` | Removes execution and interaction resources, keeps the Claim with `Expired=True`. |
 | `shutdownPolicy: Delete` | Deletes the Claim through its finalizer. |
 
-External PVCs and Secrets remain. To run an expired retained Claim again, change
+Sandbox-owned workspace PVCs are removed with execution; externally supplied
+Secrets remain. `Retain` retains the AgentClaim and diagnostics, not its workspace.
+To run an expired retained Claim again with a fresh workspace, change
 `restartToken` and move any elapsed `shutdownTime` into the future or remove it.
 Omit lifecycle for no configured expiry.
 

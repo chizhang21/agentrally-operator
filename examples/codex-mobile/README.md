@@ -50,8 +50,9 @@ In Codex Mobile 0.1.91, `--open-project` registers the project and exits instead
 of running the server.
 
 The image runs as UID/GID 1000. A mounted workspace must be writable by that user.
-`HOME=/workspace` and `CODEX_HOME=/workspace/.codex`; mount a PVC to retain projects
-and login state. Without an explicit password, the application generates one
+`HOME=/workspace` and `CODEX_HOME=/workspace/.codex`; configure a private workspace
+PVC to retain projects and login state across suspend/resume. Replacing the Sandbox
+starts a new workspace. Without an explicit password, the application generates one
 and stores it beneath `CODEX_HOME`. The image disables automatic browser opening,
 tunneling and startup login. Model authentication is configured separately.
 Codex defaults to `workspace-write` with approval policy `on-request`.

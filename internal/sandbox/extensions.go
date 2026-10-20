@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -66,4 +68,72 @@ func TemplatePod(template *unstructured.Unstructured) (*corev1.PodTemplateSpec, 
 	pod := &corev1.PodTemplateSpec{}
 	err = runtime.DefaultUnstructuredConverter.FromUnstructured(fields, pod)
 	return pod, true, err
+}
+
+// TemplateVolumeClaims reads the shared storage blueprint without resolving
+// instance names. Claims stay on the template so allocation can use warm instances.
+func TemplateVolumeClaims(template *unstructured.Unstructured) ([]corev1.PersistentVolumeClaimTemplate, error) {
+	fields, _, err := unstructured.NestedSlice(template.Object, "spec", "volumeClaimTemplates")
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	claims := make([]corev1.PersistentVolumeClaimTemplate, 0, len(fields))
+	for _, field := range fields {
+		value, ok := field.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("volumeClaimTemplates entries must be objects")
+		}
+		var claim corev1.PersistentVolumeClaimTemplate
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(value, &claim); err != nil {
+			return nil, err
+		}
+		claims = append(claims, claim)
+	}
+	return claims, nil
+}
+
+func SetTemplateVolumeClaims(template *unstructured.Unstructured, claims []corev1.PersistentVolumeClaimTemplate) error {
+	if len(claims) == 0 {
+		unstructured.RemoveNestedField(template.Object, "spec", "volumeClaimTemplates")
+		return nil
+	}
+	fields := make([]interface{}, 0, len(claims))
+	for i := range claims {
+		value, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&claims[i])
+		if err != nil {
+			return err
+		}
+		fields = append(fields, value)
+	}
+	return unstructured.SetNestedSlice(template.Object, fields, "spec", "volumeClaimTemplates")
+}
+
+// ExecutionPodTemplate projects Core's per-Sandbox PVC names for observation.
+// The shared input remains unchanged and is used for revision and pool matching.
+func ExecutionPodTemplate(name string, pod *corev1.PodTemplateSpec, claims []corev1.PersistentVolumeClaimTemplate) *corev1.PodTemplateSpec {
+	result := pod.DeepCopy()
+	names := VolumeClaimNames(name, claims)
+	for _, claim := range claims {
+		result.Spec.Volumes = append(result.Spec.Volumes, corev1.Volume{
+			Name: claim.Name,
+			VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: names[claim.Name],
+			}},
+		})
+	}
+	return result
+}
+
+func VolumeClaimNames(name string, claims []corev1.PersistentVolumeClaimTemplate) map[string]string {
+	if len(claims) == 0 {
+		return nil
+	}
+	names := make(map[string]string, len(claims))
+	for _, claim := range claims {
+		names[claim.Name] = claim.Name + "-" + name
+	}
+	return names
 }

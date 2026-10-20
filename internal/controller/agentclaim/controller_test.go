@@ -75,7 +75,7 @@ func TestAgentClaimDelegatesLifecycleAndPreservesCoreFields(t *testing.T) {
 	}
 	expectedTemplate := source.DeepCopy()
 	expectedTemplate.Spec.AutomountServiceAccountToken = ptr.To(false)
-	revision, err := configRevision(ctx, c, w.Namespace, expectedTemplate, w.Spec.AgentContainer)
+	revision, err := configRevision(ctx, c, w.Namespace, expectedTemplate, w.Spec.AgentContainer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,17 +143,17 @@ func TestAgentClaimDelegatesLifecycleAndPreservesCoreFields(t *testing.T) {
 func TestModelAndWorkspaceReferencesAllowFirstConsumerAndKeepTemplate(t *testing.T) {
 	_, _, w, source := testutil.Fixture()
 	w.Spec.ModelProvider = &v1.ModelProvider{BaseURL: "https://model.example/v1", Model: "test-model", APIKeySecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-key"}, Key: "token"}}
-	w.Spec.Workspace = &v1.WorkspaceMount{ClaimName: "workspace", MountPath: "/workspace", ReadOnly: true}
+	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: workspaceVolumeSpec(), MountPath: "/workspace", ReadOnly: true}
 	source.Spec.Containers = append(source.Spec.Containers, corev1.Container{Name: "sidecar", Image: "sidecar"})
 	w.Spec.AgentContainer = "sidecar"
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-key", Namespace: w.Namespace}, Data: map[string][]byte{"token": []byte("do-not-copy")}}
-	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "workspace", Namespace: w.Namespace}, Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimPending}}
-	c, _ := testutil.Client(t, nativeTemplate(w, source), secret, pvc)
+	c, _ := testutil.Client(t, nativeTemplate(w, source), secret)
 	original := w.DeepCopy()
-	template, err := desiredPodTemplate(ctx, c, w)
+	resolved, err := desiredExecution(ctx, c, w)
 	if err != nil {
 		t.Fatal(err)
 	}
+	template := resolved.PodTemplate
 	if !reflect.DeepEqual(w, original) {
 		t.Fatal("mutated user's template")
 	}
@@ -170,7 +170,7 @@ func TestModelAndWorkspaceReferencesAllowFirstConsumerAndKeepTemplate(t *testing
 			}
 		}
 	}
-	if !found || len(template.Spec.Volumes) != 1 || template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName != "workspace" || !container.VolumeMounts[0].ReadOnly {
+	if !found || len(template.Spec.Volumes) != 0 || len(resolved.VolumeClaimTemplates) != 1 || resolved.VolumeClaimTemplates[0].Name != "arally-workspace" || !container.VolumeMounts[0].ReadOnly {
 		t.Fatal("model/workspace wiring missing")
 	}
 	secret.Data["token"] = nil
@@ -218,11 +218,12 @@ func TestAgentClaimDependencyBlockingAndWatchMapping(t *testing.T) {
 	}
 	group, _, w, source := testutil.Fixture()
 	w.Spec.ModelProvider = &v1.ModelProvider{APIKeySecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "key"}}}
-	w.Spec.Workspace = &v1.WorkspaceMount{ClaimName: "workspace"}
+	w.Status.VolumeClaims = map[string]string{"arally-workspace": "workspace"}
 	unrelated := w.DeepCopy()
 	unrelated.Name = "unrelated"
 	unrelated.Spec.ModelProvider = nil
 	unrelated.Spec.Workspace = nil
+	unrelated.Status.VolumeClaims = nil
 	c, scheme := indexedClient(t, nativeTemplate(w, source), w, unrelated)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	for _, obj := range []client.Object{&corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "workspace", Namespace: w.Namespace}}} {

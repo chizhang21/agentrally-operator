@@ -22,10 +22,12 @@ func claimDependencyKeys(object client.Object) []string {
 		keys = append(keys, "SandboxTemplate/"+w.Spec.TemplateRef.Name)
 	}
 	if workspace := w.Spec.Workspace; workspace != nil {
-		keys = append(keys, "PersistentVolumeClaim/"+workspace.ClaimName)
 		if w.Spec.Template != "" && !workspace.ReadOnly {
 			keys = append(keys, "Namespace/"+w.Namespace)
 		}
+	}
+	for _, name := range w.Status.VolumeClaims {
+		keys = append(keys, "PersistentVolumeClaim/"+name)
 	}
 	claimName := desiredPoolClaim(w).GetName()
 	if state := w.Status.Provisioning; state != nil && state.ClaimName != "" {

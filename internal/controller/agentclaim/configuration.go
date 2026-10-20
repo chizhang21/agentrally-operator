@@ -33,7 +33,7 @@ type configurationReference struct {
 
 // configRevision records creation inputs without hashing credential contents.
 // Resource versions deliberately make rotation visible even for unchanged references.
-func configRevision(ctx context.Context, reader client.Reader, namespace string, template *corev1.PodTemplateSpec, agentContainer string) (string, error) {
+func configRevision(ctx context.Context, reader client.Reader, namespace string, template *corev1.PodTemplateSpec, agentContainer string, claims []corev1.PersistentVolumeClaimTemplate) (string, error) {
 	if ctx == nil || reader == nil || namespace == "" || template == nil {
 		return "", diagnostics.New("InvalidConfiguration", "configuration revision requires a namespace and Pod template", nil)
 	}
@@ -73,10 +73,11 @@ func configRevision(ctx context.Context, reader client.Reader, namespace string,
 		ref.ResourceVersion = object.GetResourceVersion()
 	}
 	encoded, err := json.Marshal(struct {
-		Template       *corev1.PodTemplateSpec  `json:"template"`
-		References     []configurationReference `json:"references"`
-		AgentContainer string                   `json:"agentContainer,omitempty"`
-	}{desired, refs, selected})
+		Template             *corev1.PodTemplateSpec                `json:"template"`
+		References           []configurationReference               `json:"references"`
+		AgentContainer       string                                 `json:"agentContainer,omitempty"`
+		VolumeClaimTemplates []corev1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplates,omitempty"`
+	}{desired, refs, selected, claims})
 	if err != nil {
 		return "", diagnostics.New("InvalidConfiguration", "cannot encode the Pod configuration", err)
 	}

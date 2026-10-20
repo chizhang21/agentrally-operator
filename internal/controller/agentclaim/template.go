@@ -19,8 +19,9 @@ import (
 
 // resolvedTemplate is a snapshot of a built-in environment or a read-only native template.
 type resolvedTemplate struct {
-	PodTemplate *corev1.PodTemplateSpec
-	Service     bool
+	PodTemplate          *corev1.PodTemplateSpec
+	Service              bool
+	VolumeClaimTemplates []corev1.PersistentVolumeClaimTemplate
 }
 
 func resolveSandboxTemplate(ctx context.Context, reader client.Reader, w *v1.AgentClaim) (*resolvedTemplate, error) {
@@ -54,9 +55,9 @@ func resolveSandboxTemplate(ctx context.Context, reader client.Reader, w *v1.Age
 	if policy, found, err := unstructured.NestedMap(object.Object, "spec", "networkPolicy"); err != nil || (found && len(policy) > 0) {
 		return invalid("TemplatePolicyUnsupported", "Configure network policy on AgentGroup; template networkPolicy is ignored by Unmanaged and cannot be used by Arally")
 	}
-	claims, _, err := unstructured.NestedSlice(object.Object, "spec", "volumeClaimTemplates")
-	if err != nil || len(claims) > 0 {
-		return invalid("TemplatePolicyUnsupported", "Arally templates use existing PVC references; volumeClaimTemplates would allocate PVCs outside Arally workspace ownership")
+	claims, err := sandbox.TemplateVolumeClaims(object)
+	if err != nil {
+		return invalid("InvalidConfiguration", "SandboxTemplate requires valid volumeClaimTemplates")
 	}
 	service, _, err := unstructured.NestedBool(object.Object, "spec", "service")
 	if err != nil {
@@ -74,5 +75,5 @@ func resolveSandboxTemplate(ctx context.Context, reader client.Reader, w *v1.Age
 			return invalid("InvalidConfiguration", "SandboxTemplate containers require name and image")
 		}
 	}
-	return &resolvedTemplate{PodTemplate: pod, Service: service}, nil
+	return &resolvedTemplate{PodTemplate: pod, Service: service, VolumeClaimTemplates: claims}, nil
 }

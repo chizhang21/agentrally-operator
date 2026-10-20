@@ -43,16 +43,19 @@ func (v *capabilityValidation) add(status metav1.ConditionStatus, reason, messag
 	v.condition.Message = strings.Join(v.messages, "; ")
 }
 
-func validateCapabilities(ctx context.Context, reader client.Reader, w *v1.AgentClaim, group *v1.AgentGroup, pod *corev1.PodSpec) metav1.Condition {
+func validateCapabilities(ctx context.Context, reader client.Reader, w *v1.AgentClaim, group *v1.AgentGroup, pod *corev1.PodSpec, claims []corev1.PersistentVolumeClaimTemplate) metav1.Condition {
 	v := newCapabilityValidation(w.Generation)
 	var report *v1.ClusterCapabilities
-	if pod.RuntimeClassName != nil || len(pod.Volumes) > 0 || group.Spec.NetworkPolicy != nil {
+	if pod.RuntimeClassName != nil || len(pod.Volumes) > 0 || len(claims) > 0 || group.Spec.NetworkPolicy != nil {
 		report = capabilities.ReadReport(ctx, reader)
 	}
 	if pod.RuntimeClassName != nil {
 		validateRuntime(ctx, reader, pod, report, &v)
 	}
 	validateStorage(ctx, reader, w.Namespace, pod, report, &v)
+	for _, claim := range claims {
+		validateStorageClass(ctx, reader, claim.Name, claim.Spec.StorageClassName, report, &v)
+	}
 	if group.Spec.NetworkPolicy != nil {
 		c := capabilities.NetworkCondition(report, w.Generation)
 		v.add(c.Status, c.Reason, c.Message)
@@ -145,29 +148,33 @@ func validateStorage(ctx context.Context, reader client.Reader, namespace string
 				}
 			}
 		}
-		if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName == "" {
-			v.add(metav1.ConditionUnknown, "StorageTypeUnrecognized", fmt.Sprintf("PVC %q has no StorageClass classification", name))
-			continue
-		}
-		sc := &storagev1.StorageClass{}
-		if err := reader.Get(ctx, client.ObjectKey{Name: *pvc.Spec.StorageClassName}, sc); err != nil {
-			// Static PV matching can use a class name without a StorageClass object,
-			// even before the claim binds. Missing classes are not conclusive failures.
-			v.add(metav1.ConditionUnknown, "StorageEvidenceUnavailable", fmt.Sprintf("StorageClass for PVC %q could not be read; static or bound storage may remain usable", name))
-			continue
-		}
-		known := false
-		if capabilities.SectionCurrent(report, "StorageDiscoveryReady", time.Now()) {
-			for _, observed := range report.Status.StorageClasses {
-				if observed.Name == sc.Name && observed.Provisioner == sc.Provisioner && observed.Status == "Observed" {
-					known = true
-					break
-				}
+		validateStorageClass(ctx, reader, name, pvc.Spec.StorageClassName, report, v)
+		// Pending/WaitForFirstConsumer is allowed: Core must create the Pod first.
+	}
+}
+
+func validateStorageClass(ctx context.Context, reader client.Reader, name string, storageClassName *string, report *v1.ClusterCapabilities, v *capabilityValidation) {
+	if storageClassName == nil || *storageClassName == "" {
+		v.add(metav1.ConditionUnknown, "StorageTypeUnrecognized", fmt.Sprintf("PVC %q has no StorageClass classification", name))
+		return
+	}
+	sc := &storagev1.StorageClass{}
+	if err := reader.Get(ctx, client.ObjectKey{Name: *storageClassName}, sc); err != nil {
+		// Static PV matching can use a class name without a StorageClass object,
+		// even before the claim binds. Missing classes are not conclusive failures.
+		v.add(metav1.ConditionUnknown, "StorageEvidenceUnavailable", fmt.Sprintf("StorageClass for PVC %q could not be read; static or bound storage may remain usable", name))
+		return
+	}
+	known := false
+	if capabilities.SectionCurrent(report, "StorageDiscoveryReady", time.Now()) {
+		for _, observed := range report.Status.StorageClasses {
+			if observed.Name == sc.Name && observed.Provisioner == sc.Provisioner && observed.Status == "Observed" {
+				known = true
+				break
 			}
 		}
-		if !known {
-			v.add(metav1.ConditionUnknown, "StorageEvidenceUnavailable", fmt.Sprintf("Storage type/driver evidence for PVC %q is unknown or stale", name))
-		}
-		// Pending/WaitForFirstConsumer is allowed: Core must create the Pod first.
+	}
+	if !known {
+		v.add(metav1.ConditionUnknown, "StorageEvidenceUnavailable", fmt.Sprintf("Storage type/driver evidence for PVC %q is unknown or stale", name))
 	}
 }

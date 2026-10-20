@@ -14,6 +14,7 @@ import (
 	"arally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -48,9 +49,9 @@ func desiredPoolClaim(agentClaim *v1.AgentClaim) *unstructured.Unstructured {
 }
 
 // validatePoolTemplate compares the effective warm configuration before any
-// allocation. Arally retains external PVC ownership instead of accepting upstream
-// volumeClaimTemplates, and never rewrites a running warm Pod to fit a request.
-func validatePoolTemplate(pool, template *unstructured.Unstructured, desired *corev1.PodTemplateSpec, service bool) error {
+// allocation. Storage is part of the shared blueprint; Arally never rewrites a
+// running warm Pod or injects per-Claim volume templates to fit a request.
+func validatePoolTemplate(pool, template *unstructured.Unstructured, desired *corev1.PodTemplateSpec, service bool, claims []corev1.PersistentVolumeClaimTemplate) error {
 	if pool == nil || template == nil || desired == nil || pool.GetNamespace() == "" || pool.GetName() == "" || template.GetName() == "" {
 		return poolDiagnostic("InvalidConfiguration", "a namespaced warm pool, SandboxTemplate and Pod template are required")
 	}
@@ -64,9 +65,9 @@ func validatePoolTemplate(pool, template *unstructured.Unstructured, desired *co
 	if err != nil || ref == "" || ref != template.GetName() || pool.GetNamespace() != template.GetNamespace() {
 		return poolDiagnostic("PoolTemplateMismatch", "the warm pool must reference this SandboxTemplate in the same namespace")
 	}
-	claims, _, err := unstructured.NestedSlice(template.Object, "spec", "volumeClaimTemplates")
-	if err != nil || len(claims) > 0 {
-		return poolDiagnostic("PoolTemplateMismatch", "warm templates with volumeClaimTemplates are unsupported; use externally managed PVCs in both Pod templates")
+	actualClaims, err := sandbox.TemplateVolumeClaims(template)
+	if err != nil || !equality.Semantic.DeepEqual(actualClaims, claims) {
+		return poolDiagnostic("PoolTemplateMismatch", "the warm volume claim templates differ from the requested storage configuration")
 	}
 	actualService, _, err := unstructured.NestedBool(template.Object, "spec", "service")
 	if err != nil || actualService != service {
@@ -98,7 +99,7 @@ func validatePoolTemplate(pool, template *unstructured.Unstructured, desired *co
 	return nil
 }
 
-func validateAssignedSandbox(current *sandbox.Sandbox, desired *corev1.PodTemplateSpec, service bool) error {
+func validateAssignedSandbox(current *sandbox.Sandbox, desired *corev1.PodTemplateSpec, service bool, claims []corev1.PersistentVolumeClaimTemplate) error {
 	if current == nil || desired == nil {
 		return poolDiagnostic("PoolTemplateMismatch", "the allocated Sandbox and desired Pod template must be available")
 	}
@@ -108,7 +109,7 @@ func validateAssignedSandbox(current *sandbox.Sandbox, desired *corev1.PodTempla
 	actual, wanted := current.Spec.PodTemplate.DeepCopy(), desired.DeepCopy()
 	defaultWarmToken(actual)
 	defaultWarmToken(wanted)
-	if current.Spec.Service != service || !podconfig.MatchesDeclared(&wanted.Spec, &actual.Spec) ||
+	if current.Spec.Service != service || !equality.Semantic.DeepEqual(current.Spec.VolumeClaimTemplates, claims) || !podconfig.MatchesDeclared(&wanted.Spec, &actual.Spec) ||
 		!requestedPoolMetadata(wanted.Labels, actual.Labels) || !requestedPoolMetadata(wanted.Annotations, actual.Annotations) {
 		return poolDiagnostic("PoolTemplateMismatch", "the allocated Sandbox differs from the workload; refresh the pool and restart the allocation")
 	}

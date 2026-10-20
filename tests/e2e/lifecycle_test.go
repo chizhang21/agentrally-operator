@@ -60,23 +60,18 @@ func TestOperatorLifecycle(t *testing.T) {
 		return conditionTrue(group.Status.Conditions, "Ready", group.Generation), err
 	})
 	ns := group.Status.Namespace
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "workspace", Namespace: ns},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{
-				corev1.ResourceStorage: resource.MustParse("32Mi"),
-			}},
-		},
+	workspaceSpec := corev1.PersistentVolumeClaimSpec{
+		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+		Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceStorage: resource.MustParse("32Mi"),
+		}},
 	}
-	create(t, ctx, kube, pvc)
-	pvcUID := pvc.UID
 	claim := &v1.AgentClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: ns},
 		Spec: v1.AgentClaimSpec{
 			AgentGroupRef: v1.AgentGroupReference{Name: group.Name}, Template: "generic",
 			Security:  &v1.AgentSecurity{RunAsUser: ptr.To(int64(1000))},
-			Workspace: &v1.WorkspaceMount{ClaimName: pvc.Name, MountPath: "/workspace"},
+			Workspace: &v1.WorkspaceMount{VolumeClaimTemplate: workspaceSpec, MountPath: "/workspace"},
 			Lifecycle: &v1.AgentClaimLifecycle{TTLSecondsAfterFinished: ptr.To(int32(0))},
 			Runtime: &v1.AgentRuntime{
 				Image: "docker.io/library/busybox:1.37.0", Command: []string{"sh", "-c"},
@@ -90,7 +85,7 @@ func TestOperatorLifecycle(t *testing.T) {
 		},
 	}
 	// The local-path provisioner supplies writable directories in this test
-	// cluster. This checks PVC retention, not arbitrary CSI or SCC behavior.
+	// cluster. This checks per-Sandbox storage, not arbitrary CSI or SCC behavior.
 	create(t, ctx, kube, claim)
 	refresh := func() error { return kube.Get(ctx, client.ObjectKeyFromObject(claim), claim) }
 	awaitReady := func() {
@@ -101,6 +96,8 @@ func TestOperatorLifecycle(t *testing.T) {
 		})
 	}
 	awaitReady()
+	pvc := allocatedWorkspace(t, ctx, kube, claim)
+	pvcUID := pvc.UID
 	oldPod := claim.Status.PodUID
 	oldSandbox := sandbox.Object()
 	if err := kube.Get(ctx, client.ObjectKey{Namespace: ns, Name: claim.Status.SandboxName}, oldSandbox); err != nil {
@@ -158,6 +155,9 @@ func TestOperatorLifecycle(t *testing.T) {
 	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/workspace/session"); out != "persisted-before-restart" {
 		t.Fatal("workspace data lost during suspension", out)
 	}
+	if allocatedWorkspace(t, ctx, kube, claim).UID != pvcUID {
+		t.Fatal("suspend/resume replaced the Sandbox workspace")
+	}
 
 	t.Log("Explicit restart applies the new configuration after upstream cleanup")
 	claim.Spec.RestartToken = "apply-v2"
@@ -173,11 +173,14 @@ func TestOperatorLifecycle(t *testing.T) {
 	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/tmp/www/index.html"); out != "v2" {
 		t.Fatal("replacement did not apply desired configuration", out)
 	}
-	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/workspace/session"); out != "persisted-before-restart" {
-		t.Fatal("workspace data lost during restart", out)
+	if allocatedWorkspace(t, ctx, kube, claim).UID == pvcUID {
+		t.Fatal("execution replacement reused the old Sandbox's PVC")
+	}
+	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/workspace/session"); out != "fresh" {
+		t.Fatal("execution replacement did not start with a fresh workspace", out)
 	}
 
-	t.Log("Expiry removes execution and retains the Claim and external PVC")
+	t.Log("Expiry removes execution and its PVC while retaining the Claim")
 	deadline := metav1.NewTime(time.Now().Add(-time.Minute))
 	claim.Spec.Lifecycle = &v1.AgentClaimLifecycle{ShutdownTime: &deadline, ShutdownPolicy: "Retain"}
 	update(t, ctx, kube, claim)
@@ -190,9 +193,6 @@ func TestOperatorLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDeleted(t, ctx, kube, claim)
-	if err := kube.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil || pvc.UID != pvcUID {
-		t.Fatal("external PVC was removed or replaced", err)
-	}
 
 	t.Log("Deletion of an active Claim also waits for real upstream GC")
 	claim = &v1.AgentClaim{ObjectMeta: metav1.ObjectMeta{Name: "delete-active", Namespace: ns}, Spec: claim.Spec}
@@ -204,13 +204,7 @@ func TestOperatorLifecycle(t *testing.T) {
 	}
 	awaitDeleted(t, ctx, kube, claim)
 	awaitExecutionRemoved(t, ctx, kube, ns)
-	if err := kube.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil || pvc.UID != pvcUID {
-		t.Fatal("active deletion removed the external PVC", err)
-	}
-	if err := kube.Delete(ctx, pvc); err != nil {
-		t.Fatal(err)
-	}
-	awaitDeleted(t, ctx, kube, pvc)
+	verifyWarmWorkspaces(t, ctx, kube, kubeconfig, ns, claim.Spec)
 	if err := kube.Delete(ctx, group); err != nil {
 		t.Fatal(err)
 	}
@@ -219,6 +213,121 @@ func TestOperatorLifecycle(t *testing.T) {
 
 func agentCommand(version string) string {
 	return "test -e /workspace/session || printf fresh > /workspace/session; mkdir -p /tmp/www; printf " + version + " > /tmp/www/index.html; exec httpd -f -p 8080 -h /tmp/www"
+}
+
+func allocatedWorkspace(t *testing.T, ctx context.Context, kube client.Client, claim *v1.AgentClaim) *corev1.PersistentVolumeClaim {
+	t.Helper()
+	name := claim.Status.VolumeClaims["arally-workspace"]
+	if name == "" {
+		t.Fatal("allocated workspace is absent from status")
+	}
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: claim.Namespace, Name: name}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	current := sandbox.Object()
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: claim.Namespace, Name: claim.Status.SandboxName}, current); err != nil {
+		t.Fatal(err)
+	}
+	owner := metav1.GetControllerOf(pvc)
+	if owner == nil || owner.Kind != "Sandbox" || owner.UID != current.GetUID() {
+		t.Fatal("workspace PVC is not owned by the allocated Sandbox")
+	}
+	return pvc
+}
+
+func verifyWarmWorkspaces(t *testing.T, ctx context.Context, kube client.Client, kubeconfig, namespace string, spec v1.AgentClaimSpec) {
+	t.Helper()
+	t.Log("Warm allocation transfers independent pre-provisioned PVCs")
+	spec.Lifecycle, spec.Provisioning, spec.RestartToken = nil, nil, ""
+	ready := func(claim *v1.AgentClaim) {
+		await(t, claim.Name+" readiness", func() (bool, error) {
+			err := kube.Get(ctx, client.ObjectKeyFromObject(claim), claim)
+			return conditionTrue(claim.Status.Conditions, "Ready", claim.Generation), err
+		})
+	}
+	seed := &v1.AgentClaim{ObjectMeta: metav1.ObjectMeta{Name: "warm-seed", Namespace: namespace}, Spec: *spec.DeepCopy()}
+	create(t, ctx, kube, seed)
+	ready(seed)
+	pool := sandbox.ExtensionObject("SandboxWarmPool")
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: seed.Status.Provisioning.PoolName}, pool); err != nil {
+		t.Fatal(err)
+	}
+	if err := unstructured.SetNestedField(pool.Object, int64(2), "spec", "replicas"); err != nil {
+		t.Fatal(err)
+	}
+	update(t, ctx, kube, pool)
+	warmNames := map[string]bool{}
+	await(t, "two ready spare Sandboxes with their own PVCs", func() (bool, error) {
+		spares := &unstructured.UnstructuredList{}
+		spares.SetGroupVersionKind(sandbox.GroupVersion.WithKind("SandboxList"))
+		if err := kube.List(ctx, spares, client.InNamespace(namespace)); err != nil {
+			return false, err
+		}
+		warmNames = map[string]bool{}
+		for _, object := range spares.Items {
+			if !metav1.IsControlledBy(&object, pool) {
+				continue
+			}
+			current, err := sandbox.Decode(&object)
+			if err != nil {
+				return false, err
+			}
+			if !conditionTrue(current.Status.Conditions, "Ready", object.GetGeneration()) {
+				continue
+			}
+			pvc := &corev1.PersistentVolumeClaim{}
+			if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "arally-workspace-" + object.GetName()}, pvc); err != nil {
+				return false, err
+			}
+			if pvc.Status.Phase == corev1.ClaimBound {
+				warmNames[object.GetName()] = true
+			}
+		}
+		return len(warmNames) == 2, nil
+	})
+	agents := []*v1.AgentClaim{
+		{ObjectMeta: metav1.ObjectMeta{Name: "warm-one", Namespace: namespace}, Spec: *spec.DeepCopy()},
+		{ObjectMeta: metav1.ObjectMeta{Name: "warm-two", Namespace: namespace}, Spec: *spec.DeepCopy()},
+	}
+	for _, claim := range agents {
+		create(t, ctx, kube, claim)
+	}
+	seen := map[string]bool{allocatedWorkspace(t, ctx, kube, seed).Name: true}
+	preexisting := false
+	for _, claim := range agents {
+		ready(claim)
+		if claim.Status.Provisioning.PoolName != pool.GetName() {
+			t.Fatal("matching workspace specs did not share the prewarmed pool")
+		}
+		object := sandbox.Object()
+		if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: claim.Status.SandboxName}, object); err != nil {
+			t.Fatal(err)
+		}
+		if object.GetLabels()["agents.x-k8s.io/launch-type"] != "warm" {
+			t.Fatal("PVC configuration forced cold allocation")
+		}
+		preexisting = preexisting || warmNames[object.GetName()]
+		pvc := allocatedWorkspace(t, ctx, kube, claim)
+		if seen[pvc.Name] {
+			t.Fatal("different instances share a workspace PVC")
+		}
+		seen[pvc.Name] = true
+	}
+	if !preexisting {
+		t.Fatal("allocation did not adopt any of the pre-provisioned instances")
+	}
+	execPod(t, kubeconfig, namespace, agents[0].Status.PodName, "sh", "-c", "printf private > /workspace/private")
+	if out := execPod(t, kubeconfig, namespace, agents[1].Status.PodName, "sh", "-c", "test ! -e /workspace/private && echo isolated"); out != "isolated" {
+		t.Fatal("workspace contents leaked between allocated agents", out)
+	}
+	for _, claim := range append(agents, seed) {
+		if err := kube.Delete(ctx, claim); err != nil {
+			t.Fatal(err)
+		}
+		awaitDeleted(t, ctx, kube, claim)
+	}
+	awaitExecutionRemoved(t, ctx, kube, namespace)
 }
 
 func conditionTrue(conditions []metav1.Condition, kind string, generation int64) bool {
@@ -258,17 +367,18 @@ func awaitDeleted(t *testing.T, ctx context.Context, kube client.Client, object 
 
 func awaitExecutionRemoved(t *testing.T, ctx context.Context, kube client.Client, namespace string) {
 	t.Helper()
-	await(t, "Pod, Sandbox and native Claim cleanup", func() (bool, error) {
+	await(t, "Pod, Sandbox, native Claim and PVC cleanup", func() (bool, error) {
 		pods := &corev1.PodList{}
+		pvcs := &corev1.PersistentVolumeClaimList{}
 		claims := sandbox.ExtensionList("SandboxClaim")
 		sandboxes := &unstructured.UnstructuredList{}
 		sandboxes.SetGroupVersionKind(sandbox.GroupVersion.WithKind("SandboxList"))
-		for _, list := range []client.ObjectList{pods, claims, sandboxes} {
+		for _, list := range []client.ObjectList{pods, claims, sandboxes, pvcs} {
 			if err := kube.List(ctx, list, client.InNamespace(namespace)); err != nil {
 				return false, err
 			}
 		}
-		return len(pods.Items)+len(claims.Items)+len(sandboxes.Items) == 0, nil
+		return len(pods.Items)+len(claims.Items)+len(sandboxes.Items)+len(pvcs.Items) == 0, nil
 	})
 }
 

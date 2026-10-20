@@ -62,16 +62,16 @@ func TestBuiltinRuntimePreservesSecretReferencesAndWorkspace(t *testing.T) {
 		Ports:            []corev1.ContainerPort{{Name: "http", ContainerPort: 9000}},
 		ReadinessProbe:   &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/ready", Port: intstr.FromInt32(9000)}}},
 	}
-	w.Spec.Workspace = &v1.WorkspaceMount{ClaimName: "workspace", MountPath: "/agent-home"}
+	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: workspaceVolumeSpec(), MountPath: "/agent-home"}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: w.Namespace}, Data: map[string][]byte{"token": []byte("never-inline-this")}}
 	pull := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "pull-credentials", Namespace: w.Namespace}}
-	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "workspace", Namespace: w.Namespace}}
-	c, _ := testutil.Client(t, g, ns, w, secret, pull, pvc)
+	c, _ := testutil.Client(t, g, ns, w, secret, pull)
 	before := w.Spec.Runtime.DeepCopy()
-	pod, _, err := desiredExecution(ctx, c, w)
+	resolved, err := desiredExecution(ctx, c, w)
 	if err != nil {
 		t.Fatal(err)
 	}
+	pod := resolved.PodTemplate
 	container := pod.Spec.Containers[0]
 	if container.WorkingDir != "/agent-home" {
 		t.Fatal("built-in working directory must follow the persistent workspace path")
@@ -91,17 +91,13 @@ func TestBuiltinRuntimePreservesSecretReferencesAndWorkspace(t *testing.T) {
 	if container.EnvFrom[0].SecretRef.Name != "credentials" || pod.Spec.ImagePullSecrets[0].Name != "pull-credentials" {
 		t.Fatal("Secret references were lost")
 	}
-	count := 0
 	for _, volume := range pod.Spec.Volumes {
 		if volume.Name == "arally-workspace" {
-			count++
-			if volume.EmptyDir != nil || volume.PersistentVolumeClaim == nil || volume.PersistentVolumeClaim.ClaimName != "workspace" {
-				t.Fatal("workspace PVC did not replace the built-in ephemeral workspace")
-			}
+			t.Fatal("workspace must be provisioned per Sandbox instead of pre-bound in the Pod template")
 		}
 	}
-	if count != 1 {
-		t.Fatal("workspace must have exactly one volume")
+	if len(resolved.VolumeClaimTemplates) != 1 || resolved.VolumeClaimTemplates[0].Name != "arally-workspace" {
+		t.Fatal("workspace must have exactly one PVC template")
 	}
 	r := &Reconciler{Client: c}
 	if requests := r.mapDependency(ctx, secret); len(requests) != 0 {
@@ -173,11 +169,11 @@ func TestBuiltinImagesAndTemplatesIsolatePools(t *testing.T) {
 	c, scheme := testutil.Client(t, g, ns, w)
 	m := allocation.Manager{Client: c, Scheme: scheme}
 	selection := func(claim *v1.AgentClaim) string {
-		pod, service, err := desiredExecution(ctx, c, claim)
+		pod, service, err := desiredExecutionForTest(ctx, c, claim)
 		if err != nil {
 			t.Fatal(err)
 		}
-		revision, err := configRevision(ctx, c, w.Namespace, pod, w.Spec.AgentContainer)
+		revision, err := configRevision(ctx, c, w.Namespace, pod, w.Spec.AgentContainer, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -15,9 +15,9 @@ type ModelProvider struct {
 }
 
 type WorkspaceMount struct {
-	// ClaimName refers to an existing PVC; Arally never provisions or owns it.
-	// +kubebuilder:validation:MinLength=1
-	ClaimName string `json:"claimName"`
+	// VolumeClaimTemplate provisions a private PVC for each Sandbox, including
+	// warm instances. Core owns the PVC for the lifetime of that Sandbox.
+	VolumeClaimTemplate corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate"`
 	// +kubebuilder:validation:MinLength=1
 	MountPath string `json:"mountPath"`
 	// +optional
@@ -91,7 +91,7 @@ type InteractionEndpointStatus struct {
 	GatewayRef *GatewayReference `json:"gatewayRef,omitempty"`
 }
 
-// AgentClaimLifecycle controls execution cleanup; externally supplied PVCs are retained.
+// AgentClaimLifecycle controls execution cleanup, including Sandbox-owned PVCs.
 type AgentClaimLifecycle struct {
 	// ShutdownTime is an absolute deadline, including time spent waiting for dependencies.
 	// +optional
@@ -255,6 +255,9 @@ type AgentClaimStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
 	SandboxName string `json:"sandboxName,omitempty"`
+	// VolumeClaims maps volume template names to PVCs belonging to the current Sandbox.
+	// +optional
+	VolumeClaims map[string]string `json:"volumeClaims,omitempty"`
 	// +optional
 	ServiceName string `json:"serviceName,omitempty"`
 	// +optional

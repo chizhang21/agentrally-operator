@@ -18,7 +18,7 @@ import (
 var environments embed.FS
 
 // Resolve returns a fresh native Pod template with the user's application settings.
-// Workspace optionally replaces the built-in ephemeral workspace with an existing PVC.
+// Workspace optionally replaces the built-in ephemeral workspace with a private PVC template.
 func Resolve(name string, settings *v1.AgentRuntime, workspace *v1.WorkspaceMount) (*corev1.PodTemplateSpec, error) {
 	if name != "generic" && name != "assistant" && name != "coding" {
 		return nil, invalid("template must be generic, assistant or coding")

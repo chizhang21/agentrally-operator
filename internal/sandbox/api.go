@@ -19,12 +19,13 @@ const (
 
 var GroupVersion = schema.GroupVersion{Group: "agents.x-k8s.io", Version: "v1beta1"}
 
-// Spec follows upstream api/v1beta1/sandbox_types.go. PVCs remain externally managed:
-// volumeClaimTemplates and shutdownTime are deliberately never submitted by Arally.
+// Spec follows upstream api/v1beta1/sandbox_types.go. Core provisions the PVC
+// templates copied by Extensions; Arally only changes the requested operating mode.
 type Spec struct {
-	PodTemplate   corev1.PodTemplateSpec `json:"podTemplate"`
-	OperatingMode string                 `json:"operatingMode"`
-	Service       bool                   `json:"service"`
+	PodTemplate          corev1.PodTemplateSpec                 `json:"podTemplate"`
+	VolumeClaimTemplates []corev1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplates,omitempty"`
+	OperatingMode        string                                 `json:"operatingMode"`
+	Service              bool                                   `json:"service"`
 }
 type Status struct {
 	LabelSelector string             `json:"selector,omitempty"`

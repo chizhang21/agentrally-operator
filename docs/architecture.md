@@ -22,10 +22,12 @@ flowchart LR
     S --> C[agent-sandbox Core]
     C --> P[Pod]
     C --> H[Optional headless Service]
+    C --> V[Private PVC per Sandbox]
     A --> E[Optional interaction Service / route]
     GW[Existing Gateway / OpenShift router] --> E
     E --> P
-    P --> D[Existing Secret / PVC]
+    P --> D[Existing Secret]
+    P --> V
 ```
 
 ## Resources and ownership
@@ -40,14 +42,14 @@ AgentGroup creates an `arally-` Namespace and rejects unrelated existing
 namespaces. Claims must be in their Group's namespace. PSA defaults to Restricted;
 network isolation requires a configured NetworkPolicy and an enforcing CNI.
 
-Users supply source templates, Secrets, PVCs and ServiceAccounts. Arally leaves
+Users supply source templates, Secrets and ServiceAccounts. Arally leaves
 these resources unchanged. AnyUID requires administrator-granted SCC access;
 the Operator has no SCC grant permissions. See [security setup](usage.md#group-namespace-and-security).
 
 Arally owns generated templates/pools through AgentGroup, and allocation
 SandboxClaims and interaction resources through AgentClaim. Extensions allocates
 Sandboxes and refills pools. Core owns Pod lifecycle and, when enabled, the
-headless Service. AgentClaim patches only `operatingMode` on assigned Sandboxes;
+headless Service and per-Sandbox PVCs. AgentClaim patches only `operatingMode` on assigned Sandboxes;
 it does not create/delete Sandboxes or write Pods. Its ClusterRole grants Sandbox
 patch access; Kubernetes RBAC does not restrict that permission by field.
 
@@ -86,7 +88,7 @@ Group prunes generated pools and snapshots without active AgentClaim or native
 SandboxClaim references, waiting for pool deletion before removing its snapshot.
 Claim deletion, expiry and restart use foreground deletion of the owned
 SandboxClaim; upstream controllers and garbage collection remove execution resources.
-External PVCs remain. Group deletion waits for AgentClaims, Sandboxes and PVCs to
+Sandbox-owned PVCs are removed with their execution. Group deletion waits for AgentClaims, Sandboxes and PVCs to
 be removed before deleting its Namespace. See [lifecycle](usage.md#lifecycle).
 
 ## Reconciliation and status
@@ -128,7 +130,8 @@ after persistence. Readiness uses current-generation Core and owned Pod
 observations. See [status and diagnostics](usage.md#status-and-diagnostics) for
 condition interpretation and operational checks.
 
-Configuration revisions include reference resource versions, without Secret values.
+Configuration revisions include PVC templates and reference resource versions,
+without Secret values or instance-specific PVC names.
 Generated Pods carry `ARALLY_CONFIGURATION_REVISION`; external warmed Pods lacking
 it report unverified configuration. Drift requires an explicit restart rather than
 interrupting a running Agent. Suspension removes the Pod through Core; recovery

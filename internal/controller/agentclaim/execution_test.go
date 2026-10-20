@@ -7,18 +7,19 @@ import (
 	"arally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestAgentClaimExplicitRestartIsPersistedAndIdempotent(t *testing.T) {
 	group, ns, w, source := testutil.Fixture()
-	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: w.Namespace}}
-	c, scheme := testutil.Client(t, nativeTemplate(w, source), group, ns, w, pvc)
+	c, scheme := testutil.Client(t, nativeTemplate(w, source), group, ns, w)
 	creates, deletes := 0, 0
 	guarded := interceptor.NewClient(c, interceptor.Funcs{
 		Create: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.CreateOption) error {
+			if _, ok := o.(*corev1.PersistentVolumeClaim); ok {
+				t.Fatal("Arally created a PVC")
+			}
 			if _, ok := o.(*corev1.Pod); ok {
 				t.Fatal("Arally created Pod")
 			}
@@ -28,6 +29,9 @@ func TestAgentClaimExplicitRestartIsPersistedAndIdempotent(t *testing.T) {
 			return c.Create(ctx, o, opts...)
 		},
 		Delete: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.DeleteOption) error {
+			if _, ok := o.(*corev1.PersistentVolumeClaim); ok {
+				t.Fatal("Arally deleted a PVC")
+			}
 			if _, ok := o.(*corev1.Pod); ok {
 				t.Fatal("Arally deleted Pod")
 			}
@@ -55,8 +59,5 @@ func TestAgentClaimExplicitRestartIsPersistedAndIdempotent(t *testing.T) {
 	}
 	if creates != 2 || deletes != 1 {
 		t.Fatalf("creates=%d deletes=%d", creates, deletes)
-	}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil {
-		t.Fatal("restart deleted external PVC")
 	}
 }

@@ -21,12 +21,13 @@ import (
 )
 
 type executionConfiguration struct {
-	Template       *corev1.PodTemplateSpec
-	Service        bool
-	AgentContainer string
-	Revision       string
-	Fallback       bool
-	Issue          *metav1.Condition
+	Template             *corev1.PodTemplateSpec
+	VolumeClaimTemplates []corev1.PersistentVolumeClaimTemplate
+	Service              bool
+	AgentContainer       string
+	Revision             string
+	Fallback             bool
+	Issue                *metav1.Condition
 }
 
 func (r *Reconciler) now() time.Time {
@@ -75,6 +76,7 @@ func (r *Reconciler) reconcileRestart(ctx context.Context, w *v1.AgentClaim) (bo
 	w.Status.Lifecycle = nil
 	w.Status.Provisioning = nil
 	w.Status.SandboxName = ""
+	w.Status.VolumeClaims = nil
 	w.Status.ServiceName = ""
 	w.Status.ServiceFQDN = ""
 	w.Status.Interaction = nil
@@ -168,6 +170,7 @@ func (r *Reconciler) reconcileExpiry(ctx context.Context, w *v1.AgentClaim) (boo
 	w.Status.PodUID = ""
 	w.Status.AppliedRevision = ""
 	setClaimCondition(w, controller.ConditionAvailable, metav1.ConditionFalse, controller.ReasonExpired, "Owned execution cleanup completed")
+	w.Status.VolumeClaims = nil
 	for _, kind := range []string{controller.ConditionReady, controller.ConditionConfigurationAccepted, controller.ConditionConfigurationApplied} {
 		setClaimCondition(w, kind, metav1.ConditionFalse, controller.ReasonExpired, "Execution expired; change restartToken and use a future deadline to start another execution")
 	}

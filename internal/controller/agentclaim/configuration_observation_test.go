@@ -40,11 +40,11 @@ func TestConfigurationRevisionDeterminismAndRotation(t *testing.T) {
 	template.Spec.InitContainers = []corev1.Container{{Name: "prepare", Image: "example/init:v1", EnvFrom: []corev1.EnvFromSource{{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "settings"}}}}}}
 	before := template.DeepCopy()
 	reader := configurationReader(t, secret, config)
-	first, err := configRevision(ctx, reader, "team", template, "")
+	first, err := configRevision(ctx, reader, "team", template, "", nil)
 	if err != nil || len(first) != 64 {
 		t.Fatalf("revision %q, error %v", first, err)
 	}
-	again, err := configRevision(ctx, reader, "team", template, "")
+	again, err := configRevision(ctx, reader, "team", template, "", nil)
 	if err != nil || first != again {
 		t.Fatalf("non-deterministic revision %q / %q: %v", first, again, err)
 	}
@@ -54,23 +54,23 @@ func TestConfigurationRevisionDeterminismAndRotation(t *testing.T) {
 	// Plaintext changes with the same RV are intentionally not fingerprint inputs.
 	changed := secret.DeepCopy()
 	changed.Data["key"] = []byte("DIFFERENT_CONTENT")
-	sameRV, err := configRevision(ctx, configurationReader(t, changed, config), "team", template, "")
+	sameRV, err := configRevision(ctx, configurationReader(t, changed, config), "team", template, "", nil)
 	if err != nil || sameRV != first {
 		t.Fatalf("plaintext entered fingerprint: %v", err)
 	}
 	changed.ResourceVersion = "11"
-	rotated, err := configRevision(ctx, configurationReader(t, changed, config), "team", template, "")
+	rotated, err := configRevision(ctx, configurationReader(t, changed, config), "team", template, "", nil)
 	if err != nil || rotated == first {
 		t.Fatalf("rotation not detected: %v", err)
 	}
 	if err := podconfig.Stamp(template, "agent", first); err != nil {
 		t.Fatal(err)
 	}
-	stamped, err := configRevision(ctx, reader, "team", template, "")
+	stamped, err := configRevision(ctx, reader, "team", template, "", nil)
 	if err != nil || stamped != first {
 		t.Fatalf("stamp changed its own revision: %v", err)
 	}
-	if _, err := configRevision(ctx, reader, "other-team", template, ""); err == nil {
+	if _, err := configRevision(ctx, reader, "other-team", template, "", nil); err == nil {
 		t.Fatal("cross-namespace reference accepted")
 	}
 }
@@ -91,18 +91,18 @@ func TestConfigurationReferenceCoverageAndOptionalMissing(t *testing.T) {
 		t.Fatalf("references %#v", refs)
 	}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "pull", Namespace: "team", ResourceVersion: "1"}}
-	missing, err := configRevision(context.Background(), configurationReader(t, secret), "team", template, "")
+	missing, err := configRevision(context.Background(), configurationReader(t, secret), "team", template, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	optional := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "optional", Namespace: "team", ResourceVersion: "1"}}
-	exists, err := configRevision(context.Background(), configurationReader(t, secret, optional), "team", template, "")
+	exists, err := configRevision(context.Background(), configurationReader(t, secret, optional), "team", template, "", nil)
 	if err != nil || exists == missing {
 		t.Fatalf("optional existence not fingerprinted: %v", err)
 	}
 	// The same name referenced optionally and as a pull Secret is required.
 	template.Spec.ImagePullSecrets = append(template.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: "shared"})
-	if _, err := configRevision(context.Background(), configurationReader(t, secret), "team", template, ""); err == nil {
+	if _, err := configRevision(context.Background(), configurationReader(t, secret), "team", template, "", nil); err == nil {
 		t.Fatal("required duplicate was downgraded to optional")
 	}
 }
@@ -111,15 +111,15 @@ func TestConfigurationMarkerAndContainerSelection(t *testing.T) {
 	template := configurationFixture()
 	template.Spec.Containers = append(template.Spec.Containers, corev1.Container{Name: "tools", Image: "example/tools:v1"})
 	reader := configurationReader(t)
-	first, err := configRevision(ctx, reader, "team", template, "")
+	first, err := configRevision(ctx, reader, "team", template, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	explicit, err := configRevision(ctx, reader, "team", template, "agent")
+	explicit, err := configRevision(ctx, reader, "team", template, "agent", nil)
 	if err != nil || explicit != first {
 		t.Fatal("equivalent first-container selections split pool identity", err)
 	}
-	other, err := configRevision(ctx, reader, "team", template, "tools")
+	other, err := configRevision(ctx, reader, "team", template, "tools", nil)
 	if err != nil || other == first {
 		t.Fatal("different Agent containers collide in snapshot identity", err)
 	}

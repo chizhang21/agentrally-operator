@@ -14,7 +14,7 @@ For other Pod settings, create a SandboxTemplate and use `spec.templateRef`.
 | Memory request / limit | 512Mi / 1Gi | 1Gi / 2Gi | 1Gi / 4Gi |
 | Environment | LOG_LEVEL=info | HOME=/workspace, TMPDIR=/tmp, LOG_LEVEL=info | HOME=/workspace, TMPDIR=/tmp, LOG_LEVEL=info |
 | Working directory | Image default | /workspace | /workspace |
-| Workspace | None by default | Ephemeral /workspace, or existing PVC via AgentClaim.workspace | Ephemeral /workspace, or existing PVC via AgentClaim.workspace |
+| Workspace | None by default; optional private PVC | Ephemeral /workspace, or private PVC via AgentClaim.workspace | Ephemeral /workspace, or private PVC via AgentClaim.workspace |
 | Temporary storage | emptyDir /tmp | emptyDir /tmp | emptyDir /tmp |
 | Browser preparation | None | 512Mi memory-backed /dev/shm | 512Mi memory-backed /dev/shm |
 | Container runtime | Node default; optional native runtimeClassName | Node default; optional native runtimeClassName | Node default; optional native runtimeClassName |
@@ -42,16 +42,20 @@ Secrets and registry credentials must be in the agent namespace.
 
 ## Persistent state and credentials
 
-Create a workspace PVC after Group is ready; see the
-[PVC example](usage.md#model-and-workspace). Choose a StorageClass, capacity and
-access mode for your application. Use a PVC per personal agent or coding session.
-Deleting the agent retains these external PVCs.
+Set `workspace.volumeClaimTemplate` to a native PVC spec; see the
+[workspace example](usage.md#model-and-workspace). Choose capacity, access modes
+and optionally a StorageClass. Core creates a private PVC for every Sandbox,
+including unassigned warm instances. The PVC belongs to that Sandbox.
+
+Suspend/resume and Pod recreation within the same Sandbox retain workspace data.
+Explicit execution replacement (`restartToken`), deletion and expiry remove the
+Sandbox and its PVCs. Replacement starts with a new workspace.
 
 `workspace` replaces assistant/coding's ephemeral `/workspace` with the PVC mount.
 A different mountPath also changes the built-in working directory and HOME, unless
 `runtime.env` overrides HOME. The application must respect HOME or configure its
 state paths itself. Without a PVC, workspace data is lost on Pod replacement.
-The mount is added to the template before allocation, without changing the blueprint.
+The mount and PVC template are resolved before allocation; source templates remain unchanged.
 
 For built-in environments with a writable workspace PVC, the Operator sets
 `fsGroup: 1000` and `fsGroupChangePolicy: OnRootMismatch`. Kubernetes or the CSI
@@ -107,33 +111,33 @@ restart policy. Existing pools retain their configured replica count. Spares are
 unassigned instances. A zero-spare pool still creates an
 instance when a Claim requests one. Extensions handles allocation and refill.
 
-A spare starts the application with the same PVC and credentials. Refill starts
-another copy. Storage access mode alone does not make this safe:
+A spare using `workspace.volumeClaimTemplate` starts with its own PVC. Allocation
+transfers the existing Sandbox and its disk to the Claim; refill creates a new
+Sandbox with a different PVC. Storage specifications participate in pool identity;
+instance-specific PVC names do not. Matching agents can share a pool without
+sharing their workspace files.
 
-| PVC mode | Constraint |
-| --- | --- |
-| ReadWriteOnce | Multiple Pods can mount on one node, not across nodes. |
-| ReadWriteOncePod | Only one Pod can mount. |
-| ReadWriteMany | Shared mounts are allowed, but browser profiles/session databases may still conflict. |
-
-See [Kubernetes access modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes).
-For a personal agent, keep zero spares and retain its PVC. For stateless agents,
-use emptyDir and external state to allow prewarming. For read-only or otherwise
-concurrency-safe data, verify the application before increasing spare replicas:
+Prewarming still starts the real application with the configured credentials.
+Enable spare instances only when the application can start before allocation:
 
 ```sh
 kubectl -n arally-demo get agentclaim coding-demo -o jsonpath='{.status.provisioning.poolName}{"\n"}'
-# Replace POOL_NAME with the returned name after confirming safe concurrent use.
+# Replace POOL_NAME with the returned name after checking application startup behavior.
 kubectl -n arally-demo patch sandboxwarmpool POOL_NAME --type merge -p '{"spec":{"replicas":1}}'
 ```
 
-Arally preserves the pool's replica setting. Changing it does not remove storage
-restrictions or prevent concurrent application execution.
+Arally preserves the pool's replica setting. Each spare consumes compute and a
+separate disk. Unused pool cleanup removes spare Sandboxes and their owned PVCs.
 
-Attaching a private PVC only after allocation is not implemented. The current pool
-has the full Pod configuration, including PVC references; an existing running Pod
-cannot acquire another volume through AgentClaim. Native per-Sandbox
-`volumeClaimTemplates` are not enabled.
+Custom SandboxTemplates can declare native `volumeClaimTemplates`; Core provisions
+each instance's storage. Do not set `spec.volumeName` to a fixed PV in a claim
+template. External pools must match the complete Pod and storage blueprint.
+Arally keeps PVC templates on SandboxTemplate and never sends per-Claim templates,
+which would force cold allocation upstream.
+
+Custom templates may also reference external PVCs directly. Those are shared
+references, not private per-instance disks: their access modes and application
+concurrency rules still apply. Attaching a different PVC after allocation is not supported.
 
 Source templates and external pool templates must set
 `networkPolicyManagement: Unmanaged`; Group handles networking. External pools

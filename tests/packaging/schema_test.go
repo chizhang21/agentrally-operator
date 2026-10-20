@@ -9,6 +9,7 @@ import (
 
 	v1 "arally/operator/api/v1alpha1"
 
+	corev1 "k8s.io/api/core/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation"
@@ -16,6 +17,7 @@ import (
 	structuralcel "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/cel"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema/pruning"
 	apiservervalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -93,12 +95,17 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 				ttl, timeout := int32(300), int32(60)
 				now := metav1.Now()
 				workload.Spec.RestartToken = "request-1"
+				workload.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
+				}}
 				workload.Spec.Lifecycle = &v1.AgentClaimLifecycle{ShutdownTime: &now, TTLSecondsAfterFinished: &ttl, ShutdownPolicy: "Retain"}
 				workload.Spec.Provisioning = &v1.AgentClaimProvisioning{WarmPoolRef: &v1.WarmPoolReference{Name: "agents"}, ClaimTimeoutSeconds: &timeout}
 				workload.Status = v1.AgentClaimStatus{DesiredRevision: "desired", AppliedRevision: "applied", PodName: "instance", PodUID: "pod-uid", LastRestartToken: "request-1",
 					Lifecycle:    &v1.AgentClaimLifecycleStatus{FinishedAt: &now, FinishedReason: "PodSucceeded", ExpiresAt: &now, ExpiredAt: &now, Reason: "ShutdownTimeReached"},
 					Provisioning: &v1.AgentClaimProvisioningStatus{Mode: "Pool", PoolName: "pool", TemplateName: "snapshot", ConfigurationRevision: "revision", ClaimName: "claim", StartedAt: &now, CompletedAt: &now, TimedOutAt: &now}}
 				workload.Status.Interaction = &v1.InteractionEndpointStatus{ServiceName: "access", RouteName: "access", URL: "https://agent.example.com", Port: 8080, GatewayRef: workload.Spec.Interaction.GatewayRef.DeepCopy()}
+				workload.Status.VolumeClaims = map[string]string{"arally-workspace": "arally-workspace-instance"}
 				object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(workload)
 				if err != nil {
 					t.Fatal(err)

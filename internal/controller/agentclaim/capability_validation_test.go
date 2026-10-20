@@ -65,15 +65,16 @@ func TestCapabilitiesRejectRawBlockWorkspaceWithoutWaitingForBinding(t *testing.
 	for _, mode := range []corev1.PersistentVolumeMode{corev1.PersistentVolumeBlock, corev1.PersistentVolumeFilesystem} {
 		t.Run(string(mode), func(t *testing.T) {
 			g, ns, w, source := testutil.Fixture()
-			w.Spec.Workspace = &v1.WorkspaceMount{ClaimName: "workspace", MountPath: "/workspace"}
-			pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "workspace", Namespace: w.Namespace}, Spec: corev1.PersistentVolumeClaimSpec{VolumeMode: &mode, StorageClassName: ptr.To("nfs")}, Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimPending}}
+			w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: workspaceVolumeSpec(), MountPath: "/workspace"}
+			w.Spec.Workspace.VolumeClaimTemplate.VolumeMode = &mode
+			w.Spec.Workspace.VolumeClaimTemplate.StorageClassName = ptr.To("nfs")
 			sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs"}, Provisioner: "nfs.csi.k8s.io", VolumeBindingMode: ptr.To(storagev1.VolumeBindingWaitForFirstConsumer)}
-			c, scheme := testutil.Client(t, nativeTemplate(w, source), g, ns, w, pvc, sc, capabilityReport("Supported"))
+			c, scheme := testutil.Client(t, nativeTemplate(w, source), g, ns, w, sc, capabilityReport("Supported"))
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileWithUpstreamSimulation(t, r, w)
 			err := c.Get(ctx, client.ObjectKeyFromObject(w), sandbox.Object())
 			if mode == corev1.PersistentVolumeBlock {
-				testutil.Condition(t, getAgentClaim(t, c, w).Status.Conditions, "CapabilityValidated", metav1.ConditionFalse)
+				assertReason(t, getAgentClaim(t, c, w), "Ready", "InvalidConfiguration")
 				if !apierrors.IsNotFound(err) {
 					t.Fatal("block PVC used as directory", err)
 				}
@@ -259,8 +260,8 @@ func TestNativeVolumeModesAndBoundPVCWithRemovedClass(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			g, ns, w, source := testutil.Fixture()
 			pod := &source.Spec
-			pod.Volumes = []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"}}}}
-			pod.Containers[0].VolumeDevices = []corev1.VolumeDevice{{Name: "data", DevicePath: "/dev/data"}}
+			pod.Volumes = []corev1.Volume{{Name: "mounted-data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"}}}}
+			pod.Containers[0].VolumeDevices = []corev1.VolumeDevice{{Name: "mounted-data", DevicePath: "/dev/data"}}
 			pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: w.Namespace}, Spec: corev1.PersistentVolumeClaimSpec{VolumeMode: ptr.To(corev1.PersistentVolumeBlock), StorageClassName: ptr.To("nfs")}}
 			sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs"}, Provisioner: "nfs.csi.k8s.io"}
 			objects := []client.Object{g, ns, w, capabilityReport("Supported")}

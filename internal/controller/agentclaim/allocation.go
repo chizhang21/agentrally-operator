@@ -38,7 +38,7 @@ func (r *Reconciler) ensureAllocationPool(ctx context.Context, w *v1.AgentClaim,
 	if err := r.patchStatus(ctx, w, base); err != nil {
 		return err
 	}
-	return pools.Ensure(ctx, selection, config.Template, config.AgentContainer)
+	return pools.Ensure(ctx, selection, config.Template, config.VolumeClaimTemplates, config.AgentContainer)
 }
 
 // Observe a completed assignment before checking its budget. Reconciliation may
@@ -103,7 +103,11 @@ func (r *Reconciler) completePoolAllocation(ctx context.Context, w *v1.AgentClai
 	if err != nil {
 		return poolDiagnostic("PoolTemplateMismatch", "The selected allocation snapshot has an invalid service setting")
 	}
-	if err := validateAssignedSandbox(current, pod, service); err != nil {
+	claims, err := sandbox.TemplateVolumeClaims(selected)
+	if err != nil {
+		return poolDiagnostic("PoolTemplateMismatch", "The selected allocation snapshot has invalid volumeClaimTemplates")
+	}
+	if err := validateAssignedSandbox(current, pod, service, claims); err != nil {
 		return err
 	}
 	base := w.DeepCopy()

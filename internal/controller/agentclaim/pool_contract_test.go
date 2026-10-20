@@ -134,7 +134,7 @@ func TestPoolTemplateContract(t *testing.T) {
 				tc.mutate(pool, template, pod)
 			}
 			beforePool, beforeTemplate, beforePod := pool.DeepCopy(), template.DeepCopy(), pod.DeepCopy()
-			err := validatePoolTemplate(pool, template, pod, tc.service)
+			err := validatePoolTemplate(pool, template, pod, tc.service, nil)
 			reason, _ := diagnostics.Classify(err)
 			if reason != tc.reason {
 				t.Fatalf("got %s (%v), want %s", reason, err, tc.reason)
@@ -182,11 +182,11 @@ func TestPoolDeclaredConfigurationIsStrict(t *testing.T) {
 			if err := unstructured.SetNestedMap(template.Object, fields, "spec", "podTemplate"); err != nil {
 				t.Fatal(err)
 			}
-			if reason, _ := diagnostics.Classify(validatePoolTemplate(pool, template, desired, false)); reason != "PoolTemplateMismatch" {
+			if reason, _ := diagnostics.Classify(validatePoolTemplate(pool, template, desired, false, nil)); reason != "PoolTemplateMismatch" {
 				t.Fatalf("preflight accepted declared difference: %s", reason)
 			}
 			current := &sandbox.Sandbox{Spec: sandbox.Spec{PodTemplate: *actual}}
-			if reason, _ := diagnostics.Classify(validateAssignedSandbox(current, desired, false)); reason != "PoolTemplateMismatch" {
+			if reason, _ := diagnostics.Classify(validateAssignedSandbox(current, desired, false, nil)); reason != "PoolTemplateMismatch" {
 				t.Fatalf("assigned spec accepted declared difference: %s", reason)
 			}
 		})

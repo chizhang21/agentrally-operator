@@ -89,8 +89,10 @@ scheduler decisions. Kubernetes evaluates affinity, tolerations, node availabili
 and capacity; pending Pods expose the actual scheduling feedback. Discovery still
 reports cluster inventory and advisory node counts.
 
-PVC checks reject missing, terminating or lost claims and Filesystem/Block
-mismatches. Workspace needs a Filesystem PVC. Pending `WaitForFirstConsumer` claims
+PVC checks reject missing, terminating or lost external claims and Filesystem/Block
+mismatches. Workspace templates require a positive storage request, native access
+modes and a Filesystem volume. Their StorageClass evidence is checked before
+allocation; Core provisions the actual claims. Pending `WaitForFirstConsumer` claims
 are accepted. Static claims without StorageClass objects, and bound claims whose
 StorageClass was removed, are accepted with Unknown classification. Arally does
 not provision or adopt PVCs.

@@ -284,8 +284,7 @@ func TestAgentClaimLivePodInvalidatesStaleCompletionBeforeExpiry(t *testing.T) {
 
 func TestAgentClaimExpiryPrecedesBrokenDependencies(t *testing.T) {
 	group, ns, w, source := testutil.Fixture()
-	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: w.Namespace}}
-	c, scheme := testutil.Client(t, nativeTemplate(w, source), group, ns, w, pvc)
+	c, scheme := testutil.Client(t, nativeTemplate(w, source), group, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	state := getAgentClaim(t, c, w)
@@ -307,9 +306,6 @@ func TestAgentClaimExpiryPrecedesBrokenDependencies(t *testing.T) {
 	}
 	reconcileWithUpstreamSimulation(t, r, w)
 	assertNoSandbox(t, c, w)
-	if err := c.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil {
-		t.Fatal("expiry deleted PVC")
-	}
 }
 
 func TestAgentClaimDeadlineRequeuesEvenWhenGroupMissing(t *testing.T) {

@@ -32,10 +32,11 @@ The Group allows ingress from its own Pods and from the Gateway namespace on
 TCP 8000. It does not restrict egress. NetworkPolicy requires enforcement by the CNI.
 
 This example has no PVC: its SQLite database is lost when the Pod is replaced.
-For persistent use, create a writable PVC in `arally-http-api-agent` and enable the
-commented `workspace` mount before deploying. Arally retains externally managed
-PVCs. New managed pools default to zero spare instances, with or without a PVC.
-See [prewarming and storage constraints](../../docs/agent-templates.md#allocation-and-policy)
+For a private persistent workspace, enable the commented `workspace` template
+before deploying. Every Sandbox gets its own PVC, including warm instances.
+Data survives suspend/resume; execution replacement, deletion and expiry remove
+the Sandbox and its disk. New managed pools default to zero spare instances.
+See [prewarming policy](../../docs/agent-templates.md#allocation-and-policy)
 before increasing that count.
 
 Secret environment variables are loaded when a container starts. After changing

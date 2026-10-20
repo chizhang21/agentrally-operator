@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Provision an independent workspace PVC for each Sandbox, including warm spares,
+  from `workspace.volumeClaimTemplate`. Keep data during suspension and reclaim
+  the workspace when its Sandbox is replaced or removed.
 - Run the optional Connector inside the elected Operator process, controlled by
   `connector.enabled`, without a separate executable or Deployment.
 - Keep one generated copy of each CRD in `chart/templates/crds/`; Helm upgrades

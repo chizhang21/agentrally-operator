@@ -76,7 +76,7 @@ func (r *Reconciler) poolPreflight(ctx context.Context, w *v1.AgentClaim, config
 	if err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(nativeTemplate), nativeTemplate); err != nil {
 		return diagnostics.New("PoolUnavailable", "Cannot read the warm pool's SandboxTemplate; create it in the same namespace", err)
 	}
-	return validatePoolTemplate(pool, nativeTemplate, config.Template, config.Service)
+	return validatePoolTemplate(pool, nativeTemplate, config.Template, config.Service, config.VolumeClaimTemplates)
 }
 
 func (r *Reconciler) provisionFromPool(ctx context.Context, w *v1.AgentClaim, config executionConfiguration, mode string) (*unstructured.Unstructured, *metav1.Condition, error) {
@@ -264,7 +264,7 @@ func (r *Reconciler) observePoolAllocation(
 	if err := r.updateClaimedMode(ctx, object, mode); err != nil {
 		return nil, err
 	}
-	mismatch := validateAssignedSandbox(current, config.Template, config.Service)
+	mismatch := validateAssignedSandbox(current, config.Template, config.Service, config.VolumeClaimTemplates)
 	if mismatch == nil && mode != sandbox.Suspended {
 		mismatch = r.poolPreflight(ctx, w, config)
 	}

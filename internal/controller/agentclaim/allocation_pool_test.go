@@ -12,12 +12,14 @@ import (
 	v1 "arally/operator/api/v1alpha1"
 	"arally/operator/internal/allocation"
 	"arally/operator/internal/controller"
+	"arally/operator/internal/diagnostics"
 	"arally/operator/internal/sandbox"
 	"arally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -112,12 +114,11 @@ func TestRevisionPersistenceFailureStopsAllocation(t *testing.T) {
 func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) {
 	group, ns, w, source := testutil.Fixture()
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: w.Namespace, UID: "secret-uid"}, Data: map[string][]byte{"key": []byte("test-credential-never-copy")}}
-	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "workspace", Namespace: w.Namespace, UID: "pvc-uid"}}
 	w.Spec.ModelProvider = &v1.ModelProvider{BaseURL: "https://model.example/v1", Model: "test", APIKeySecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "key"}}
-	w.Spec.Workspace = &v1.WorkspaceMount{ClaimName: pvc.Name, MountPath: "/workspace"}
+	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: workspaceVolumeSpec(), MountPath: "/workspace"}
 	source.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8080}}
 	source.Spec.Containers[0].EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}}}}
-	c, scheme := testutil.Client(t, group, ns, w, nativeTemplate(w, source), secret, pvc)
+	c, scheme := testutil.Client(t, group, ns, w, nativeTemplate(w, source), secret)
 	var creates []string
 	guarded := interceptor.NewClient(c, interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, object client.Object, opts ...client.CreateOption) error {
 		kind := object.GetObjectKind().GroupVersionKind().Kind
@@ -126,6 +127,9 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 		}
 		if _, ok := object.(*corev1.Pod); ok {
 			t.Fatal("Arally created a Pod")
+		}
+		if _, ok := object.(*corev1.PersistentVolumeClaim); ok {
+			t.Fatal("Arally created a PVC instead of delegating to Core")
 		}
 		creates = append(creates, kind)
 		selected := getAgentClaim(t, c, w).Status.Provisioning
@@ -146,7 +150,7 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 	pool := allocationObject(t, c, w, "SandboxWarmPool", state.Status.Provisioning.PoolName)
 	template := allocationObject(t, c, w, "SandboxTemplate", state.Status.Provisioning.TemplateName)
 	if replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas"); replicas != 0 {
-		t.Fatal("spare Pod would contend for the existing workspace PVC")
+		t.Fatal("prewarming must remain opt-in for application startup side effects")
 	}
 	for _, resource := range []*unstructured.Unstructured{pool, template} {
 		owner := metav1.GetControllerOf(resource)
@@ -162,6 +166,9 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 	if _, exists, _ := unstructured.NestedSlice(claim.Object, "spec", "env"); exists {
 		t.Fatal("literal Claim env forces cold allocation")
 	}
+	if _, exists, _ := unstructured.NestedSlice(claim.Object, "spec", "volumeClaimTemplates"); exists {
+		t.Fatal("per-Claim storage would bypass warm allocation")
+	}
 	fields, _, _ := unstructured.NestedMap(template.Object, "spec", "podTemplate")
 	pod := &corev1.PodTemplateSpec{}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(fields, pod); err != nil {
@@ -173,8 +180,12 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 			keyRef = env.ValueFrom.SecretKeyRef
 		}
 	}
-	if keyRef == nil || keyRef.Name != secret.Name || keyRef.Key != "key" || pod.Spec.Containers[0].EnvFrom[0].SecretRef.Name != secret.Name || pod.Spec.Volumes[0].PersistentVolumeClaim.ClaimName != pvc.Name {
-		t.Fatal("native credential/workspace references lost")
+	claims, err := sandbox.TemplateVolumeClaims(template)
+	if err != nil || len(claims) != 1 || claims[0].Name != "arally-workspace" || !reflect.DeepEqual(claims[0].Spec, w.Spec.Workspace.VolumeClaimTemplate) {
+		t.Fatal("workspace was not carried by the shared volume template", claims, err)
+	}
+	if keyRef == nil || keyRef.Name != secret.Name || keyRef.Key != "key" || pod.Spec.Containers[0].EnvFrom[0].SecretRef.Name != secret.Name || len(pod.Spec.Volumes) != 0 {
+		t.Fatal("credentials or instance-independent storage configuration lost")
 	}
 	encoded, _ := json.Marshal(template.Object)
 	if strings.Contains(string(encoded), "test-credential-never-copy") {
@@ -192,10 +203,9 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 func TestAutomaticPoolsShareConfigurationButSeparateCredentialsAndWorkspaces(t *testing.T) {
 	group, ns, w, source := testutil.Fixture()
 	secrets := []*corev1.Secret{{ObjectMeta: metav1.ObjectMeta{Name: "one", Namespace: w.Namespace, UID: "s1"}, Data: map[string][]byte{"key": []byte("one")}}, {ObjectMeta: metav1.ObjectMeta{Name: "two", Namespace: w.Namespace, UID: "s2"}, Data: map[string][]byte{"key": []byte("two")}}}
-	pvcs := []*corev1.PersistentVolumeClaim{{ObjectMeta: metav1.ObjectMeta{Name: "one", Namespace: w.Namespace, UID: "p1"}}, {ObjectMeta: metav1.ObjectMeta{Name: "two", Namespace: w.Namespace, UID: "p2"}}}
 	w.Spec.ModelProvider = &v1.ModelProvider{BaseURL: "https://model.example", Model: "test", APIKeySecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "one"}, Key: "key"}}
-	w.Spec.Workspace = &v1.WorkspaceMount{ClaimName: "one", MountPath: "/workspace"}
-	c, scheme := testutil.Client(t, group, ns, w, nativeTemplate(w, source), secrets[0], secrets[1], pvcs[0], pvcs[1])
+	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: workspaceVolumeSpec(), MountPath: "/workspace"}
+	c, scheme := testutil.Client(t, group, ns, w, nativeTemplate(w, source), secrets[0], secrets[1])
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileAllocation(t, r, w)
 	first := getAgentClaim(t, c, w).Status.Provisioning.PoolName
@@ -208,7 +218,7 @@ func TestAutomaticPoolsShareConfigurationButSeparateCredentialsAndWorkspaces(t *
 			other.Spec.ModelProvider.APIKeySecretRef.Name = "two"
 		}
 		if kind == "workspace" {
-			other.Spec.Workspace.ClaimName = "two"
+			other.Spec.Workspace.VolumeClaimTemplate.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("2Gi")
 		}
 		if kind == "rotation" {
 			current := &corev1.Secret{}
@@ -235,6 +245,86 @@ func TestAutomaticPoolsShareConfigurationButSeparateCredentialsAndWorkspaces(t *
 	}
 	if len(pools.Items) != 4 {
 		t.Fatalf("expected four configuration pools, got %d", len(pools.Items))
+	}
+}
+
+func TestSharedPoolKeepsEachAllocatedWorkspacePrivate(t *testing.T) {
+	group, ns, first, _ := testutil.Fixture()
+	first.Spec.TemplateRef, first.Spec.Template = nil, "coding"
+	first.Spec.Runtime = &v1.AgentRuntime{Image: "example.com/coding:v1"}
+	first.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: workspaceVolumeSpec(), MountPath: "/workspace"}
+	second := first.DeepCopy()
+	second.Name, second.UID = "second", "second-uid"
+	c, scheme := testutil.Client(t, group, ns, first, second)
+	r := &Reconciler{Client: c, Scheme: scheme}
+	poolName := ""
+	var previousPVC string
+	for _, claim := range []*v1.AgentClaim{first, second} {
+		reconcileWithUpstreamSimulation(t, r, claim)
+		pod := ownedExecutionPod(t, c, claim)
+		reconcileWithUpstreamSimulation(t, r, claim)
+		state := getAgentClaim(t, c, claim)
+		testutil.Condition(t, state.Status.Conditions, "ConfigurationApplied", metav1.ConditionTrue)
+		pvcName := state.Status.VolumeClaims["arally-workspace"]
+		if pvcName == "" || pvcName == previousPVC {
+			t.Fatal("allocations shared or failed to report a workspace PVC", state.Status.VolumeClaims)
+		}
+		previousPVC = pvcName
+		if poolName != "" && state.Status.Provisioning.PoolName != poolName {
+			t.Fatal("instance-specific PVC names split identical configurations into different pools")
+		}
+		poolName = state.Status.Provisioning.PoolName
+		for i := range pod.Spec.Volumes {
+			if pod.Spec.Volumes[i].Name == "arally-workspace" {
+				if pod.Spec.Volumes[i].PersistentVolumeClaim.ClaimName != pvcName {
+					t.Fatal("reported workspace differs from the owned Pod mount")
+				}
+				pod.Spec.Volumes[i].PersistentVolumeClaim.ClaimName = "another-users-volume"
+			}
+		}
+		config, err := r.resolveExecutionConfiguration(ctx, state, sandbox.Running)
+		if err != nil {
+			t.Fatal(err)
+		}
+		desired := sandbox.ExecutionPodTemplate(state.Status.SandboxName, config.Template, config.VolumeClaimTemplates)
+		if observed := observeConfiguration(desired, pod, config.AgentContainer, config.Revision); observed.Condition.Reason != "RestartRequired" {
+			t.Fatal("a wrong instantiated PVC was accepted as the desired workspace", observed)
+		}
+		pool := allocationObject(t, c, claim, "SandboxWarmPool", poolName)
+		if err := unstructured.SetNestedField(pool.Object, int64(2), "spec", "replicas"); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Update(ctx, pool); err != nil {
+			t.Fatal(err)
+		}
+		reconcileWithUpstreamSimulation(t, r, claim)
+		if got, _, _ := unstructured.NestedInt64(allocationObject(t, c, claim, "SandboxWarmPool", poolName).Object, "spec", "replicas"); got != 2 {
+			t.Fatal("workspace allocation reset explicitly enabled prewarming")
+		}
+	}
+}
+
+func TestNativeVolumeTemplatesSurviveAllocationAndRejectStorageMismatch(t *testing.T) {
+	group, ns, w, pod := testutil.Fixture()
+	pod.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: "data", MountPath: "/data"}}
+	source := nativeTemplate(w, pod)
+	claims := []corev1.PersistentVolumeClaimTemplate{{ObjectMeta: metav1.ObjectMeta{Name: "data"}, Spec: workspaceVolumeSpec()}}
+	if err := sandbox.SetTemplateVolumeClaims(source, claims); err != nil {
+		t.Fatal(err)
+	}
+	c, scheme := testutil.Client(t, group, ns, w, source)
+	r := &Reconciler{Client: c, Scheme: scheme}
+	reconcileWithUpstreamSimulation(t, r, w)
+	current, err := sandbox.Decode(getSandbox(t, c, w))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAssignedSandbox(current, pod, true, claims); err != nil {
+		t.Fatal("native storage template was lost during allocation", err)
+	}
+	current.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("2Gi")
+	if reason, _ := diagnostics.Classify(validateAssignedSandbox(current, pod, true, claims)); reason != "PoolTemplateMismatch" {
+		t.Fatal("assignment accepted a different storage blueprint", reason)
 	}
 }
 

@@ -82,8 +82,8 @@ func TestNativeTemplateResolutionFailures(t *testing.T) {
 		{"ignored-network-policy", "TemplatePolicyUnsupported", func(_ *v1.AgentClaim, s *unstructured.Unstructured) {
 			_ = unstructured.SetNestedMap(s.Object, map[string]interface{}{"ingress": []interface{}{}}, "spec", "networkPolicy")
 		}},
-		{"allocated-pvc", "TemplatePolicyUnsupported", func(_ *v1.AgentClaim, s *unstructured.Unstructured) {
-			_ = unstructured.SetNestedSlice(s.Object, []interface{}{map[string]interface{}{"metadata": map[string]interface{}{"name": "data"}}}, "spec", "volumeClaimTemplates")
+		{"invalid-volume-template", "InvalidConfiguration", func(_ *v1.AgentClaim, s *unstructured.Unstructured) {
+			_ = unstructured.SetNestedField(s.Object, "invalid", "spec", "volumeClaimTemplates")
 		}},
 		{"missing-pod", "InvalidConfiguration", func(_ *v1.AgentClaim, s *unstructured.Unstructured) {
 			unstructured.RemoveNestedField(s.Object, "spec", "podTemplate")

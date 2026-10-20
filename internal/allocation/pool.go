@@ -116,7 +116,7 @@ func (m *Manager) Select(ctx context.Context, w *v1.AgentClaim, service bool, re
 
 // Ensure creates group-owned immutable templates and capacity after Claim selection
 // is persisted. Existing external pools and externally scaled replicas are preserved.
-func (m *Manager) Ensure(ctx context.Context, selection *Selection, pod *corev1.PodTemplateSpec, agentContainer string) error {
+func (m *Manager) Ensure(ctx context.Context, selection *Selection, pod *corev1.PodTemplateSpec, claims []corev1.PersistentVolumeClaimTemplate, agentContainer string) error {
 	pool := selection.pool.DeepCopy()
 	group := selection.group
 	templateName := selection.TemplateName
@@ -143,6 +143,9 @@ func (m *Manager) Ensure(ctx context.Context, selection *Selection, pod *corev1.
 		"podTemplate": fields, "service": selection.service,
 		"networkPolicyManagement": "Unmanaged",
 		"envVarsInjectionPolicy":  "Disallowed", "volumeClaimTemplatesPolicy": "Disallowed",
+	}
+	if err := sandbox.SetTemplateVolumeClaims(template, claims); err != nil {
+		return err
 	}
 	if err := m.createAllocationResource(ctx, template, group); err != nil {
 		return err
@@ -203,6 +206,13 @@ func allocationSpecsMatch(current, desired *unstructured.Unstructured) bool {
 		return false
 	}
 	if desired.GetKind() == "SandboxTemplate" {
+		actualClaims, actualErr := sandbox.TemplateVolumeClaims(current)
+		wantedClaims, wantedErr := sandbox.TemplateVolumeClaims(desired)
+		if actualErr != nil || wantedErr != nil || !equality.Semantic.DeepEqual(actualClaims, wantedClaims) {
+			return false
+		}
+		delete(actual, "volumeClaimTemplates")
+		delete(wanted, "volumeClaimTemplates")
 		pods := []*corev1.PodTemplateSpec{{}, {}}
 		for i, spec := range []map[string]interface{}{actual, wanted} {
 			fields, ok := spec["podTemplate"].(map[string]interface{})

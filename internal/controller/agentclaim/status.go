@@ -77,9 +77,12 @@ func (r *Reconciler) status(
 	mirrorCoreConditions(workload, current, generation, pod, podErr)
 	workload.Status.ObservedGeneration = workload.Generation
 	workload.Status.SandboxName, workload.Status.ServiceName, workload.Status.ServiceFQDN = current.Metadata.Name, current.Status.Service, current.Status.ServiceFQDN
+	workload.Status.VolumeClaims = sandbox.VolumeClaimNames(current.Metadata.Name, current.Spec.VolumeClaimTemplates)
 	workload.Status.Interaction = interaction.status
 	acceptedConfigurationStatus(workload, config)
-	appliedConfigurationStatus(workload, config, pod, podErr)
+	executionConfig := config
+	executionConfig.Template = sandbox.ExecutionPodTemplate(current.Metadata.Name, config.Template, config.VolumeClaimTemplates)
+	appliedConfigurationStatus(workload, executionConfig, pod, podErr)
 	decision, err := evaluateExecutionLifecycle(workload, pod, r.now())
 	if err != nil {
 		return err

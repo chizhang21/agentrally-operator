@@ -162,7 +162,7 @@ func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentC
 	}
 	reader := r.referenceReader()
 	validationCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	validation := validateCapabilities(validationCtx, reader, workload, group, &config.Template.Spec)
+	validation := validateCapabilities(validationCtx, reader, workload, group, &config.Template.Spec, config.VolumeClaimTemplates)
 	cancel()
 	blocked, err := r.capabilityBlocksExecution(ctx, workload, validation, config, mode)
 	if err != nil {
@@ -201,13 +201,13 @@ func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentC
 func (r *Reconciler) resolveExecutionConfiguration(ctx context.Context, workload *v1.AgentClaim, mode string) (executionConfiguration, error) {
 	configurationCtx, configurationCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer configurationCancel()
-	template, service, err := desiredExecution(configurationCtx, r.referenceReader(), workload)
+	resolved, err := desiredExecution(configurationCtx, r.referenceReader(), workload)
 	templateFallback := false
 	if err != nil && mode == sandbox.Suspended {
 		// Missing credentials/storage must not prevent stopping an existing instance.
 		if existing, getErr := r.existingExecution(ctx, workload); getErr == nil {
 			if current, decodeErr := sandbox.Decode(existing); decodeErr == nil {
-				template, service, err = &current.Spec.PodTemplate, current.Spec.Service, nil
+				resolved, err = &resolvedTemplate{PodTemplate: &current.Spec.PodTemplate, Service: current.Spec.Service, VolumeClaimTemplates: current.Spec.VolumeClaimTemplates}, nil
 				templateFallback = true
 			}
 		}
@@ -217,12 +217,12 @@ func (r *Reconciler) resolveExecutionConfiguration(ctx context.Context, workload
 	}
 	revision := workload.Status.DesiredRevision
 	if !templateFallback {
-		revision, err = configRevision(configurationCtx, r.referenceReader(), workload.Namespace, template, workload.Spec.AgentContainer)
+		revision, err = configRevision(configurationCtx, r.referenceReader(), workload.Namespace, resolved.PodTemplate, workload.Spec.AgentContainer, resolved.VolumeClaimTemplates)
 		if err != nil {
 			return executionConfiguration{}, err
 		}
 	}
-	return executionConfiguration{Template: template, Service: service, AgentContainer: workload.Spec.AgentContainer, Revision: revision, Fallback: templateFallback}, nil
+	return executionConfiguration{Template: resolved.PodTemplate, Service: resolved.Service, VolumeClaimTemplates: resolved.VolumeClaimTemplates, AgentContainer: workload.Spec.AgentContainer, Revision: revision, Fallback: templateFallback}, nil
 }
 
 // An allocated, matching Agent continues running when capability evidence changes.
@@ -239,7 +239,7 @@ func (r *Reconciler) capabilityBlocksExecution(ctx context.Context, workload *v1
 			if err != nil {
 				return false, err
 			}
-			preserveRunning = current.Spec.OperatingMode == sandbox.Running && validateAssignedSandbox(current, config.Template, config.Service) == nil
+			preserveRunning = current.Spec.OperatingMode == sandbox.Running && validateAssignedSandbox(current, config.Template, config.Service, config.VolumeClaimTemplates) == nil
 		}
 		if !preserveRunning {
 			return true, nil

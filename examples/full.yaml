@@ -70,9 +70,14 @@ spec:
       name: model-credentials
       key: api-key
   workspace:
-    claimName: coding-workspace
     mountPath: /workspace
     readOnly: false
+    volumeClaimTemplate:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 20Gi
+      # storageClassName: your-storage-class
   interaction:
     type: HTTPRoute
     port: 8080

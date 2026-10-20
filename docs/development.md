@@ -124,7 +124,9 @@ set `E2E_IMAGE=repository:tag`. No image is pushed.
 
 The test checks default zero prewarming, configuration edits without replacement,
 Ready/Available separation, pause/resume, explicit restart, expiry, active deletion,
-upstream garbage collection and external PVC/data retention. The driver always
+upstream garbage collection, per-instance PVC isolation, warm allocation and
+workspace retention across suspension. Execution replacement and cleanup reclaim
+Sandbox-owned volumes. The driver always
 uses its own kubeconfig and deletes its temporary cluster. Failures retain
 logs under `.cache/e2e/`; `E2E_LOG_DIR` selects another output directory.
 

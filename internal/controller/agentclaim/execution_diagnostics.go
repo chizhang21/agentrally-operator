@@ -61,7 +61,7 @@ func (r *Reconciler) executionReadiness(ctx context.Context, w *v1.AgentClaim, r
 
 func suspensionDiagnostic(pod *corev1.Pod, now time.Time) *executionDiagnostic {
 	if pod == nil {
-		return &executionDiagnostic{"SandboxSuspended", "Core removed the execution Pod; the Sandbox and externally managed PVCs are retained"}
+		return &executionDiagnostic{"SandboxSuspended", "Core removed the execution Pod; the Sandbox and its workspace PVCs are retained"}
 	}
 	if pod.DeletionTimestamp != nil {
 		return terminationDiagnostic(pod, now)

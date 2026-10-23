@@ -2,8 +2,6 @@ package agentinstance
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -20,7 +18,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/yaml"
 )
 
 func TestNativeTemplateIsSingleExecutionSource(t *testing.T) {
@@ -123,36 +120,6 @@ func TestTemplateAPIUnavailableBlocksAllocation(t *testing.T) {
 	reconcileWithUpstreamSimulation(t, &Reconciler{Client: guard, Scheme: scheme}, w)
 	assertReason(t, getAgentInstance(t, c, w), "Ready", "TemplateAPIUnavailable")
 	assertNoSandbox(t, c, w)
-}
-
-func TestNativeTemplateExamples(t *testing.T) {
-	paths, err := filepath.Glob("../../../examples/*-template.yaml")
-	if err != nil || len(paths) == 0 {
-		t.Fatal("native template samples are missing")
-	}
-	for _, path := range paths {
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			object := sandbox.ExtensionObject("SandboxTemplate")
-			if err := yaml.Unmarshal(data, object); err != nil {
-				t.Fatal(err)
-			}
-			_, _, definition, w, _ := testutil.Fixture()
-			definition.Namespace, w.Namespace = object.GetNamespace(), object.GetNamespace()
-			definition.Spec.TemplateRef.Name = object.GetName()
-			c, _ := testutil.Client(t, definition, object)
-			resolved, err := resolveSandboxTemplate(ctx, c, w)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if object.GetLabels()["arally.io/category"] == "" || *resolved.PodTemplate.Spec.AutomountServiceAccountToken {
-				t.Fatal("sample missing classification or token protection")
-			}
-		})
-	}
 }
 
 func TestSuspensionSurvivesMissingTemplateAndPreservesService(t *testing.T) {

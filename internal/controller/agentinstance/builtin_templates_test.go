@@ -13,41 +13,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
-
-func TestBuiltinTemplateCreatesPoolWithoutSourceCR(t *testing.T) {
-	for _, category := range []string{"generic", "assistant", "coding"} {
-		t.Run(category, func(t *testing.T) {
-			g, ns, definition, w, _ := testutil.Fixture()
-			definition.Spec.TemplateRef = nil
-			definition.Spec.Template = category
-			definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1"}
-			c, scheme := testutil.Client(t, definition, g, ns, w)
-			r := &Reconciler{Client: c, Scheme: scheme}
-			reconcileWithUpstreamSimulation(t, r, w)
-			state := getAgentInstance(t, c, w)
-			if state.Status.Provisioning == nil || state.Status.Provisioning.TemplateName == "" {
-				t.Fatalf("built-in did not select an allocation template: %+v", state.Status)
-			}
-			template := sandbox.ExtensionObject("SandboxTemplate")
-			if err := c.Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: state.Status.Provisioning.TemplateName}, template); err != nil {
-				t.Fatal(err)
-			}
-			image, _, _ := unstructured.NestedSlice(template.Object, "spec", "podTemplate", "spec", "containers")
-			if image[0].(map[string]interface{})["image"] != definition.Spec.Container.Image || template.GetAnnotations()["arally.io/source-template"] != "definition/"+definition.Name {
-				t.Fatal("generated template did not receive the application image and built-in identity")
-			}
-			ownedExecutionPod(t, c, w)
-			reconcileWithUpstreamSimulation(t, r, w)
-			testutil.Condition(t, getAgentInstance(t, c, w).Status.Conditions, "Ready", metav1.ConditionTrue)
-		})
-	}
-}
 
 func TestBuiltinRuntimePreservesSecretReferencesAndWorkspace(t *testing.T) {
 	g, ns, definition, w, _ := testutil.Fixture()
@@ -121,53 +90,6 @@ func TestBuiltinDependencyFailureBlocksCapacity(t *testing.T) {
 		if err := c.List(ctx, objects); err != nil || len(objects.Items) != 0 {
 			t.Fatalf("missing credentials created %s capacity: %v", kind, err)
 		}
-	}
-}
-
-func TestBuiltinImageEditRequiresExplicitRestart(t *testing.T) {
-	g, ns, definition, w, _ := testutil.Fixture()
-	definition.Spec.TemplateRef, definition.Spec.Template = nil, "generic"
-	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1"}
-	c, scheme := testutil.Client(t, definition, g, ns, w)
-	r := &Reconciler{Client: c, Scheme: scheme}
-	reconcileWithUpstreamSimulation(t, r, w)
-	allocated := assignPoolSandbox(t, c, w, true)
-	reconcileWithUpstreamSimulation(t, r, w)
-	state := getAgentInstance(t, c, w)
-	originalPool := state.Status.Provisioning.PoolName
-	definition.Spec.Container.Image = "example.com/agent:v2"
-	saveDefinition(t, c, definition)
-	reconcileWithUpstreamSimulation(t, r, w)
-	state = getAgentInstance(t, c, w)
-	testutil.Condition(t, state.Status.Conditions, "ConfigurationAccepted", metav1.ConditionTrue)
-	if state.Status.Provisioning.PoolName != originalPool || state.Status.SandboxName != allocated.GetName() {
-		t.Fatal("runtime image edit replaced the execution without restart")
-	}
-	// A new identity uses the latest publication, while the old one stays pinned.
-	fresh := w.DeepCopy()
-	fresh.Name, fresh.UID, fresh.ResourceVersion = "fresh", "fresh-uid", ""
-	if err := c.Create(ctx, fresh); err != nil {
-		t.Fatal(err)
-	}
-	reconcileWithUpstreamSimulation(t, r, fresh)
-	latest := getAgentInstance(t, c, fresh)
-	if latest.Status.Definition.Revision == state.Status.Definition.Revision {
-		t.Fatal("new instance did not select the latest definition")
-	}
-	state.Spec.RestartToken = "apply-v2"
-	if err := c.Update(ctx, state); err != nil {
-		t.Fatal(err)
-	}
-	for range 8 {
-		reconcileWithUpstreamSimulation(t, r, w)
-		state = getAgentInstance(t, c, w)
-		if state.Status.Provisioning != nil && state.Status.Provisioning.PoolName != originalPool {
-			break
-		}
-	}
-	state = getAgentInstance(t, c, w)
-	if state.Status.Provisioning == nil || state.Status.Provisioning.PoolName == originalPool || state.Status.LastRestartToken != "apply-v2" {
-		t.Fatalf("explicit restart did not select updated image configuration: %+v", state.Status)
 	}
 }
 

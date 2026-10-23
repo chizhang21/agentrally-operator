@@ -133,7 +133,12 @@ replacement, Ready/Available separation, suspend/resume, explicit restart, expir
 active deletion, upstream garbage collection and workspace retention across
 suspension. Declarative prewarming, private PVC isolation, verified external
 pool allocation and Group deletion bypassing idle retention use real Core and
-Extensions controllers. Execution replacement and cleanup reclaim Sandbox-owned
+Extensions controllers. Revision tests cover new-instance selection, explicit
+historical revisions, upgrade/rollback, and definition deletion protection.
+Dependency tests cover recovery from missing Secrets/ConfigMaps and credential
+rotation without implicit restart. Native task tests exercise the custom template
+example, successful completion, failed-task retention and TTL deletion policies.
+Execution replacement and cleanup reclaim Sandbox-owned
 volumes. The driver always
 uses its own kubeconfig and deletes its temporary cluster. Failures retain
 logs under `.cache/e2e/`; `E2E_LOG_DIR` selects another output directory.

@@ -437,6 +437,7 @@ func e2eClient(t *testing.T) (client.Client, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Timeout = 30 * time.Second
 	scheme := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
 		if err := add(scheme); err != nil {
@@ -452,7 +453,7 @@ func e2eClient(t *testing.T) (client.Client, string) {
 
 func await(t *testing.T, description string, check func() (bool, error)) {
 	t.Helper()
-	if err := wait.PollUntilContextTimeout(context.Background(), time.Second, 4*time.Minute, true,
+	if err := wait.PollUntilContextTimeout(t.Context(), time.Second, 4*time.Minute, true,
 		func(context.Context) (bool, error) { return check() }); err != nil {
 		t.Fatalf("%s: %v", description, err)
 	}
@@ -517,7 +518,9 @@ func awaitExecutionRemoved(t *testing.T, ctx context.Context, kube client.Client
 
 func execPod(t *testing.T, kubeconfig, namespace, pod string, args ...string) string {
 	t.Helper()
-	command := exec.Command("kubectl", append([]string{"--kubeconfig", kubeconfig, "-n", namespace, "exec", pod, "--"}, args...)...)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "kubectl", append([]string{"--kubeconfig", kubeconfig, "-n", namespace, "exec", pod, "--"}, args...)...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("exec test Pod: %v\n%s", err, output)
@@ -527,7 +530,9 @@ func execPod(t *testing.T, kubeconfig, namespace, pod string, args ...string) st
 
 func kubectl(t *testing.T, kubeconfig string, args ...string) string {
 	t.Helper()
-	command := exec.Command("kubectl", append([]string{"--kubeconfig", kubeconfig}, args...)...)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, "kubectl", append([]string{"--kubeconfig", kubeconfig}, args...)...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("kubectl %v: %v\n%s", args, err, output)

@@ -60,10 +60,14 @@ func matchesRuntimeNode(n corev1.Node, r *nodev1.RuntimeClass) bool {
 }
 
 func describeRuntime(r nodev1.RuntimeClass) v1.RuntimeObservation {
-	c := v1.RuntimeObservation{Name: r.Name, Handler: r.Handler, Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", Reason: "RuntimeTypeUnrecognized"}
+	c := v1.RuntimeObservation{Name: r.Name, Handler: r.Handler, Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", Reason: "RuntimeTypeUnrecognized", Source: "NativeAPI", Scheduling: r.Scheduling.DeepCopy()}
+	if r.Overhead != nil {
+		c.Overhead = r.Overhead.PodFixed.DeepCopy()
+	}
 	if definition, ok := builtins.runtimeByHandler[strings.ToLower(r.Handler)]; ok {
 		c.Family, c.Category, c.ImageContract = definition.Family, definition.Category, definition.ImageContract
 		c.Status, c.Reason = "Observed", ""
+		c.Source, c.Rule = "BuiltInCatalog", "runtime/"+definition.Family
 	}
 	return c
 }
@@ -77,7 +81,7 @@ func discoverRuntimes(ctx context.Context, reader client.Reader, status *v1.Clus
 	if err := reader.List(ctx, classes); err != nil {
 		return err
 	}
-	baseline := v1.RuntimeObservation{Name: "default", Family: "container", Category: "Container", ImageContract: "LinuxOCI", Status: "Observed"}
+	baseline := v1.RuntimeObservation{Name: "default", Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", Reason: "DefaultRuntimeUnclassified", Source: "NativeAPI"}
 	type criVersion struct{ implementation, version string }
 	versions := map[criVersion]int32{}
 	for _, n := range nodes.Items {

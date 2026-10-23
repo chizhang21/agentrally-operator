@@ -1,16 +1,11 @@
 # Prepare the Baseline Group and SCC-authorized ServiceAccount first.
 apiVersion: arally.io/v1alpha1
-kind: AgentClaim
+kind: AgentInstance
 metadata:
   name: legacy-agent
   namespace: arally-legacy
 spec:
   agentGroupRef:
     name: legacy
-  template: generic
-  runtime:
-    image: registry.example.com/legacy-agent:v1
-  security:
-    profile: AnyUID
-    serviceAccountName: legacy-agent
-    runAsUser: 0
+  definitionRef:
+    name: legacy-agent

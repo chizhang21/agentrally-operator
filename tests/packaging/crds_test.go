@@ -18,7 +18,7 @@ func TestHelmManagesCRDs(t *testing.T) {
 			if mode == "upgrade" {
 				objects = renderObjects(t, "--is-upgrade")
 			}
-			for _, plural := range []string{"agentgroups", "agentclaims", "clustercapabilities"} {
+			for _, plural := range []string{"agentgroups", "agentdefinitions", "agentinstances", "clustercapabilities"} {
 				name := plural + ".arally.io"
 				data, exists := objects["CustomResourceDefinition/"+name]
 				if !exists {

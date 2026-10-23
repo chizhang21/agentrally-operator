@@ -46,6 +46,8 @@ Set `metrics.serviceMonitor.enabled` for Prometheus Operator or OpenShift user
 workload monitoring. The ServiceMonitor API must already exist.
 Use `metrics.serviceMonitor.labels` to match the Prometheus selector.
 Offline rendering needs `--api-versions monitoring.coreos.com/v1/ServiceMonitor`.
+Business gauges and lifecycle histograms use this same endpoint; see
+[metrics and status](../docs/usage.md#status-and-diagnostics).
 
 The optional metrics NetworkPolicy selects Operator Pods and permits port 8080
 from namespaces labeled `metrics=enabled`. Enable it with

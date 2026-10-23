@@ -19,6 +19,7 @@ import (
 	apiservervalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/yaml"
@@ -40,7 +41,7 @@ func renderedCRD(t *testing.T, plural string) *apiextensionsv1.CustomResourceDef
 // Fake clients do not apply CRD pruning. Exercise the API-server's pruning code
 // so labels, annotations and native scheduling/container fields survive admission.
 func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
-	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentclaim", "agentclaims", "agent.yaml"}, {"clustercapabilities", "clustercapabilities", ""}} {
+	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "agent.yaml"}, {"clustercapabilities", "clustercapabilities", ""}} {
 		kind := sampleType.kind
 		t.Run(kind, func(t *testing.T) {
 			crd := renderedCRD(t, sampleType.plural)
@@ -78,6 +79,16 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 				t.Fatal(err)
 			}
 			if kind == "agentgroup" {
+				object["spec"].(map[string]interface{})["allocationPaused"] = true
+				object["spec"].(map[string]interface{})["prewarming"] = map[string]interface{}{"replicas": int64(2), "idleTTLSeconds": int64(300)}
+				object["spec"].(map[string]interface{})["limitRange"] = map[string]interface{}{"limits": []interface{}{map[string]interface{}{
+					"type": "Container", "default": map[string]interface{}{"cpu": "1", "memory": "128Mi"},
+				}}}
+				object["status"] = map[string]interface{}{"summary": map[string]interface{}{
+					"instances": map[string]interface{}{"total": int64(2), "ready": int64(1), "available": int64(1), "pending": int64(1), "suspended": int64(0), "expired": int64(0)},
+					"pools":     map[string]interface{}{"total": int64(1), "desiredSpareReplicas": int64(2), "readySpareReplicas": int64(1)},
+					"storage":   map[string]interface{}{"pvcs": int64(2), "requested": "2Gi", "capacity": "1Gi"},
+				}}
 				object["spec"].(map[string]interface{})["interactionDefaults"] = map[string]interface{}{
 					"httpRoute": map[string]interface{}{
 						"gatewayRef": map[string]interface{}{"name": "shared", "namespace": "gateway-system", "sectionName": "https"},
@@ -85,8 +96,8 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 					},
 				}
 			}
-			if kind == "agentclaim" {
-				workload := &v1.AgentClaim{}
+			if kind == "agentinstance" {
+				workload := &v1.AgentInstance{}
 				if err := yaml.Unmarshal(sample, workload); err != nil {
 					t.Fatal(err)
 				}
@@ -95,15 +106,16 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 				ttl, timeout := int32(300), int32(60)
 				now := metav1.Now()
 				workload.Spec.RestartToken = "request-1"
-				workload.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: corev1.PersistentVolumeClaimSpec{
+				workload.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{
 					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 					Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
 				}}
-				workload.Spec.Lifecycle = &v1.AgentClaimLifecycle{ShutdownTime: &now, TTLSecondsAfterFinished: &ttl, ShutdownPolicy: "Retain"}
-				workload.Spec.Provisioning = &v1.AgentClaimProvisioning{WarmPoolRef: &v1.WarmPoolReference{Name: "agents"}, ClaimTimeoutSeconds: &timeout}
-				workload.Status = v1.AgentClaimStatus{DesiredRevision: "desired", AppliedRevision: "applied", PodName: "instance", PodUID: "pod-uid", LastRestartToken: "request-1",
-					Lifecycle:    &v1.AgentClaimLifecycleStatus{FinishedAt: &now, FinishedReason: "PodSucceeded", ExpiresAt: &now, ExpiredAt: &now, Reason: "ShutdownTimeReached"},
-					Provisioning: &v1.AgentClaimProvisioningStatus{Mode: "Pool", PoolName: "pool", TemplateName: "snapshot", ConfigurationRevision: "revision", ClaimName: "claim", StartedAt: &now, CompletedAt: &now, TimedOutAt: &now}}
+				workload.Spec.Lifecycle = &v1.AgentInstanceLifecycle{ShutdownTime: &now, TTLSecondsAfterFinished: &ttl, ShutdownPolicy: "Retain"}
+				workload.Spec.Provisioning = &v1.AgentInstanceProvisioning{WarmPoolRef: &v1.WarmPoolReference{Name: "agents"}, ClaimTimeoutSeconds: &timeout}
+				workload.Status = v1.AgentInstanceStatus{DesiredRevision: "desired", AppliedRevision: "applied", PodName: "instance", PodUID: "pod-uid", LastRestartToken: "request-1",
+					Lifecycle:    &v1.AgentInstanceLifecycleStatus{FinishedAt: &now, FinishedReason: "PodSucceeded", ExpiresAt: &now, ExpiredAt: &now, Reason: "ShutdownTimeReached"},
+					Provisioning: &v1.AgentInstanceProvisioningStatus{Mode: "Pool", PoolName: "pool", TemplateName: "snapshot", ConfigurationRevision: "revision", ClaimName: "claim", StartedAt: &now, CompletedAt: &now, TimedOutAt: &now, LaunchType: "warm"},
+					Timings:      &v1.AgentInstanceTimings{PodCreatedAt: &now, PodReadyAt: &now, SuspensionStartedAt: &now, SuspendedAt: &now, CleanupStartedAt: &now, CleanupCompletedAt: &now}}
 				workload.Status.Interaction = &v1.InteractionEndpointStatus{ServiceName: "access", RouteName: "access", URL: "https://agent.example.com", Port: 8080, GatewayRef: workload.Spec.Interaction.GatewayRef.DeepCopy()}
 				workload.Status.VolumeClaims = map[string]string{"arally-workspace": "arally-workspace-instance"}
 				object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(workload)
@@ -117,13 +129,17 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 					t.Fatal(err)
 				}
 				now := metav1.Now()
+				report.Spec = v1.ClusterCapabilitiesSpec{RuntimeMappings: []v1.RuntimeMapping{{RuntimeClassName: "custom", Family: "kata", Category: "VirtualMachine", ImageContract: "LinuxOCI"}}, StorageMappings: []v1.StorageMapping{{StorageClassName: "opaque", Type: "NFS"}}}
 				report.Status = v1.ClusterCapabilitiesStatus{ObservedAt: &now, ObservedGeneration: 1,
-					DefaultRuntime: &v1.RuntimeObservation{Name: "default", Family: "container", Category: "Container", ImageContract: "LinuxOCI", Status: "Observed", EligibleNodes: 1},
-					Runtimes:       []v1.RuntimeObservation{{Name: "kata", Handler: "kata-qemu", Family: "kata", Category: "VirtualMachine", ImageContract: "LinuxOCI", Status: "Observed", EligibleNodes: 1}},
-					NodeRuntimes:   []v1.NodeRuntimeObservation{{Implementation: "containerd", Version: "2.1.0", Nodes: 1}},
-					StorageClasses: []v1.StorageObservation{{Name: "nfs", Provisioner: "nfs.csi.k8s.io", Type: "NFS", Source: "Provisioner", Status: "Observed", Default: true, DriverRegistered: true}},
-					CSIDrivers:     []string{"nfs.csi.k8s.io"},
-					NetworkPolicy:  &v1.NetworkPolicyObservation{Status: "Supported", Reason: "ReadyProviderConfigurationObserved", Providers: []v1.NetworkPolicyProviderObservation{{Name: "calico-node", Namespace: "kube-system", Provider: "Calico", Status: "Supported"}}}}
+					CatalogRevision: "catalog-revision", Sections: []v1.DiscoverySectionObservation{{Name: "RuntimeDiscoveryReady", LastAttemptAt: &now, LastSuccessAt: &now}},
+					DefaultRuntime:   &v1.RuntimeObservation{Name: "default", Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", EligibleNodes: 1, Source: "NativeAPI"},
+					Runtimes:         []v1.RuntimeObservation{{Name: "kata", Handler: "kata-qemu", Family: "kata", Category: "VirtualMachine", ImageContract: "LinuxOCI", Status: "Observed", EligibleNodes: 1}},
+					NodeRuntimes:     []v1.NodeRuntimeObservation{{Implementation: "containerd", Version: "2.1.0", Nodes: 1}},
+					StorageClasses:   []v1.StorageObservation{{Name: "nfs", Provisioner: "nfs.csi.k8s.io", Type: "NFS", Source: "Provisioner", Status: "Observed", Default: true, DriverRegistered: true}},
+					CSIDrivers:       []string{"nfs.csi.k8s.io"},
+					CSIDriverDetails: []v1.CSIDriverObservation{{Name: "nfs.csi.k8s.io", RegisteredNodes: 1, TopologyKeys: []string{"zone"}}},
+					Snapshots:        &v1.SnapshotObservation{ClassAPIStatus: "Available", Classes: []v1.SnapshotClassObservation{{Name: "seed", Driver: "nfs.csi.k8s.io", DeletionPolicy: "Retain", Default: true}}},
+					NetworkPolicy:    &v1.NetworkPolicyObservation{Status: "Supported", Reason: "ReadyProviderConfigurationObserved", Providers: []v1.NetworkPolicyProviderObservation{{Name: "calico-node", Namespace: "kube-system", Provider: "Calico", Status: "Supported"}}}}
 				object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(report)
 				if err != nil {
 					t.Fatal(err)
@@ -150,8 +166,47 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 		})
 	}
 }
+func TestCapabilityAdmission(t *testing.T) {
+	crd := renderedCRD(t, "clustercapabilities")
+	schema := &apiextensions.JSONSchemaProps{}
+	if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(crd.Spec.Versions[0].Schema.OpenAPIV3Schema, schema, nil); err != nil {
+		t.Fatal(err)
+	}
+	structural, err := structuralschema.NewStructural(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := structuralcel.NewValidator(structural, true, 1_000_000)
+	if validator == nil {
+		t.Fatal("capability CEL rules missing")
+	}
+	for _, tc := range []struct {
+		name, resourceName, category, contract string
+		valid                                  bool
+	}{
+		{"canonical", "cluster", "VirtualMachine", "LinuxOCI", true},
+		{"other-name", "duplicate", "VirtualMachine", "LinuxOCI", false},
+		{"wasm", "cluster", "WebAssembly", "WasmWASI", true},
+		{"wasm-oci", "cluster", "WebAssembly", "LinuxOCI", false},
+		{"vm-wasm", "cluster", "VirtualMachine", "WasmWASI", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			object := map[string]interface{}{
+				"metadata": map[string]interface{}{"name": tc.resourceName},
+				"spec": map[string]interface{}{"runtimeMappings": []interface{}{map[string]interface{}{
+					"runtimeClassName": "custom", "family": "custom", "category": tc.category, "imageContract": tc.contract,
+				}}},
+			}
+			errs, _ := validator.Validate(context.Background(), field.NewPath("resource"), structural, object, nil, 1_000_000)
+			if (len(errs) == 0) != tc.valid {
+				t.Fatalf("valid=%v, errors=%v", tc.valid, errs)
+			}
+		})
+	}
+}
+
 func TestInteractionAdmission(t *testing.T) {
-	crd := renderedCRD(t, "agentclaims")
+	crd := renderedCRD(t, "agentinstances")
 	public := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties["interaction"]
 	schema := &apiextensions.JSONSchemaProps{}
 	if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(&public, schema, nil); err != nil {
@@ -197,7 +252,7 @@ func TestInteractionAdmission(t *testing.T) {
 }
 
 func TestExecutionPolicyAdmission(t *testing.T) {
-	crd := renderedCRD(t, "agentclaims")
+	crd := renderedCRD(t, "agentinstances")
 	public := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
 	schema := &apiextensions.JSONSchemaProps{}
 	if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(&public, schema, nil); err != nil {
@@ -212,7 +267,7 @@ func TestExecutionPolicyAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	cel := structuralcel.NewValidator(structural, false, 1_000_000)
-	base := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "team"}, "templateRef": map[string]interface{}{"name": "agent-template"}}
+	base := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "team"}, "definitionRef": map[string]interface{}{"name": "agent"}}
 	pool := func(name string, timeout int64) map[string]interface{} {
 		return map[string]interface{}{"warmPoolRef": map[string]interface{}{"name": name}, "claimTimeoutSeconds": timeout}
 	}
@@ -314,7 +369,7 @@ func admissionChecker(t *testing.T, plural string) func(map[string]interface{}) 
 }
 
 func TestTemplateReferenceAndSecurityAdmission(t *testing.T) {
-	accepts := admissionChecker(t, "agentclaims")
+	accepts := admissionChecker(t, "agentdefinitions")
 	base := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "demo"}, "templateRef": map[string]interface{}{"name": "agent-template"}}
 	for _, tc := range []struct {
 		name  string
@@ -351,8 +406,8 @@ func TestTemplateReferenceAndSecurityAdmission(t *testing.T) {
 }
 
 func TestBuiltinTemplateAdmission(t *testing.T) {
-	accepts := admissionChecker(t, "agentclaims")
-	base := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "demo"}, "template": "generic", "runtime": map[string]interface{}{"image": "example.com/agent:v1"}}
+	accepts := admissionChecker(t, "agentdefinitions")
+	base := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "demo"}, "template": "generic", "container": map[string]interface{}{"image": "example.com/agent:v1"}}
 	for _, tc := range []struct {
 		name  string
 		edit  func(map[string]interface{})
@@ -363,10 +418,10 @@ func TestBuiltinTemplateAdmission(t *testing.T) {
 		{"coding", func(v map[string]interface{}) { v["template"] = "coding" }, true},
 		{"unknown", func(v map[string]interface{}) { v["template"] = "unknown" }, false},
 		{"both-selectors", func(v map[string]interface{}) { v["templateRef"] = map[string]interface{}{"name": "generic"} }, false},
-		{"missing-runtime", func(v map[string]interface{}) { delete(v, "runtime") }, false},
-		{"missing-image", func(v map[string]interface{}) { v["runtime"] = map[string]interface{}{} }, false},
-		{"empty-image", func(v map[string]interface{}) { v["runtime"] = map[string]interface{}{"image": ""} }, false},
-		{"whitespace-image", func(v map[string]interface{}) { v["runtime"] = map[string]interface{}{"image": "agent v1"} }, false},
+		{"missing-runtime", func(v map[string]interface{}) { delete(v, "container") }, false},
+		{"missing-image", func(v map[string]interface{}) { v["container"] = map[string]interface{}{} }, false},
+		{"empty-image", func(v map[string]interface{}) { v["container"] = map[string]interface{}{"image": ""} }, false},
+		{"whitespace-image", func(v map[string]interface{}) { v["container"] = map[string]interface{}{"image": "agent v1"} }, false},
 		{"other-container", func(v map[string]interface{}) { v["agentContainer"] = "sidecar" }, false},
 		{"native-with-runtime", func(v map[string]interface{}) {
 			delete(v, "template")
@@ -391,64 +446,116 @@ func TestGroupNamespaceAdmission(t *testing.T) {
 }
 
 func TestAllAgentExamplesSurviveAdmissionAndPruning(t *testing.T) {
-	accepts := admissionChecker(t, "agentclaims")
-	paths, err := filepath.Glob("../../examples/*.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	nestedPaths, err := filepath.Glob("../../examples/*/*.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	paths = append(paths, nestedPaths...)
-	if len(paths) == 0 {
-		t.Fatal("AgentClaim sample resources are missing")
-	}
-	crd := renderedCRD(t, "agentclaims")
-	schema := &apiextensions.JSONSchemaProps{}
-	if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(crd.Spec.Versions[0].Schema.OpenAPIV3Schema, schema, nil); err != nil {
-		t.Fatal(err)
-	}
-	structural, err := structuralschema.NewStructural(schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checked := 0
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
+	for _, kind := range []struct{ name, plural string }{{"AgentDefinition", "agentdefinitions"}, {"AgentInstance", "agentinstances"}} {
+		accepts := admissionChecker(t, kind.plural)
+		paths, err := filepath.Glob("../../examples/*.yaml")
 		if err != nil {
 			t.Fatal(err)
 		}
-		var object map[string]interface{}
-		if err := yaml.Unmarshal(data, &object); err != nil {
+		nestedPaths, err := filepath.Glob("../../examples/*/*.yaml")
+		if err != nil {
 			t.Fatal(err)
 		}
-		if object["kind"] != "AgentClaim" {
-			continue
+		paths = append(paths, nestedPaths...)
+		if len(paths) == 0 {
+			t.Fatal("AgentInstance sample resources are missing")
 		}
-		checked++
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			if !accepts(object["spec"].(map[string]interface{})) {
-				t.Fatal("example fails CRD admission")
+		crd := renderedCRD(t, kind.plural)
+		schema := &apiextensions.JSONSchemaProps{}
+		if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(crd.Spec.Versions[0].Schema.OpenAPIV3Schema, schema, nil); err != nil {
+			t.Fatal(err)
+		}
+		structural, err := structuralschema.NewStructural(schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checked := 0
+		for _, path := range paths {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
 			}
-			before := runtime.DeepCopyJSON(object)
-			pruning.Prune(object, structural, true)
-			if !reflect.DeepEqual(before, object) {
-				t.Fatal("example contains unsupported fields lost at admission")
+			jsonData, err := yaml.YAMLToJSON(data)
+			if err != nil {
+				t.Fatal(err)
 			}
-		})
-	}
-	if checked == 0 {
-		t.Fatal("AgentClaim sample resources are missing")
+			// Match Kubernetes unstructured decoding: CEL integer fields need int64.
+			native := &unstructured.Unstructured{}
+			if err := native.UnmarshalJSON(jsonData); err != nil {
+				t.Fatal(err)
+			}
+			object := native.Object
+			if object["kind"] != kind.name {
+				continue
+			}
+			checked++
+			t.Run(filepath.Base(path), func(t *testing.T) {
+				if !accepts(object["spec"].(map[string]interface{})) {
+					validator, _, err := apiservervalidation.NewSchemaValidator(schema)
+					if err != nil {
+						t.Fatal(err)
+					}
+					errors := apiservervalidation.ValidateCustomResource(field.NewPath("resource"), object, validator)
+					if cel := structuralcel.NewValidator(structural, false, 1_000_000); cel != nil {
+						celErrors, _ := cel.Validate(context.Background(), field.NewPath("resource"), structural, object, nil, 1_000_000)
+						errors = append(errors, celErrors...)
+					}
+					t.Fatalf("%s fails CRD admission: %v", path, errors.ToAggregate())
+				}
+				before := runtime.DeepCopyJSON(object)
+				pruning.Prune(object, structural, true)
+				if !reflect.DeepEqual(before, object) {
+					t.Fatal("example contains unsupported fields lost at admission")
+				}
+			})
+		}
+		if checked == 0 {
+			t.Fatal("AgentInstance sample resources are missing")
+		}
 	}
 }
 
-func TestClaimSchemaDoesNotDuplicateNativePodConfiguration(t *testing.T) {
-	crd := renderedCRD(t, "agentclaims")
+func TestInstanceSchemaContainsOnlyInstanceConfiguration(t *testing.T) {
+	crd := renderedCRD(t, "agentinstances")
 	props := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties
-	for _, field := range []string{"parameters", "podTemplate", "service"} {
+	for _, field := range []string{"parameters", "podTemplate", "service", "template", "templateRef", "container", "runtime", "security", "modelProvider"} {
 		if _, exists := props[field]; exists {
 			t.Fatalf("native configuration duplicated in Claim field %s", field)
 		}
+	}
+}
+
+func TestInstanceDefinitionAndWorkspaceAdmission(t *testing.T) {
+	accepts := admissionChecker(t, "agentinstances")
+	base := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "demo"}, "definitionRef": map[string]interface{}{"name": "assistant"}}
+	if !accepts(base) {
+		t.Fatal("definition reference rejected")
+	}
+	for _, edit := range []func(map[string]interface{}){
+		func(value map[string]interface{}) { delete(value, "definitionRef") },
+		func(value map[string]interface{}) {
+			value["definitionRef"] = map[string]interface{}{"name": "other/assistant"}
+		},
+		func(value map[string]interface{}) { value["revision"] = "latest" },
+		func(value map[string]interface{}) {
+			value["workspace"] = map[string]interface{}{"mountPath": "/workspace"}
+		},
+		func(value map[string]interface{}) {
+			value["workspace"] = map[string]interface{}{"mountPath": "/workspace", "existingClaimRef": map[string]interface{}{"name": "state"}, "volumeClaimTemplate": map[string]interface{}{}}
+		},
+	} {
+		value := runtime.DeepCopyJSON(base)
+		edit(value)
+		if accepts(value) {
+			t.Fatalf("invalid instance accepted: %+v", value)
+		}
+	}
+	base["workspace"] = map[string]interface{}{"mountPath": "/workspace", "existingClaimRef": map[string]interface{}{"name": "state"}}
+	if !accepts(base) {
+		t.Fatal("retained workspace rejected")
+	}
+	definitionAccepts := admissionChecker(t, "agentdefinitions")
+	if definitionAccepts(map[string]interface{}{"agentGroupRef": base["agentGroupRef"], "template": "assistant", "container": map[string]interface{}{"image": "example/assistant:v1"}, "workspace": base["workspace"]}) {
+		t.Fatal("reusable definition accepted a user-specific workspace")
 	}
 }

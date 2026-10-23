@@ -1,0 +1,12 @@
+# Replace the image with your agent image; apply before agent.yaml.
+apiVersion: arally.io/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: demo-agent
+  namespace: arally-demo
+spec:
+  agentGroupRef:
+    name: demo
+  template: generic
+  container:
+    image: registry.example.com/my-agent:v1

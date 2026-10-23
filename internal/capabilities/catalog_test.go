@@ -42,8 +42,15 @@ func TestNetworkCatalogFlagsAndControllerPresence(t *testing.T) {
 			ds.Spec.Template.Spec.Containers[0].Args = tc.args
 			cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cilium-config", Namespace: ds.Namespace}}
 			s := Discover(context.Background(), testClient(t, ds, cm))
-			if s.NetworkPolicy.Status != tc.want || s.NetworkPolicy.EnforcementVerified {
+			want := tc.want
+			if want == "Unsupported" {
+				want = "Unknown"
+			}
+			if s.NetworkPolicy.Status != want || s.NetworkPolicy.EnforcementVerified {
 				t.Fatalf("configuration evidence: %+v", s.NetworkPolicy)
+			}
+			if len(s.NetworkPolicy.Providers) != 1 || s.NetworkPolicy.Providers[0].Status != tc.want {
+				t.Fatalf("provider-scoped result lost: %+v", s.NetworkPolicy.Providers)
 			}
 		})
 	}

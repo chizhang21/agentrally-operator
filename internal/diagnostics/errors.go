@@ -47,7 +47,7 @@ func Classify(err error) (reason, message string) {
 		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.As(err, &networkError) {
 		return "DependencyReadFailed", "cannot read a required Kubernetes resource; check API server connectivity and retry"
 	}
-	return "InvalidConfiguration", "the AgentClaim configuration is invalid; check its fields and resource references"
+	return "InvalidConfiguration", "the AgentInstance configuration is invalid; check its fields and resource references"
 }
 
 // SafeError is the public error boundary for status, Events and logs.

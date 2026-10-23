@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,7 +32,7 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Name: "user-report", Generation: 3, Labels: map[string]string{"user": "keep"}}}
+	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Name: "cluster", Generation: 3, Labels: map[string]string{"user": "keep"}}}
 	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs"}, Provisioner: "nfs.csi.k8s.io"}
 	driver := &storagev1.CSIDriver{ObjectMeta: metav1.ObjectMeta{Name: sc.Provisioner}}
 	base := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(report).WithObjects(report, sc, driver).Build()
@@ -70,7 +69,7 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.RequeueAfter != capabilities.RefreshInterval {
+		if result.RequeueAfter <= 0 || result.RequeueAfter > capabilities.RefreshInterval {
 			t.Fatal("periodic refresh missing")
 		}
 	}
@@ -99,6 +98,9 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 	transition := meta.FindStatusCondition(current.Status.Conditions, "DiscoveryReady").LastTransitionTime
 	stale := metav1.NewTime(time.Now().Add(-3 * time.Minute))
 	current.Status.ObservedAt = &stale
+	for i := range current.Status.Sections {
+		current.Status.Sections[i].LastAttemptAt = &stale
+	}
 	if err := base.Status().Update(ctx, current); err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +112,7 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 	if err := base.Delete(ctx, driver); err != nil {
 		t.Fatal(err)
 	}
+	r.mapDependency(ctx, driver)
 	run()
 	current = get()
 	if len(current.Status.CSIDrivers) != 0 || current.Status.StorageClasses[0].Status != "Unknown" || current.Status.StorageClasses[0].DriverRegistered {
@@ -121,6 +124,8 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 		}
 		return c.List(ctx, list, opts...)
 	}})
+	r.Now = func() time.Time { return time.Now().Add(capabilities.RefreshInterval) }
+	r.mapDependency(ctx, sc)
 	run()
 	current = get()
 	testutil.Condition(t, current.Status.Conditions, "StorageDiscoveryReady", metav1.ConditionFalse)
@@ -131,17 +136,13 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 	if requests := r.mapDependency(ctx, sc); len(requests) != 1 || requests[0].Name != report.Name {
 		t.Fatal("dependency changes do not enqueue report")
 	}
-	if err := base.Delete(ctx, current); err != nil {
-		t.Fatal(err)
-	}
+	// Noncanonical legacy reports do not trigger native scans or status writes.
 	before := patches
-	result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Name: report.Name}})
+	result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Name: "user-report"}})
 	if err != nil || result.RequeueAfter != 0 || patches != before {
-		t.Fatal("deleted report was recreated or refreshed")
+		t.Fatal("noncanonical report was reconciled")
 	}
-	if err := base.Get(ctx, client.ObjectKeyFromObject(report), &v1.ClusterCapabilities{}); !apierrors.IsNotFound(err) {
-		t.Fatal("report still exists")
-	}
+
 }
 
 var ctx = context.Background()

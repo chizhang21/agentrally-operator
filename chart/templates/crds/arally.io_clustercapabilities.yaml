@@ -56,9 +56,80 @@ spec:
           metadata:
             type: object
           spec:
+            properties:
+              runtimeMappings:
+                description: RuntimeMappings apply only to the named classes. Missing
+                  classes are not invented.
+                items:
+                  description: |-
+                    RuntimeMapping classifies one existing RuntimeClass. Administrator declarations
+                    do not verify the handler, alter scheduling or bypass native reference checks.
+                  properties:
+                    category:
+                      enum:
+                      - Container
+                      - UserSpaceKernel
+                      - VirtualMachine
+                      - WebAssembly
+                      type: string
+                    family:
+                      minLength: 1
+                      type: string
+                    imageContract:
+                      enum:
+                      - LinuxOCI
+                      - WasmWASI
+                      type: string
+                    runtimeClassName:
+                      minLength: 1
+                      type: string
+                  required:
+                  - category
+                  - family
+                  - imageContract
+                  - runtimeClassName
+                  type: object
+                  x-kubernetes-validations:
+                  - message: WebAssembly requires WasmWASI; other categories require
+                      LinuxOCI
+                    rule: (self.category == 'WebAssembly') == (self.imageContract
+                      == 'WasmWASI')
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - runtimeClassName
+                x-kubernetes-list-type: map
+              storageMappings:
+                items:
+                  properties:
+                    storageClassName:
+                      minLength: 1
+                      type: string
+                    type:
+                      description: 'Type describes the backend; Block does not mean
+                        PVC volumeMode: Block.'
+                      enum:
+                      - NFS
+                      - Block
+                      - Local
+                      - Unknown
+                      type: string
+                  required:
+                  - storageClassName
+                  - type
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - storageClassName
+                x-kubernetes-list-type: map
             type: object
           status:
             properties:
+              catalogRevision:
+                description: CatalogRevision identifies the embedded classification
+                  rules.
+                type: string
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -118,6 +189,48 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              csiDriverDetails:
+                items:
+                  description: |-
+                    CSIDriverObservation reports native driver behavior and node registration.
+                    Registration is not proof of current driver health, I/O or optional CSI RPCs.
+                  properties:
+                    attachRequired:
+                      type: boolean
+                    fsGroupPolicy:
+                      description: |-
+                        FSGroupPolicy specifies if a CSI Driver supports modifying
+                        volume ownership and permissions of the volume to be mounted.
+                        More modes may be added in the future.
+                      type: string
+                    name:
+                      type: string
+                    registeredNodes:
+                      format: int32
+                      type: integer
+                    topologyKeys:
+                      description: TopologyKeys contains key names, without publishing
+                        driver-specific node IDs.
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    volumeLifecycleModes:
+                      items:
+                        description: |-
+                          VolumeLifecycleMode is an enumeration of possible usage modes for a volume
+                          provided by a CSI driver. More modes may be added in the future.
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                  required:
+                  - name
+                  - registeredNodes
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               csiDrivers:
                 items:
                   type: string
@@ -140,7 +253,89 @@ spec:
                     type: string
                   name:
                     type: string
+                  overhead:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: Overhead is the RuntimeClass fixed Pod overhead,
+                      not measured consumption.
+                    type: object
                   reason:
+                    type: string
+                  rule:
+                    description: Rule identifies the built-in rule or administrator
+                      mapping.
+                    type: string
+                  scheduling:
+                    description: |-
+                      Scheduling specifies the scheduling constraints for nodes supporting a
+                      RuntimeClass.
+                    properties:
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          nodeSelector lists labels that must be present on nodes that support this
+                          RuntimeClass. Pods using this RuntimeClass can only be scheduled to a
+                          node matched by this selector. The RuntimeClass nodeSelector is merged
+                          with a pod's existing nodeSelector. Any conflicts will cause the pod to
+                          be rejected in admission.
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      tolerations:
+                        description: |-
+                          tolerations are appended (excluding duplicates) to pods running with this
+                          RuntimeClass during admission, effectively unioning the set of nodes
+                          tolerated by the pod and the RuntimeClass.
+                        items:
+                          description: |-
+                            The pod this Toleration is attached to tolerates any taint that matches
+                            the triple <key,value,effect> using the matching operator <operator>.
+                          properties:
+                            effect:
+                              description: |-
+                                Effect indicates the taint effect to match. Empty means match all taint effects.
+                                When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: |-
+                                Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                              type: string
+                            operator:
+                              description: |-
+                                Operator represents a key's relationship to the value.
+                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Exists is equivalent to wildcard for value, so that a pod can
+                                tolerate all taints of a particular category.
+                              type: string
+                            tolerationSeconds:
+                              description: |-
+                                TolerationSeconds represents the period of time the toleration (which must be
+                                of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                negative values will be treated as 0 (evict immediately) by the system.
+                              format: int64
+                              type: integer
+                            value:
+                              description: |-
+                                Value is the taint value the toleration matches to.
+                                If the operator is Exists, the value should be empty, otherwise just a regular string.
+                              type: string
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                  source:
+                    description: Source identifies classification evidence, not a
+                      successful runtime probe.
+                    enum:
+                    - NativeAPI
+                    - BuiltInCatalog
+                    - AdministratorDeclared
                     type: string
                   status:
                     enum:
@@ -171,6 +366,12 @@ spec:
                         provider:
                           type: string
                         reason:
+                          type: string
+                        rule:
+                          type: string
+                        source:
+                          description: Source and Rule identify a versioned configuration
+                            signature.
                           type: string
                         status:
                           description: Supported means observed ready configuration,
@@ -252,7 +453,89 @@ spec:
                       type: string
                     name:
                       type: string
+                    overhead:
+                      additionalProperties:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: Overhead is the RuntimeClass fixed Pod overhead,
+                        not measured consumption.
+                      type: object
                     reason:
+                      type: string
+                    rule:
+                      description: Rule identifies the built-in rule or administrator
+                        mapping.
+                      type: string
+                    scheduling:
+                      description: |-
+                        Scheduling specifies the scheduling constraints for nodes supporting a
+                        RuntimeClass.
+                      properties:
+                        nodeSelector:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            nodeSelector lists labels that must be present on nodes that support this
+                            RuntimeClass. Pods using this RuntimeClass can only be scheduled to a
+                            node matched by this selector. The RuntimeClass nodeSelector is merged
+                            with a pod's existing nodeSelector. Any conflicts will cause the pod to
+                            be rejected in admission.
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        tolerations:
+                          description: |-
+                            tolerations are appended (excluding duplicates) to pods running with this
+                            RuntimeClass during admission, effectively unioning the set of nodes
+                            tolerated by the pod and the RuntimeClass.
+                          items:
+                            description: |-
+                              The pod this Toleration is attached to tolerates any taint that matches
+                              the triple <key,value,effect> using the matching operator <operator>.
+                            properties:
+                              effect:
+                                description: |-
+                                  Effect indicates the taint effect to match. Empty means match all taint effects.
+                                  When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                                type: string
+                              key:
+                                description: |-
+                                  Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                  If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                                type: string
+                              operator:
+                                description: |-
+                                  Operator represents a key's relationship to the value.
+                                  Valid operators are Exists and Equal. Defaults to Equal.
+                                  Exists is equivalent to wildcard for value, so that a pod can
+                                  tolerate all taints of a particular category.
+                                type: string
+                              tolerationSeconds:
+                                description: |-
+                                  TolerationSeconds represents the period of time the toleration (which must be
+                                  of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                  it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                  negative values will be treated as 0 (evict immediately) by the system.
+                                format: int64
+                                type: integer
+                              value:
+                                description: |-
+                                  Value is the taint value the toleration matches to.
+                                  If the operator is Exists, the value should be empty, otherwise just a regular string.
+                                type: string
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      type: object
+                    source:
+                      description: Source identifies classification evidence, not
+                        a successful runtime probe.
+                      enum:
+                      - NativeAPI
+                      - BuiltInCatalog
+                      - AdministratorDeclared
                       type: string
                     status:
                       enum:
@@ -271,9 +554,112 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              sections:
+                items:
+                  properties:
+                    lastAttemptAt:
+                      description: LastAttemptAt records a direct API audit, including
+                        failures.
+                      format: date-time
+                      type: string
+                    lastSuccessAt:
+                      description: |-
+                        LastSuccessAt advances only after a successful direct API audit. Reading
+                        informer cache or refreshing another section cannot renew this evidence.
+                      format: date-time
+                      type: string
+                    name:
+                      description: Name is the corresponding discovery condition type.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              snapshots:
+                description: |-
+                  SnapshotObservation reports VolumeSnapshotClass API availability, not backend
+                  snapshot creation or restore success. Pre-provisioned snapshots may have no class.
+                properties:
+                  classAPIStatus:
+                    enum:
+                    - Available
+                    - Unavailable
+                    - Unknown
+                    type: string
+                  classes:
+                    items:
+                      properties:
+                        default:
+                          type: boolean
+                        deletionPolicy:
+                          type: string
+                        driver:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - default
+                      - deletionPolicy
+                      - driver
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  reason:
+                    type: string
+                required:
+                - classAPIStatus
+                type: object
               storageClasses:
                 items:
                   properties:
+                    allowVolumeExpansion:
+                      description: AllowVolumeExpansion is StorageClass intent, not
+                        a successful resize test.
+                      type: boolean
+                    allowedTopologies:
+                      items:
+                        description: |-
+                          A topology selector term represents the result of label queries.
+                          A null or empty topology selector term matches no objects.
+                          The requirements of them are ANDed.
+                          It provides a subset of functionality as NodeSelectorTerm.
+                          This is an alpha feature and may change in the future.
+                        properties:
+                          matchLabelExpressions:
+                            description: A list of topology selector requirements
+                              by labels.
+                            items:
+                              description: |-
+                                A topology selector requirement is a selector that matches given label.
+                                This is an alpha feature and may change in the future.
+                              properties:
+                                key:
+                                  description: The label key that the selector applies
+                                    to.
+                                  type: string
+                                values:
+                                  description: |-
+                                    An array of string values. One value must match the label to be selected.
+                                    Each entry in Values is ORed.
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - key
+                              - values
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      type: array
                     default:
                       type: boolean
                     driverRegistered:
@@ -285,6 +671,8 @@ spec:
                     reason:
                       type: string
                     reclaimPolicy:
+                      type: string
+                    rule:
                       type: string
                     source:
                       type: string
@@ -319,6 +707,9 @@ spec:
                 x-kubernetes-list-type: map
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: ClusterCapabilities must be named cluster
+          rule: self.metadata.name == 'cluster'
     served: true
     storage: true
     subresources:

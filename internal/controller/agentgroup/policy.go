@@ -35,7 +35,28 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 		return false, "NamespaceTerminating", "Waiting for the dedicated namespace to finish deletion", nil
 	}
 	quota := &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: "arally-quota", Namespace: ns.Name}}
+	limits := &corev1.LimitRange{ObjectMeta: metav1.ObjectMeta{Name: "arally-limits", Namespace: ns.Name}}
 	policy := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "arally-group-policy", Namespace: ns.Name}}
+	if group.Spec.LimitRange != nil {
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, limits, func() error {
+			if err := controller.PrepareOwned(limits, group, r.Scheme); err != nil {
+				return err
+			}
+			limits.Spec = *group.Spec.LimitRange.DeepCopy()
+			defaultLimitRange(&limits.Spec)
+			return nil
+		}); err != nil {
+			return false, "", "", err
+		}
+	} else {
+		done, err := controller.DeleteOwned(ctx, r.Client, limits, group)
+		if err != nil {
+			return false, "", "", err
+		}
+		if !done {
+			return false, "PolicyDeleting", "Waiting for the removed LimitRange to finish deletion", nil
+		}
+	}
 	if group.Spec.Quota != nil {
 		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, quota, func() error {
 			if err := controller.PrepareOwned(quota, group, r.Scheme); err != nil {
@@ -89,4 +110,28 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 		}
 	}
 	return true, "ResourcesPrepared", "Group namespace and policies are ready", nil
+}
+
+// Match native Container defaults before CreateOrUpdate compares the Spec.
+// Kubernetes applies these on LimitRange writes, not on embedded Group intent:
+// https://github.com/kubernetes/kubernetes/blob/v1.34.1/pkg/apis/core/v1/defaults.go#L348-L376
+func defaultLimitRange(spec *corev1.LimitRangeSpec) {
+	fillMissing := func(target *corev1.ResourceList, fallback corev1.ResourceList) {
+		for name, quantity := range fallback {
+			if _, exists := (*target)[name]; !exists {
+				if *target == nil {
+					*target = corev1.ResourceList{}
+				}
+				(*target)[name] = quantity.DeepCopy()
+			}
+		}
+	}
+	for i := range spec.Limits {
+		item := &spec.Limits[i]
+		if item.Type == corev1.LimitTypeContainer {
+			fillMissing(&item.Default, item.Max)
+			fillMissing(&item.DefaultRequest, item.Default)
+			fillMissing(&item.DefaultRequest, item.Min)
+		}
+	}
 }

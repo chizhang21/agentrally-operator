@@ -54,13 +54,18 @@ spec:
             type: object
           spec:
             properties:
+              allocationPaused:
+                description: |-
+                  AllocationPaused blocks new Sandboxinstances. Submitted allocations, running
+                  executions, suspension and cleanup continue normally.
+                type: boolean
               interactionDefaults:
                 description: InteractionDefaults supplies optional Group-wide ingress
                   defaults.
                 properties:
                   httpRoute:
-                    description: HTTPRoute is ignored by OpenShiftRoute Claims and
-                      does not affect Group readiness.
+                    description: HTTPRoute is ignored by OpenShiftRoute instances
+                      and does not affect Group readiness.
                     properties:
                       domain:
                         description: |-
@@ -94,6 +99,83 @@ spec:
                         - name
                         type: object
                     type: object
+                type: object
+              limitRange:
+                description: |-
+                  LimitRange supplies native per-container/Pod/PVC defaults and limits.
+                  Policy changes apply when Kubernetes admits new resources.
+                properties:
+                  limits:
+                    description: Limits is the list of LimitRangeItem objects that
+                      are enforced.
+                    items:
+                      description: LimitRangeItem defines a min/max usage limit for
+                        any resource that matches on kind.
+                      properties:
+                        default:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: Default resource requirement limit value by
+                            resource name if resource limit is omitted.
+                          type: object
+                        defaultRequest:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: DefaultRequest is the default resource requirement
+                            request value by resource name if resource request is
+                            omitted.
+                          type: object
+                        max:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: Max usage constraints on this kind by resource
+                            name.
+                          type: object
+                        maxLimitRequestRatio:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: MaxLimitRequestRatio if specified, the named
+                            resource must have a request and limit that are both non-zero
+                            where limit divided by request is less than or equal to
+                            the enumerated value; this represents the max burst for
+                            the named resource.
+                          type: object
+                        min:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: Min usage constraints on this kind by resource
+                            name.
+                          type: object
+                        type:
+                          description: Type of resource that this limit applies to.
+                          type: string
+                      required:
+                      - type
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                required:
+                - limits
                 type: object
               namespace:
                 description: |-
@@ -586,6 +668,28 @@ spec:
                 - Restricted
                 - Baseline
                 type: string
+              prewarming:
+                description: |-
+                  Prewarming controls only Arally-managed pools. Omitted preserves manual
+                  scaling and removes unused pools immediately; external pools are never scaled.
+                properties:
+                  idleTTLSeconds:
+                    description: |-
+                      IdleTTLSeconds retains an unused pool before foreground deletion.
+                      Zero removes unused capacity immediately. Group deletion bypasses this delay.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  replicas:
+                    description: |-
+                      Replicas is the desired number of unclaimed Sandboxes per managed pool.
+                      These run real applications and consume compute, storage and credentials.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                required:
+                - replicas
+                type: object
               quota:
                 description: ResourceQuotaSpec defines the desired hard limits to
                   enforce for Quota.
@@ -723,6 +827,96 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              summary:
+                description: |-
+                  Summary observes instances and capacity in the owned namespace. Counts may
+                  overlap (for example Ready and Available) and are eventually consistent.
+                properties:
+                  instances:
+                    properties:
+                      available:
+                        format: int32
+                        type: integer
+                      expired:
+                        format: int32
+                        type: integer
+                      pending:
+                        description: Pending counts non-expired, non-deleting instances
+                          that are neither Ready nor suspended.
+                        format: int32
+                        type: integer
+                      ready:
+                        format: int32
+                        type: integer
+                      suspended:
+                        format: int32
+                        type: integer
+                      total:
+                        format: int32
+                        type: integer
+                    required:
+                    - available
+                    - expired
+                    - pending
+                    - ready
+                    - suspended
+                    - total
+                    type: object
+                  pools:
+                    properties:
+                      desiredSpareReplicas:
+                        description: DesiredSpareReplicas sums native pool spec.replicas.
+                        format: int32
+                        type: integer
+                      readySpareReplicas:
+                        description: |-
+                          ReadySpareReplicas sums readyReplicas only for current-generation pool status.
+                          It excludes terminating/stuck resources and is not total physical usage.
+                        format: int32
+                        type: integer
+                      total:
+                        description: Total includes managed and external pools in
+                          the namespace.
+                        format: int32
+                        type: integer
+                    required:
+                    - desiredSpareReplicas
+                    - readySpareReplicas
+                    - total
+                    type: object
+                  storage:
+                    properties:
+                      capacity:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Capacity is reported provisioned capacity, not
+                          actual disk usage.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      pvcs:
+                        description: PVCs includes all PVCs in the namespace, including
+                          externally created ones.
+                        format: int32
+                        type: integer
+                      requested:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Requested is the sum of PVC storage requests,
+                          including pending/deleting PVCs.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    required:
+                    - capacity
+                    - pvcs
+                    - requested
+                    type: object
+                required:
+                - instances
+                - pools
+                - storage
+                type: object
             type: object
         required:
         - spec

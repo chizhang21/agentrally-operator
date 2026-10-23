@@ -1,74 +1,15 @@
-# Complete built-in Claim. Replace placeholders and prepare every referenced dependency before applying.
+# Complete instance. Apply full-definition.yaml first. Replace placeholders and prepare every referenced dependency before applying.
 apiVersion: arally.io/v1alpha1
-kind: AgentClaim
+kind: AgentInstance
 metadata:
   name: builtin-agent
   namespace: arally-demo
 spec:
   agentGroupRef:
     name: demo
-  template: coding
-  agentContainer: agent
-  runtime:
-    image: registry.example.com/coding-agent-with-browser:replace-me
-    imagePullPolicy: IfNotPresent
-    command: [/bin/agent]
-    args: [serve, --port, "8080"]
-    runtimeClassName: your-runtime-class
-    imagePullSecrets:
-    - name: registry-credentials
-    env:
-    - name: LOG_LEVEL
-      value: debug
-    - name: CHANNEL_TOKEN
-      valueFrom:
-        secretKeyRef:
-          name: agent-credentials
-          key: channel-token
-    envFrom:
-    - configMapRef:
-        name: agent-settings
-    - secretRef:
-        name: agent-credentials
-    resources:
-      requests:
-        cpu: "4"
-        memory: 8Gi
-      limits:
-        cpu: "8"
-        memory: 16Gi
-    ports:
-    - name: http
-      containerPort: 8080
-    readinessProbe:
-      httpGet:
-        path: /healthz
-        port: http
-      periodSeconds: 5
-    startupProbe:
-      httpGet:
-        path: /healthz
-        port: http
-      periodSeconds: 2
-      failureThreshold: 60
-    livenessProbe:
-      httpGet:
-        path: /healthz
-        port: http
-      periodSeconds: 30
-      failureThreshold: 3
-  security:
-    profile: Restricted
-    serviceAccountName: agent-runtime
-    # Optional: choose an admitted non-root UID; omit for OpenShift's allocated UID.
-    # runAsUser: 1000
+  definitionRef:
+    name: builtin-agent
   operatingMode: Running
-  modelProvider:
-    baseURL: https://model.example.com/v1
-    model: your-model
-    apiKeySecretRef:
-      name: model-credentials
-      key: api-key
   workspace:
     mountPath: /workspace
     readOnly: false
@@ -96,7 +37,7 @@ spec:
     # shutdownTime: "2099-01-01T00:00:00Z"
   provisioning:
     claimTimeoutSeconds: 300
-    # Optional: Arally creates a named matching pool if missing. Existing external
-    # pools require templateRef instead of a built-in environment.
+    # Optional: select an existing external pool referencing the matching
+    # Group-owned Arally configuration snapshot. Arally does not create this pool.
     # warmPoolRef:
     #   name: coding-pool

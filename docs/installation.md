@@ -32,7 +32,7 @@ Helm does not install or check these dependencies. Missing `Sandbox` or
 `SandboxTemplate` APIs prevent normal Operator startup; installation with `--wait`
 then times out. Missing `SandboxClaim` or `SandboxWarmPool` APIs block allocation
 with `PoolUnavailable`. If all CRDs exist but the upstream controller is
-unavailable, Arally can start, but new AgentClaims wait for allocation and
+unavailable, Arally can start, but new AgentInstances wait for allocation and
 eventually time out. The readiness probe does not verify upstream controller health.
 
 ### Install Arally
@@ -54,6 +54,11 @@ Use adoption only for resources belonging to your Arally installation.
 `--wait --timeout 5m` waits up to five minutes for the release's workloads and
 dependencies to be ready. The Operator creates `ClusterCapabilities/cluster`
 automatically.
+
+Snapshot-initialized workspaces additionally need the VolumeSnapshot CRDs,
+snapshot controller and a compatible CSI driver. Arally reads this API only for
+instances using snapshot sources; it is not a startup dependency. See
+[workspace initialization](usage.md#initialize-from-a-volumesnapshot).
 
 See [chart values](../chart/values.yaml) for available settings,
 [Connector setup](outbound-connector.md#installation) for backend integration,
@@ -126,7 +131,7 @@ Keep the `--set` argument quoted so shells such as zsh do not expand the bracket
 
 The Secret applies to the Operator Pod, including its optional Connector worker.
 Private Agent images need their own pull Secrets in the Group namespace,
-configured in the Claim or SandboxTemplate.
+configured in AgentDefinition.container or SandboxTemplate.
 
 ### Updating a dev build
 

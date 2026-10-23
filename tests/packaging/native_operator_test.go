@@ -97,7 +97,7 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 							}
 						}
 					}
-					if resource == "gateways" || resource == "pods" || resource == "persistentvolumeclaims" || resource == "secrets" || resource == "serviceaccounts" || resource == "nodes" || resource == "configmaps" || resource == "daemonsets" || resource == "runtimeclasses" || resource == "storageclasses" || resource == "csidrivers" {
+					if resource == "gateways" || resource == "pods" || resource == "persistentvolumeclaims" || resource == "secrets" || resource == "serviceaccounts" || resource == "nodes" || resource == "configmaps" || resource == "daemonsets" || resource == "runtimeclasses" || resource == "storageclasses" || resource == "csidrivers" || resource == "csinodes" || resource == "volumesnapshotclasses" {
 						discoveryReads[resource] = true
 						for _, verb := range rule.Verbs {
 							if verb != "get" && verb != "list" && verb != "watch" {
@@ -118,7 +118,7 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 			}
 		}
 	}
-	for _, resource := range []string{"gateways", "pods", "persistentvolumeclaims", "secrets", "serviceaccounts", "nodes", "configmaps", "daemonsets", "runtimeclasses", "storageclasses", "csidrivers"} {
+	for _, resource := range []string{"gateways", "pods", "persistentvolumeclaims", "secrets", "serviceaccounts", "nodes", "configmaps", "daemonsets", "runtimeclasses", "storageclasses", "csidrivers", "csinodes", "volumesnapshotclasses"} {
 		if !discoveryReads[resource] {
 			t.Fatalf("discovery read permission missing: %s", resource)
 		}

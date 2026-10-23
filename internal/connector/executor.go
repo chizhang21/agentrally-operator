@@ -40,7 +40,7 @@ type Executor struct {
 	Client dynamic.Interface
 }
 
-// Execute only calls the main endpoint of the three explicitly allowed CRs.
+// Execute only calls the main endpoint of the four explicitly allowed CRs.
 // The API server, rather than this relay, validates spec and owns status.
 func (e Executor) Execute(ctx context.Context, req Request) Response {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -121,8 +121,10 @@ func validateRequest(req Request) (string, error) {
 	switch req.Resource {
 	case "agentgroups":
 		kind = "AgentGroup"
-	case "agentclaims":
-		kind = "AgentClaim"
+	case "agentinstances":
+		kind = "AgentInstance"
+	case "agentdefinitions":
+		kind = "AgentDefinition"
 	case "clustercapabilities":
 		kind = "ClusterCapabilities"
 		if req.Method != http.MethodGet {
@@ -131,9 +133,9 @@ func validateRequest(req Request) (string, error) {
 	default:
 		return "", apierrors.NewBadRequest("unsupported resource")
 	}
-	if req.Resource == "agentclaims" {
+	if req.Resource == "agentinstances" || req.Resource == "agentdefinitions" {
 		if req.Namespace == "" || len(validation.IsDNS1123Label(req.Namespace)) != 0 {
-			return "", apierrors.NewBadRequest("agentclaims require a valid namespace")
+			return "", apierrors.NewBadRequest("agentdefinitions and agentinstances require a valid namespace")
 		}
 	} else if req.Namespace != "" {
 		return "", apierrors.NewBadRequest("cluster scoped resources cannot specify namespace")

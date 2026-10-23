@@ -1,0 +1,71 @@
+apiVersion: arally.io/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: openclaw
+  namespace: arally-openclaw
+spec:
+  agentGroupRef:
+    name: openclaw
+  template: assistant
+  security:
+    profile: Restricted
+    runAsUser: 1000
+  container:
+    image: ghcr.io/openclaw/openclaw:2026.10.4
+    command: [/bin/sh, -ec]
+    args:
+    - |
+      umask 077
+      mkdir -p "$OPENCLAW_STATE_DIR"
+      if [ ! -e "$OPENCLAW_CONFIG_PATH" ]; then
+        printf '%s\n' '{"gateway":{"mode":"local","controlUi":{"enabled":false}}}' > "$OPENCLAW_CONFIG_PATH"
+      fi
+      exec node /app/dist/index.js gateway --bind lan --port 18789 --auth token
+    env:
+    - name: HOME
+      value: /workspace
+    - name: OPENCLAW_HOME
+      value: /workspace
+    - name: OPENCLAW_STATE_DIR
+      value: /workspace/.openclaw
+    - name: OPENCLAW_CONFIG_DIR
+      value: /workspace/.openclaw
+    - name: OPENCLAW_CONFIG_PATH
+      value: /workspace/.openclaw/openclaw.json
+    - name: OPENCLAW_WORKSPACE_DIR
+      value: /workspace/.openclaw/workspace
+    - name: OPENCLAW_GATEWAY_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: alice-gateway
+          key: token
+    ports:
+    - name: http
+      containerPort: 18789
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    startupProbe:
+      httpGet:
+        path: /startupz
+        port: http
+      timeoutSeconds: 5
+      periodSeconds: 5
+      failureThreshold: 60
+    readinessProbe:
+      httpGet:
+        path: /startupz
+        port: http
+      timeoutSeconds: 5
+      periodSeconds: 5
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: http
+      timeoutSeconds: 5
+      periodSeconds: 30
+      failureThreshold: 3

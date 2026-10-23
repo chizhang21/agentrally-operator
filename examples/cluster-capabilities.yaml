@@ -1,0 +1,15 @@
+# Replace these names with existing native classes. Unmatched mappings do not
+# create capabilities. See docs/cluster-capabilities.md for evidence boundaries.
+apiVersion: arally.io/v1alpha1
+kind: ClusterCapabilities
+metadata:
+  name: cluster
+spec:
+  runtimeMappings:
+    - runtimeClassName: company-kata
+      family: kata
+      category: VirtualMachine
+      imageContract: LinuxOCI
+  storageMappings:
+    - storageClassName: company-workspaces
+      type: NFS

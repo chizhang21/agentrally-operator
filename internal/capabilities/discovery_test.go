@@ -86,6 +86,9 @@ func TestRuntimeDiscoveryPreservesFamiliesAndChecksScheduling(t *testing.T) {
 	windows.Labels[corev1.LabelOSStable] = "windows"
 	c := testClient(t, linuxNode("ready"), tainted, unschedulable, windows, kata, alias, unknown, wasm, gvisor)
 	status := Discover(context.Background(), c)
+	if status.DefaultRuntime.Category != "Unknown" || status.DefaultRuntime.ImageContract != "Unknown" {
+		t.Fatal("CRI version was treated as proof of default executor identity")
+	}
 	if status.DefaultRuntime.EligibleNodes != 1 || findRuntime(t, status, "kata").EligibleNodes != 1 || findRuntime(t, status, "alias").Family != "unknown" {
 		t.Fatalf("eligible runtime evidence wrong: %+v", status)
 	}
@@ -133,13 +136,13 @@ func TestStorageDiscoveryKeepsUnknownLocalAndIndependentCSIInventory(t *testing.
 	opaque.Labels = map[string]string{"arally.io/storage-type": "Block"}
 	c := testClient(t, local, nfs, opaque, class("unknown", "unmapped.example"), class("legacy", "k8s-sigs.io/nfs-subdir-external-provisioner"), driver("nfs.csi.k8s.io"), driver("opaque.example"))
 	status := Discover(context.Background(), c)
-	if s := findStorage(t, status, "local"); s.Type != "Local" || s.Source != "Provisioner" {
+	if s := findStorage(t, status, "local"); s.Type != "Local" || s.Source != "BuiltInCatalog" {
 		t.Fatal("local storage advertised as durable Block")
 	}
 	if s := findStorage(t, status, "nfs"); s.Type != "NFS" || !s.Default || !s.DriverRegistered || s.VolumeBindingMode != storagev1.VolumeBindingWaitForFirstConsumer {
 		t.Fatal("native storage attributes lost")
 	}
-	if s := findStorage(t, status, "opaque"); s.Type != "Unknown" || s.Source != "Provisioner" {
+	if s := findStorage(t, status, "opaque"); s.Type != "Unknown" || s.Source != "NativeAPI" {
 		t.Fatal("administrator label unexpectedly changed embedded recognition")
 	}
 	if s := findStorage(t, status, "legacy"); s.Status != "Observed" || s.DriverRegistered {
@@ -179,7 +182,7 @@ func TestSynologyProtocolClassification(t *testing.T) {
 }
 
 func TestNetworkDiscoveryIsConfigurationEvidenceOnly(t *testing.T) {
-	for _, tc := range []struct{ name, container, want string }{{"calico-node", "calico-node", "Supported"}, {"ovnkube-node", "ovnkube-controller", "Supported"}, {"antrea-agent", "antrea-agent", "Supported"}, {"kindnet", "kindnet", "Unsupported"}, {"kube-flannel-ds", "flannel", "Unsupported"}, {"unrecognized", "agent", "Unknown"}, {"calico-node", "wrong-container", "Unknown"}} {
+	for _, tc := range []struct{ name, container, want string }{{"calico-node", "calico-node", "Supported"}, {"ovnkube-node", "ovnkube-controller", "Supported"}, {"antrea-agent", "antrea-agent", "Supported"}, {"kindnet", "kindnet", "Unknown"}, {"kube-flannel-ds", "flannel", "Unknown"}, {"unrecognized", "agent", "Unknown"}, {"calico-node", "wrong-container", "Unknown"}} {
 		t.Run(tc.name+tc.container, func(t *testing.T) {
 			s := Discover(context.Background(), testClient(t, daemon(tc.name, tc.container)))
 			if s.NetworkPolicy.Status != tc.want || s.NetworkPolicy.EnforcementVerified {
@@ -191,8 +194,12 @@ func TestNetworkDiscoveryIsConfigurationEvidenceOnly(t *testing.T) {
 	cilium := daemon("cilium", "cilium-agent")
 	config := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cilium-config", Namespace: cilium.Namespace}, Data: map[string]string{"enable-policy": "never"}}
 	c := testClient(t, cilium, config)
-	if s := Discover(context.Background(), c); s.NetworkPolicy.Status != "Unsupported" {
+	if s := Discover(context.Background(), c); s.NetworkPolicy.Status != "Unknown" || s.NetworkPolicy.Providers[0].Status != "Unsupported" {
 		t.Fatal("disabled Cilium advertised")
+	}
+	coexisting := Discover(context.Background(), testClient(t, daemon("kube-flannel-ds", "flannel"), daemon("custom-policy-engine", "agent")))
+	if coexisting.NetworkPolicy.Status != "Unknown" || coexisting.NetworkPolicy.Providers[0].Status != "Unsupported" {
+		t.Fatal("negative-only evidence incorrectly excluded an unrecognized coexisting engine")
 	}
 	config.Data["enable-policy"] = "default"
 	if err := c.Update(context.Background(), config); err != nil {

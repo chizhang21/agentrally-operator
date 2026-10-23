@@ -19,9 +19,10 @@ import (
 )
 
 func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
-	group, ns, _, _ := testutil.Fixture()
+	group, ns, _, _, _ := testutil.Fixture()
 	group.Status = v1.AgentGroupStatus{}
 	group.Spec.Quota = &corev1.ResourceQuotaSpec{Hard: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("4")}}
+	group.Spec.LimitRange = &corev1.LimitRangeSpec{Limits: []corev1.LimitRangeItem{{Type: corev1.LimitTypeContainer, Default: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}}
 	group.Spec.NetworkPolicy = &networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{}, PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress}}
 	c, scheme := testutil.Client(t, group, ns)
 	r := &Reconciler{Client: c, Scheme: scheme}
@@ -59,6 +60,20 @@ func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.Condition(t, current.Status.Conditions, "Ready", metav1.ConditionTrue)
+	limits := &corev1.LimitRange{}
+	expectedLimits := group.Spec.LimitRange.DeepCopy()
+	expectedLimits.Limits[0].DefaultRequest = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "arally-limits"}, limits); err != nil || !metav1.IsControlledBy(limits, group) || !reflect.DeepEqual(limits.Spec, *expectedLimits) {
+		t.Fatalf("native LimitRange not prepared: %+v %v", limits, err)
+	}
+	current.Spec.LimitRange = nil
+	if err := c.Update(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	if err := c.Get(ctx, client.ObjectKeyFromObject(limits), limits); !apierrors.IsNotFound(err) {
+		t.Fatalf("removed LimitRange was not cleaned up: %v", err)
+	}
 	if err := c.Get(ctx, client.ObjectKeyFromObject(policy), policy); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +110,7 @@ func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
 var ctx = context.Background()
 
 func TestCapabilitiesWatchMapsPolicyGroups(t *testing.T) {
-	group, ns, _, _ := testutil.Fixture()
+	group, ns, _, _, _ := testutil.Fixture()
 	group.Spec.NetworkPolicy = &networkingv1.NetworkPolicySpec{}
 	c, scheme := testutil.Client(t, group, ns)
 	r := &Reconciler{Client: c, Scheme: scheme}
@@ -119,7 +134,7 @@ func TestCapabilitiesWatchMapsPolicyGroups(t *testing.T) {
 }
 
 func TestGroupReadyDoesNotDependOnUnusedHTTPRouteDefaults(t *testing.T) {
-	group, ns, _, _ := testutil.Fixture()
+	group, ns, _, _, _ := testutil.Fixture()
 	group.Status = v1.AgentGroupStatus{}
 	group.Spec.InteractionDefaults = &v1.InteractionDefaults{HTTPRoute: &v1.HTTPRouteDefaults{GatewayRef: &v1.GatewayReference{Name: "missing", Namespace: "gateway-system"}, Domain: "agents.example.com"}}
 	c, scheme := testutil.Client(t, group, ns)

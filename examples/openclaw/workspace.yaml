@@ -1,0 +1,11 @@
+# Administrator-managed storage. The Operator never adopts or deletes this PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alice-state
+  namespace: arally-openclaw
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi

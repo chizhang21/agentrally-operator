@@ -103,8 +103,9 @@ available in `KUBEBUILDER_ASSETS`, run:
 go test -tags=integration ./cmd ./tests/packaging -count=1 -timeout=180s
 ```
 
-It checks first installation, schema upgrades, retained CRDs/resources on uninstall,
-adoption of existing CRDs, and default report creation by the controller.
+It checks first installation and upgrades of all four Arally CRDs, retained CRDs/resources on uninstall,
+adoption of existing CRDs, default report creation, and Group LimitRange convergence
+after native API defaulting and policy edits.
 The leader-election test verifies that only the elected Connector polls, backend failure
 changes leader readiness, and a standby takes over on shutdown. CI runs both;
 selecting integration tests without the required binaries fails explicitly.
@@ -122,16 +123,62 @@ isolated Kubernetes 1.34.0 cluster, and installs agent-sandbox Core/Extensions
 v1.0.5 and the local chart. To test an already built local release candidate,
 set `E2E_IMAGE=repository:tag`. No image is pushed.
 
-The test checks default zero prewarming, configuration edits without replacement,
-Ready/Available separation, pause/resume, explicit restart, expiry, active deletion,
-upstream garbage collection, per-instance PVC isolation, warm allocation and
-workspace retention across suspension. Execution replacement and cleanup reclaim
-Sandbox-owned volumes. The driver always
+The test checks the canonical capability report, native RuntimeClass scheduling
+and overhead, administrator mappings, a real runc execution and direct audit
+renewal after manager replacement. An absent snapshot class API must not prevent
+startup. It also checks admission-injected LimitRange defaults, default zero spares,
+Group summaries and metrics, and manager replacement while upstream allocation
+is stopped. It covers Group allocation pause/unpause, configuration edits without
+replacement, Ready/Available separation, suspend/resume, explicit restart, expiry,
+active deletion, upstream garbage collection and workspace retention across
+suspension. Declarative prewarming, private PVC isolation, verified external
+pool allocation and Group deletion bypassing idle retention use real Core and
+Extensions controllers. Execution replacement and cleanup reclaim Sandbox-owned
+volumes. The driver always
 uses its own kubeconfig and deletes its temporary cluster. Failures retain
 logs under `.cache/e2e/`; `E2E_LOG_DIR` selects another output directory.
 
 [Operator lifecycle E2E](../.github/workflows/e2e.yml) supports manual dispatch.
 Version-tag CI must pass it before image publication; PRs compile the E2E test
-and keep the existing fast checks without creating a cluster. This kind test
-uses local-path storage and does not establish OpenShift SCC, arbitrary CSI,
-Gateway routing or NetworkPolicy enforcement compatibility.
+and keep the existing fast checks without creating a cluster. The default
+profile uses kindnet and local-path storage. Select optional infrastructure
+profiles explicitly:
+
+```sh
+E2E_CNI=cilium make e2e
+E2E_SNAPSHOTS=true make e2e
+E2E_CNI=cilium E2E_SNAPSHOTS=true make e2e
+```
+
+To test the real OpenClaw example in isolation:
+
+```sh
+E2E_OPENCLAW=true E2E_TEST='^TestOpenClawLifecycle$' make e2e
+```
+
+This opt-in profile pulls the example's fixed OpenClaw image, uses a temporary
+Gateway token, and checks probes/RPC, persisted scheduler state and workspace data
+through suspend/resume and explicit configuration replacement. External channels
+and model providers are not configured. `E2E_TEST` selects Go tests; without it the
+usual lifecycle suite runs. See the [OpenClaw example](../examples/openclaw/README.md).
+
+The Cilium profile replaces kindnet using the official
+[kind installation](https://docs.cilium.io/en/stable/installation/kind/) with
+Cilium 1.20.3. Its traffic test starts two Agents, checks application connectivity,
+applies a Group ingress-deny policy, then permits the same path. It requires
+three consecutive denied and allowed probes and treats test-client exec failures
+as infrastructure errors.
+
+The snapshot profile installs checksum-pinned upstream
+[external-snapshotter v8.2.0](https://github.com/kubernetes-csi/external-snapshotter/tree/v8.2.0/deploy/kubernetes)
+and [CSI hostpath v1.16.1 fixtures](https://github.com/kubernetes-csi/csi-driver-host-path/tree/v1.16.1/deploy/kubernetes-1.30).
+It writes and quiesces an Agent workspace, takes a ready snapshot, restores a
+second Agent to an independent volume and reads the original data. The test
+driver installs privileged CSI fixtures only inside its disposable cluster;
+the Operator gains no Pod creation, exec or CSI socket access. An explicitly
+selected profile must pass; missing infrastructure is not silently skipped.
+
+Results apply to these versions, handlers, volumes and traffic paths. They do not
+establish Kata teardown, OpenShift SCC, arbitrary CSI, Gateway routing or
+cluster-wide NetworkPolicy compatibility. Passive discovery remains configuration
+evidence and keeps `enforcementVerified=false` after these tests.

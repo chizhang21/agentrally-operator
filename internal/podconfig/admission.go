@@ -20,6 +20,7 @@ func normalizeAdmissionContainers(left, right *corev1.PodSpec) bool {
 			stripAdmissionTokenMounts(&container, observed, right.Volumes)
 		}
 		observed.SecurityContext = normalizeAdmissionContainerSecurity(container.SecurityContext, observed.SecurityContext)
+		normalizeAdmissionResources(container.Resources, &observed.Resources)
 		wanted = append(wanted, *observed)
 	}
 	right.Containers = wanted
@@ -31,11 +32,28 @@ func normalizeAdmissionContainers(left, right *corev1.PodSpec) bool {
 			return false
 		}
 		right.InitContainers[i].SecurityContext = normalizeAdmissionContainerSecurity(left.InitContainers[i].SecurityContext, right.InitContainers[i].SecurityContext)
+		normalizeAdmissionResources(left.InitContainers[i].Resources, &right.InitContainers[i].Resources)
 		if left.AutomountServiceAccountToken == nil || *left.AutomountServiceAccountToken {
 			stripAdmissionTokenMounts(&left.InitContainers[i], &right.InitContainers[i], right.Volumes)
 		}
 	}
 	return true
+}
+
+// LimitRange admission fills omitted requests and limits. Keep explicitly
+// requested quantities exact, including missing keys, for every container.
+func normalizeAdmissionResources(desired corev1.ResourceRequirements, actual *corev1.ResourceRequirements) {
+	project := func(wanted, observed corev1.ResourceList) corev1.ResourceList {
+		result := corev1.ResourceList{}
+		for key := range wanted {
+			if value, exists := observed[key]; exists {
+				result[key] = value
+			}
+		}
+		return result
+	}
+	actual.Requests = project(desired.Requests, actual.Requests)
+	actual.Limits = project(desired.Limits, actual.Limits)
 }
 
 func normalizeAdmissionPlacement(left, right *corev1.PodSpec) {

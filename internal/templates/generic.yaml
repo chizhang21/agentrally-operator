@@ -1,4 +1,4 @@
-# Built-in Pod environment; application settings come from AgentClaim.runtime.
+# Built-in Pod environment; application settings come from AgentDefinition.container.
 metadata:
   labels:
     arally.io/category: generic

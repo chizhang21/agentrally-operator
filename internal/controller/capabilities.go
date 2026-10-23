@@ -19,6 +19,7 @@ func CapabilityChanges() predicate.Predicate {
 		}
 		left, right := before.Status.DeepCopy(), after.Status.DeepCopy()
 		left.ObservedAt, right.ObservedAt = nil, nil
+		left.Sections, right.Sections = nil, nil
 		return before.Generation != after.Generation || !equality.Semantic.DeepEqual(left, right)
 	}}
 }

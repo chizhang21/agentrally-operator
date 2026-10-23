@@ -26,7 +26,7 @@ Omit `caFile` for system CA roots. The image contains one `/operator` binary;
 Connector uses the same Deployment, container and ServiceAccount. Enabling it
 mounts the Secret into Operator Pods and adds the CR write permissions needed
 beyond the controller role. Request validation still restricts remote operations
-to the three CRs below. The top-level `resources` values cover the whole process.
+to the four CRs below. The top-level `resources` values cover the whole process.
 Token changes are read on each request; CA changes need an Operator restart.
 The backend must bind credentials to cluster id and reject duplicate active
 sessions for the same id.
@@ -47,7 +47,8 @@ requests serially and returns native Kubernetes errors.
 | Resource | Scope | Methods |
 | --- | --- | --- |
 | `agentgroups` | Cluster | GET, POST, PUT, DELETE |
-| `agentclaims` | Namespace required | GET, POST, PUT, DELETE |
+| `agentdefinitions` | Namespace required | GET, POST, PUT, DELETE |
+| `agentinstances` | Namespace required | GET, POST, PUT, DELETE |
 | `clustercapabilities` | Cluster | GET |
 
 A request has `id`, `method`, `resource` and optional `name`, `namespace`, `body`,

@@ -39,9 +39,9 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 
 ## Use the image
 
-Set the resulting address as `AgentClaim.spec.runtime.image` with
-`spec.template: coding`. The server listens on port 5900. Configure its password
-and arguments through the Claim, as with any other agent image; build-time registry
+Set the resulting address as `AgentDefinition.spec.container.image` with
+`AgentDefinition.spec.template: coding`. The server listens on port 5900. Configure its password
+and arguments through the instance, as with any other agent image; build-time registry
 credentials and runtime agent credentials are separate.
 
 To select a project when starting the server, pass its directory as a positional

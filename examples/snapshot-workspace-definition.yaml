@@ -1,0 +1,12 @@
+# Reusable configuration. Apply before its AgentInstance.
+apiVersion: arally.io/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: restored-agent
+  namespace: arally-demo
+spec:
+  agentGroupRef:
+    name: demo
+  template: generic
+  container:
+    image: ghcr.io/your-org/agent:tag

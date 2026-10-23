@@ -10,9 +10,11 @@ import (
 
 	v1 "arally/operator/api/v1alpha1"
 	"arally/operator/internal/connector"
-	"arally/operator/internal/controller/agentclaim"
+	"arally/operator/internal/controller/agentdefinition"
 	"arally/operator/internal/controller/agentgroup"
+	"arally/operator/internal/controller/agentinstance"
 	"arally/operator/internal/controller/clustercapabilities"
+	"arally/operator/internal/metrics"
 	"arally/operator/internal/sandbox"
 
 	"github.com/go-logr/logr"
@@ -23,9 +25,11 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	controllermetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -72,7 +76,14 @@ func run() error {
 	if err := (&agentgroup.Reconciler{}).SetupWithManager(mgr); err != nil {
 		return err
 	}
-	if err := (&agentclaim.Reconciler{}).SetupWithManager(mgr); err != nil {
+	if err := (&agentdefinition.Reconciler{}).SetupWithManager(mgr); err != nil {
+		return err
+	}
+	observations := metrics.New(mgr.GetClient())
+	if err := controllermetrics.Registry.Register(observations); err != nil {
+		return err
+	}
+	if err := (&agentinstance.Reconciler{Metrics: observations}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&clustercapabilities.Reconciler{}).SetupWithManager(mgr); err != nil {
@@ -121,6 +132,9 @@ func addConnector(mgr ctrl.Manager, cfg *rest.Config, connectorConfig connector.
 func managerOptions(probeAddr, metricsAddr, electionNamespace string, leaderElection bool) ctrl.Options {
 	return ctrl.Options{
 		Scheme: scheme,
+		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
+			&corev1.Node{}: {Transform: trimNodeCache},
+		}},
 		Client: client.Options{Cache: &client.CacheOptions{
 			DisableFor:   []client.Object{&corev1.Secret{}},
 			Unstructured: true,
@@ -133,4 +147,11 @@ func managerOptions(probeAddr, metricsAddr, electionNamespace string, leaderElec
 		LeaderElectionID:              "arally-operator.arally.io",
 		LeaderElectionReleaseOnCancel: true,
 	}
+}
+
+func trimNodeCache(object interface{}) (interface{}, error) {
+	node := object.(*corev1.Node).DeepCopy()
+	node.Status.Images = nil
+	node.ManagedFields = nil
+	return node, nil
 }

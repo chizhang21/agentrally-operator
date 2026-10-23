@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	"arally/operator/internal/testutil"
+	v1 "arally/operator/api/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 )
 
 func TestConditionEventsEmitOnlyMeaningfulTransitions(t *testing.T) {
-	_, _, w, _ := testutil.Fixture()
+	w := &v1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "arally-team"}}
 	recorder := record.NewFakeRecorder(10)
 	before := []metav1.Condition{{Type: "Ready", Status: metav1.ConditionUnknown, Reason: "SandboxPending"}}
 	after := []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse, Reason: "PodFailed", Message: "task failed"}, {Type: "Finished", Status: metav1.ConditionTrue, Reason: "PodFailed", Message: "task failed"}}

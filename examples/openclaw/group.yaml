@@ -1,0 +1,8 @@
+apiVersion: arally.io/v1alpha1
+kind: AgentGroup
+metadata:
+  name: openclaw
+spec:
+  namespace: arally-openclaw
+  prewarming:
+    replicas: 0

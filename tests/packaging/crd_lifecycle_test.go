@@ -4,6 +4,7 @@ package packaging_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,14 +13,18 @@ import (
 	"time"
 
 	v1 "arally/operator/api/v1alpha1"
+	"arally/operator/internal/controller/agentgroup"
 	"arally/operator/internal/controller/clustercapabilities"
 	"arally/operator/internal/podconfig"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	nodev1 "k8s.io/api/node/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,6 +36,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/yaml"
@@ -57,17 +63,18 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	runHelm(t, kubeconfig, "install", "arally-operator", chart, "-n", "arally-system", "--create-namespace")
 
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{v1.AddToScheme, apiextensionsv1.AddToScheme, corev1.AddToScheme, appsv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{v1.AddToScheme, apiextensionsv1.AddToScheme, corev1.AddToScheme, appsv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}
 	}
-	k8s, err := client.New(cfg, client.Options{Scheme: scheme})
+	k8s, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme})
 	if err != nil {
 		t.Fatal(err)
 	}
 	verifyReportBootstrap(t, cfg, scheme, k8s)
 	verifyPodAdmissionDefaults(t, k8s)
+	t.Run("group-limit-range", func(t *testing.T) { verifyGroupLimitRangeConvergence(t, k8s, scheme) })
 
 	group := &v1.AgentGroup{}
 	group.Name = "retained"
@@ -76,7 +83,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	}
 	uid := verifySchemaUpgrade(t, k8s, kubeconfig, chart)
 	crd := &apiextensionsv1.CustomResourceDefinition{}
-	key := client.ObjectKey{Name: "agentclaims.arally.io"}
+	key := client.ObjectKey{Name: "agentinstances.arally.io"}
 	runHelm(t, kubeconfig, "uninstall", "arally-operator", "-n", "arally-system")
 	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid {
 		t.Fatalf("uninstall removed CRD: %v", err)
@@ -90,6 +97,77 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	}
 	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(group), &v1.AgentGroup{}); err != nil {
 		t.Fatalf("adoption removed existing AgentGroup: %v", err)
+	}
+}
+
+func verifyGroupLimitRangeConvergence(t *testing.T, kube client.WithWatch, scheme *runtime.Scheme) {
+	t.Helper()
+	ctx := context.Background()
+	group := &v1.AgentGroup{ObjectMeta: metav1.ObjectMeta{Name: "limit-defaults"}, Spec: v1.AgentGroupSpec{
+		// envtest has no quota controller. Pending quota admission lets this test
+		// exercise real Group policy without requiring allocation APIs.
+		Quota: &corev1.ResourceQuotaSpec{Hard: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("8")}},
+	}}
+	if err := kube.Create(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	updates := 0
+	counted := interceptor.NewClient(kube, interceptor.Funcs{Update: func(ctx context.Context, c client.WithWatch, object client.Object, options ...client.UpdateOption) error {
+		if _, ok := object.(*corev1.LimitRange); ok {
+			updates++
+		}
+		return c.Update(ctx, object, options...)
+	}})
+	r := &agentgroup.Reconciler{Client: counted, Reader: kube, Scheme: scheme}
+	reconcile := func(t *testing.T) {
+		t.Helper()
+		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(group)}); err != nil {
+			t.Fatalf("Group reconciliation: %v; cause: %v", err, errors.Unwrap(err))
+		}
+	}
+	for _, scenario := range []struct {
+		name string
+		item corev1.LimitRangeItem
+	}{
+		{"default-only", corev1.LimitRangeItem{Type: corev1.LimitTypeContainer, Default: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+		{"max-and-min", corev1.LimitRangeItem{Type: corev1.LimitTypeContainer, Max: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, Min: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")}}},
+		{"explicit-request", corev1.LimitRangeItem{Type: corev1.LimitTypeContainer, Default: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}, DefaultRequest: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}}},
+		{"removed-defaults", corev1.LimitRangeItem{Type: corev1.LimitTypeContainer, Min: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m")}}},
+	} {
+		t.Log("LimitRange policy:", scenario.name)
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(group), group); err != nil {
+			t.Fatal(err)
+		}
+		group.Spec.LimitRange = &corev1.LimitRangeSpec{Limits: []corev1.LimitRangeItem{scenario.item}}
+		if err := kube.Update(ctx, group); err != nil {
+			t.Fatal(err)
+		}
+		declared := group.Spec.LimitRange.DeepCopy()
+		reconcile(t)
+		before := updates
+		reconcile(t)
+		reconcile(t)
+		if updates != before {
+			t.Errorf("%s did not converge: %d unnecessary updates", scenario.name, updates-before)
+		}
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(group), group); err != nil || !equality.Semantic.DeepEqual(declared, group.Spec.LimitRange) {
+			t.Fatal("native defaulting changed Group intent", err)
+		}
+	}
+	limits := &corev1.LimitRange{}
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: group.NamespaceName(), Name: "arally-limits"}, limits); err != nil {
+		t.Fatal(err)
+	}
+	if len(limits.Spec.Limits[0].Default) != 0 || limits.Spec.Limits[0].DefaultRequest.Cpu().Cmp(resource.MustParse("50m")) != 0 {
+		t.Fatal("removed defaults survived the policy update")
+	}
+	limits.Spec.Limits[0].DefaultRequest[corev1.ResourceCPU] = resource.MustParse("200m")
+	if err := kube.Update(ctx, limits); err != nil {
+		t.Fatal(err)
+	}
+	reconcile(t)
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(limits), limits); err != nil || limits.Spec.Limits[0].DefaultRequest.Cpu().Cmp(resource.MustParse("50m")) != 0 {
+		t.Fatal("default normalization hid policy drift", err)
 	}
 }
 
@@ -148,13 +226,13 @@ func verifyPodAdmissionDefaults(t *testing.T, kube client.Client) {
 func verifySchemaUpgrade(t *testing.T, k8s client.Client, kubeconfig, chart string) types.UID {
 	t.Helper()
 	crd := &apiextensionsv1.CustomResourceDefinition{}
-	key := client.ObjectKey{Name: "agentclaims.arally.io"}
+	key := client.ObjectKey{Name: "agentinstances.arally.io"}
 	if err := k8s.Get(context.Background(), key, crd); err != nil {
 		t.Fatal(err)
 	}
 	uid := crd.UID
 	const description = "schema updated by helm upgrade"
-	source := filepath.Join(chart, "templates/crds/arally.io_agentclaims.yaml")
+	source := filepath.Join(chart, "templates/crds/arally.io_agentinstances.yaml")
 	data, err := os.ReadFile(source)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +261,7 @@ func verifySchemaUpgrade(t *testing.T, k8s client.Client, kubeconfig, chart stri
 
 func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart string) {
 	t.Helper()
-	for _, name := range []string{"agentgroups.arally.io", "agentclaims.arally.io", "clustercapabilities.arally.io"} {
+	for _, name := range []string{"agentgroups.arally.io", "agentdefinitions.arally.io", "agentinstances.arally.io", "clustercapabilities.arally.io"} {
 		retained := &apiextensionsv1.CustomResourceDefinition{}
 		if err := k8s.Get(context.Background(), client.ObjectKey{Name: name}, retained); err != nil {
 			t.Fatal(err)
@@ -213,7 +291,7 @@ func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart str
 		t.Fatal(err)
 	}
 	objects := renderChartObjects(t, legacy)
-	for _, plural := range []string{"agentgroups", "agentclaims", "clustercapabilities"} {
+	for _, plural := range []string{"agentgroups", "agentdefinitions", "agentinstances", "clustercapabilities"} {
 		data, exists := objects["CustomResourceDefinition/"+plural+".arally.io"]
 		if !exists {
 			t.Fatalf("legacy chart fixture omitted %s CRD", plural)

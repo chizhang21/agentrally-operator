@@ -10,10 +10,10 @@ metadata:
 # Other CR permissions are already granted by the manager role.
 rules:
   - apiGroups: [arally.io]
-    resources: [agentgroups]
+    resources: [agentgroups, agentdefinitions]
     verbs: [create, delete]
   - apiGroups: [arally.io]
-    resources: [agentclaims]
+    resources: [agentinstances]
     verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

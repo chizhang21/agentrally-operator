@@ -68,8 +68,8 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 		t.Fatal("invalid connector role")
 	}
 	expected := []rbacv1.PolicyRule{
-		{APIGroups: []string{"arally.io"}, Resources: []string{"agentgroups"}, Verbs: []string{"create", "delete"}},
-		{APIGroups: []string{"arally.io"}, Resources: []string{"agentclaims"}, Verbs: []string{"create"}},
+		{APIGroups: []string{"arally.io"}, Resources: []string{"agentgroups", "agentdefinitions"}, Verbs: []string{"create", "delete"}},
+		{APIGroups: []string{"arally.io"}, Resources: []string{"agentinstances"}, Verbs: []string{"create"}},
 	}
 	if !reflect.DeepEqual(role.Rules, expected) {
 		t.Fatal("connector must only add the missing CR write permissions")

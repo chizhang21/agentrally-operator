@@ -1,7 +1,7 @@
 # Agent deployer access
 
 [editor.yaml](editor.yaml) grants create, read, update and delete access to
-AgentClaims, including reading status. It does not allow status writes.
+AgentDefinitions and AgentInstances, including reading status. It does not allow status writes.
 Installation does not apply this example or bind users to it. The Operator's
 ServiceAccount has separate permissions.
 
@@ -9,8 +9,8 @@ An administrator can bind the role to an existing `agent-user` ServiceAccount:
 
 ```sh
 kubectl apply -f examples/rbac/editor.yaml
-kubectl -n arally-demo create rolebinding agentclaim-editor \
-  --clusterrole=agentclaim-editor-role --serviceaccount=arally-demo:agent-user
+kubectl -n arally-demo create rolebinding agentinstance-editor \
+  --clusterrole=agentinstance-editor-role --serviceaccount=arally-demo:agent-user
 ```
 
 The RoleBinding limits access to `arally-demo`. It grants no access to AgentGroup,

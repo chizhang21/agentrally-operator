@@ -81,6 +81,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 
 func (r *Reconciler) status(ctx context.Context, group *v1.AgentGroup, ready bool, reason, message string) error {
 	base := group.DeepCopy()
+	summary, err := r.summary(ctx, group)
+	if err != nil {
+		return err
+	}
+	group.Status.Summary = summary
 	if group.Spec.NetworkPolicy != nil && group.DeletionTimestamp == nil {
 		reader := r.Reader
 		if reader == nil {
@@ -131,17 +136,18 @@ func (r *Reconciler) finalize(ctx context.Context, group *v1.AgentGroup) (ctrl.R
 	} else if pending {
 		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "PoolsDeleting", "Waiting for unused managed pools and templates to finish cleanup")
 	}
-	workloads := &v1.AgentClaimList{}
+	workloads := &v1.AgentInstanceList{}
+	definitions := &v1.AgentDefinitionList{}
 	claims := &corev1.PersistentVolumeClaimList{}
 	sandboxes := &unstructured.UnstructuredList{}
 	sandboxes.SetGroupVersionKind(sandbox.GroupVersion.WithKind("SandboxList"))
-	for _, list := range []client.ObjectList{workloads, claims, sandboxes} {
+	for _, list := range []client.ObjectList{workloads, definitions, claims, sandboxes} {
 		if err := r.List(ctx, list, client.InNamespace(ns.Name)); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
-	if len(workloads.Items)+len(claims.Items)+len(sandboxes.Items) != 0 {
-		message := fmt.Sprintf("Remove workloads, Sandboxes and PVCs from %s before deleting the group", ns.Name)
+	if len(workloads.Items)+len(definitions.Items)+len(claims.Items)+len(sandboxes.Items) != 0 {
+		message := fmt.Sprintf("Remove definitions, instances, Sandboxes and PVCs from %s before deleting the group", ns.Name)
 		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "GroupInUse", message)
 	}
 	done, err := controller.DeleteOwned(ctx, r.Client, ns, group)
@@ -177,6 +183,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Reader = mgr.GetAPIReader()
 	r.Recorder = mgr.GetEventRecorderFor("arally-agentgroup")
 	return ctrl.NewControllerManagedBy(mgr).For(&v1.AgentGroup{}).
-		Owns(&corev1.Namespace{}).Owns(&corev1.ResourceQuota{}).Owns(&networkingv1.NetworkPolicy{}).
+		Owns(&corev1.Namespace{}).Owns(&corev1.ResourceQuota{}).Owns(&corev1.LimitRange{}).Owns(&networkingv1.NetworkPolicy{}).
+		Watches(&v1.AgentInstance{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember)).
+		Watches(&v1.AgentDefinition{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember)).
 		Watches(&v1.ClusterCapabilities{}, handler.EnqueueRequestsFromMapFunc(r.mapCapabilities), builder.WithPredicates(controller.CapabilityChanges())).Complete(r)
 }

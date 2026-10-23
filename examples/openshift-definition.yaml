@@ -1,0 +1,15 @@
+# Reusable configuration. Apply before its AgentInstance.
+apiVersion: arally.io/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: demo-agent
+  namespace: arally-demo
+spec:
+  agentGroupRef:
+    name: demo
+  template: generic
+  container:
+    image: registry.example.com/my-agent:v1
+    ports:
+    - name: http
+      containerPort: 8080

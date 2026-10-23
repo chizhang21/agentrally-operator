@@ -1,8 +1,10 @@
 # Agent environments and templates
 
-Select `AgentClaim.spec.template` and fill `spec.runtime` for a built-in environment.
+Select `AgentDefinition.spec.template` and fill `spec.container` for a built-in environment.
 The Operator embeds three Pod blueprints, then creates a complete SandboxTemplate
-snapshot and pool during allocation. You do not need to create a source template.
+revision during publication. Instances select a revision, then create a resolved
+snapshot and pool during allocation. See [definitions and revisions](agent-definitions.md).
+Built-in environments do not require a source template.
 For other Pod settings, create a SandboxTemplate and use `spec.templateRef`.
 `template` and `templateRef` are mutually exclusive.
 
@@ -14,46 +16,49 @@ For other Pod settings, create a SandboxTemplate and use `spec.templateRef`.
 | Memory request / limit | 512Mi / 1Gi | 1Gi / 2Gi | 1Gi / 4Gi |
 | Environment | LOG_LEVEL=info | HOME=/workspace, TMPDIR=/tmp, LOG_LEVEL=info | HOME=/workspace, TMPDIR=/tmp, LOG_LEVEL=info |
 | Working directory | Image default | /workspace | /workspace |
-| Workspace | None by default; optional private PVC | Ephemeral /workspace, or private PVC via AgentClaim.workspace | Ephemeral /workspace, or private PVC via AgentClaim.workspace |
+| Workspace | None by default; optional private PVC | Ephemeral /workspace, or private PVC via AgentInstance.spec.workspace | Ephemeral /workspace, or private PVC via AgentInstance.spec.workspace |
 | Temporary storage | emptyDir /tmp | emptyDir /tmp | emptyDir /tmp |
 | Browser preparation | None | 512Mi memory-backed /dev/shm | 512Mi memory-backed /dev/shm |
 | Container runtime | Node default; optional native runtimeClassName | Node default; optional native runtimeClassName | Node default; optional native runtimeClassName |
 | Initial spare replicas | 0; prewarming is opt-in | 0; prewarming is opt-in | 0; prewarming is opt-in |
 
-`runtime.resources` replaces the whole requests/limits block. All built-ins use
+`container.resources` replaces the whole requests/limits block. All built-ins use
 Linux nodes, restart Always, a 30-second termination grace period, no API token
 automount, non-root execution, dropped capabilities, no privilege escalation and
 RuntimeDefault seccomp. No UID is fixed; images and PVC permissions must support
 the UID assigned by the cluster.
 
-The image entrypoint starts the application; `runtime.command` and `runtime.args`
+The image entrypoint starts the application; `container.command` and `container.args`
 can override it. Set ports and probes for your image. `full.yaml` uses 8080 and
 `/healthz`, but the built-ins impose neither. A messaging-only agent can omit
 interaction and probes. Include agent applications, browsers and adapters in the image.
 
-## Instance settings
+## Definition container settings
 
-`runtime.image` is required. `imagePullPolicy`, `command`, `args`, `env`, `envFrom`,
+`container.image` is required. `imagePullPolicy`, `command`, `args`, `env`, `envFrom`,
 `resources`, `runtimeClassName`, `imagePullSecrets`, `ports` and probe fields use
 native Kubernetes types. `env` overrides built-in variables by name; `envFrom`
 uses Kubernetes precedence. Model/workspace fields apply afterwards and override
-their reserved variables. See [full.yaml](../examples/full.yaml).
+their reserved variables. See [full-definition.yaml](../examples/full-definition.yaml).
 Secrets and registry credentials must be in the agent namespace.
 
 ## Persistent state and credentials
 
-Set `workspace.volumeClaimTemplate` to a native PVC spec; see the
+Set `workspace.volumeClaimTemplate` to a native PVC spec; on the instance or as a definition default; see the
 [workspace example](usage.md#model-and-workspace). Choose capacity, access modes
 and optionally a StorageClass. Core creates a private PVC for every Sandbox,
 including unassigned warm instances. The PVC belongs to that Sandbox.
 
 Suspend/resume and Pod recreation within the same Sandbox retain workspace data.
 Explicit execution replacement (`restartToken`), deletion and expiry remove the
-Sandbox and its PVCs. Replacement starts with a new workspace.
+Sandbox and its private PVCs. Replacement starts with a new private workspace.
+For files that must survive replacement, use `AgentInstance.spec.workspace.existingClaimRef`
+to mount a namespace-local, externally managed PVC. Its UID stays bound across
+restart. Existing-PVC allocations enforce zero spares; see [workspace lifetime](agent-definitions.md#workspace-lifetime).
 
 `workspace` replaces assistant/coding's ephemeral `/workspace` with the PVC mount.
 A different mountPath also changes the built-in working directory and HOME, unless
-`runtime.env` overrides HOME. The application must respect HOME or configure its
+`container.env` overrides HOME. The application must respect HOME or configure its
 state paths itself. Without a PVC, workspace data is lost on Pod replacement.
 The mount and PVC template are resolved before allocation; source templates remain unchanged.
 
@@ -67,12 +72,12 @@ Use a custom template for other volume permission requirements.
 
 `modelProvider` supplies `OPENAI_BASE_URL`, `ARALLY_MODEL_NAME` and Secret-backed
 `OPENAI_API_KEY`; the image must consume or map them. See the
-[complete Claim](../examples/full.yaml). Other credentials use `runtime.env[].valueFrom.secretKeyRef`
-or `runtime.envFrom`, or native container fields in a custom template.
+[complete definition](../examples/full-definition.yaml). Other credentials use `container.env[].valueFrom.secretKeyRef`
+or `container.envFrom`, or native container fields in a custom template.
 
 ## Container runtime
 
-Set `spec.runtime.runtimeClassName` to an existing RuntimeClass name. Arally passes
+Set `spec.container.runtimeClassName` to an existing RuntimeClass name. Arally passes
 it through; it does not map Kata/gVisor aliases. Omit it for the node default.
 An administrator installs the runtime and RuntimeClass. In a custom template, use
 `spec.podTemplate.spec.runtimeClassName`. See
@@ -83,7 +88,7 @@ spec:
   agentGroupRef:
     name: demo
   template: coding
-  runtime:
+  container:
     image: registry.example.com/my-coding-agent:v1
     runtimeClassName: your-runtime-class
 ```
@@ -103,16 +108,18 @@ Use a custom template for a different volume layout. Built-ins cover resident ag
 
 ## Allocation and policy
 
-All Claims use SandboxWarmPool and SandboxClaim. Arally creates missing pools
-from a snapshot of the resolved Pod configuration. Matching configurations share
-capacity within a Group; credentials, workspace and security differences select
+All instances use SandboxWarmPool and SandboxClaim. Arally creates missing pools
+from a snapshot of the resolved Pod configuration. Instances using the same
+definition revision and matching resolved settings share capacity within a Group;
+credentials, workspace and security differences select
 separate pools. New managed pools default to zero spares regardless of storage or
-restart policy. Existing pools retain their configured replica count. Spares are
+restart policy. Without a Group prewarming policy, existing pools retain their
+configured replica count. Spares are
 unassigned instances. A zero-spare pool still creates an
-instance when a Claim requests one. Extensions handles allocation and refill.
+instance when a instance requests one. Extensions handles allocation and refill.
 
 A spare using `workspace.volumeClaimTemplate` starts with its own PVC. Allocation
-transfers the existing Sandbox and its disk to the Claim; refill creates a new
+transfers the existing Sandbox and its disk to the instance; refill creates a new
 Sandbox with a different PVC. Storage specifications participate in pool identity;
 instance-specific PVC names do not. Matching agents can share a pool without
 sharing their workspace files.
@@ -120,14 +127,24 @@ sharing their workspace files.
 Prewarming still starts the real application with the configured credentials.
 Enable spare instances only when the application can start before allocation:
 
-```sh
-kubectl -n arally-demo get agentclaim coding-demo -o jsonpath='{.status.provisioning.poolName}{"\n"}'
-# Replace POOL_NAME with the returned name after checking application startup behavior.
-kubectl -n arally-demo patch sandboxwarmpool POOL_NAME --type merge -p '{"spec":{"replicas":1}}'
+```yaml
+# AgentGroup.spec
+prewarming:
+  replicas: 1
+  idleTTLSeconds: 300
 ```
 
-Arally preserves the pool's replica setting. Each spare consumes compute and a
-separate disk. Unused pool cleanup removes spare Sandboxes and their owned PVCs.
+`replicas` is the spare count for each resolved configuration, not each instance.
+Arally discovers configurations from actual instances: a first unseen configuration
+has no ready spares. The policy owns only generated pool replica counts; an
+omitted policy preserves native manual scaling, except existing-PVC configurations
+always enforce zero spares. External pools remain unchanged and must declare zero
+spares when mounting an existing workspace.
+Each spare consumes compute and a separate disk. After the last live instance/native
+allocation reference disappears, the persisted idle timer retains the pool for
+`idleTTLSeconds`. Zero (the default) deletes it immediately. Reuse clears the timer;
+Group deletion bypasses it. Foreground cleanup removes spares and their PVCs before
+their configuration snapshot. See [Group policy](../examples/group-policy.yaml).
 
 Custom SandboxTemplates can declare native `volumeClaimTemplates`; Core provisions
 each instance's storage. Do not set `spec.volumeName` to a fixed PV in a claim
@@ -139,13 +156,22 @@ Custom templates may also reference external PVCs directly. Those are shared
 references, not private per-instance disks: their access modes and application
 concurrency rules still apply. Attaching a different PVC after allocation is not supported.
 
-Source templates and external pool templates must set
-`networkPolicyManagement: Unmanaged`; Group handles networking. External pools
-must match source identity and resolved configuration. Arally validates effective
-Pod settings before allocation; implicit upstream DNS changes are rejected before
-creating the SandboxClaim.
-Source templates and external pools stay unchanged; generated snapshots and pools
-belong to Group and are deleted when unused. See [pool settings](usage.md#pool-allocation).
+Source templates must set `networkPolicyManagement: Unmanaged`; Group handles
+networking. To use an external pool, first resolve the same configuration through
+a managed instance and read its `status.provisioning.templateName`. Point the external
+pool's `spec.sandboxTemplateRef.name` to that generated snapshot. The new instance
+keeps its `definitionRef` and accepted revision, plus the external pool's name
+in `provisioning.warmPoolRef`. Its Pod, service, storage, credentials and Group must
+match. Source or credential changes need a new matching snapshot; the external
+pool is never rewritten automatically.
+
+Arally verifies snapshot ownership, source, revision marker and full blueprint
+before creating the SandboxClaim. Ordinary unmarked user templates cannot prove
+creation inputs and are rejected as `PoolConfigurationUnverified`. Do not copy a
+revision marker into a user source template or stamp an already running Pod.
+Source templates and external pools stay unchanged. Published definition revisions
+belong to AgentDefinition; resolved allocation snapshots and pools belong to Group. An external pool reference also protects its generated snapshot
+from unused-template cleanup. See [pool settings](usage.md#pool-allocation).
 
 Core's headless Service and the optional HTTP access Service are separate.
 [custom-template.yaml](../examples/custom-template.yaml) shows native Pod settings.

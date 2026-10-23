@@ -14,7 +14,7 @@ import (
 
 func networkProvider(ctx context.Context, reader client.Reader, ds appsv1.DaemonSet) (v1.NetworkPolicyProviderObservation, bool, error) {
 	rule, recognized := builtins.networkByName[ds.Name]
-	p := v1.NetworkPolicyProviderObservation{Name: ds.Name, Namespace: ds.Namespace, Provider: rule.Provider, Status: "Supported"}
+	p := v1.NetworkPolicyProviderObservation{Name: ds.Name, Namespace: ds.Namespace, Provider: rule.Provider, Status: "Supported", Source: "BuiltInCatalog", Rule: "network/" + rule.Provider}
 	if !recognized {
 		return p, false, nil
 	}
@@ -132,17 +132,10 @@ func discoverNetwork(ctx context.Context, reader client.Reader, status *v1.Clust
 			return nil
 		}
 	}
-	// Unknown evidence takes precedence over negative-only evidence: another engine
-	// may provide policy alongside Flannel/kindnet.
-	unknown := false
-	for _, p := range providers {
-		if p.Status == "Unknown" {
-			unknown = true
-		}
-	}
-	if !unknown && len(providers) > 0 {
-		network.Status = "Unsupported"
-		network.Reason = "NoObservedPolicyEngine"
+	// Provider-scoped negatives cannot exclude an unrecognized coexisting engine.
+	// Passive discovery never proves global absence of NetworkPolicy enforcement.
+	if len(providers) > 0 {
+		network.Reason = "NoConfiguredPolicyEngineObserved"
 	}
 	return nil
 }

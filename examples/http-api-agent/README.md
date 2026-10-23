@@ -7,7 +7,7 @@ Install [Arally and its dependencies](../../docs/installation.md) first. Supply
 your agent image and replace the model settings and Secret placeholders. Match
 the environment variable names, port and data path to your application. Set the
 registry hostname and credentials in `03-registry-secret.yaml` to match the image.
-For a public image, skip that file and remove `runtime.imagePullSecrets`.
+For a public image, skip that file and remove `container.imagePullSecrets`.
 
 The Group uses an existing `gateway-system/shared` Gateway with an HTTPS listener
 named `https`. Change these defaults to match your Gateway. It must allow
@@ -20,10 +20,11 @@ kubectl apply -f examples/http-api-agent/01-group.yaml
 kubectl wait agentgroup/http-api-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/http-api-agent/02-agent-secret.yaml
 kubectl apply -f examples/http-api-agent/03-registry-secret.yaml
+kubectl apply -f examples/http-api-agent/04-agent-definition.yaml
 kubectl apply -f examples/http-api-agent/04-agent.yaml
-kubectl -n arally-http-api-agent wait agentclaim/http-api-agent --for=condition=Ready --timeout=5m
-kubectl -n arally-http-api-agent wait agentclaim/http-api-agent --for=condition=InteractionReady --timeout=5m
-kubectl -n arally-http-api-agent get agentclaim http-api-agent -o jsonpath='{.status.interaction.url}{"\n"}'
+kubectl -n arally-http-api-agent wait agentinstance/http-api-agent --for=condition=Ready --timeout=5m
+kubectl -n arally-http-api-agent wait agentinstance/http-api-agent --for=condition=InteractionReady --timeout=5m
+kubectl -n arally-http-api-agent get agentinstance http-api-agent -o jsonpath='{.status.interaction.url}{"\n"}'
 ```
 
 For an application using Bearer authentication, use the Secret's `API_TOKEN`

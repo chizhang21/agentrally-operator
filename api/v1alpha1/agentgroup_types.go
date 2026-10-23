@@ -7,6 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -25,11 +26,25 @@ type HTTPRouteDefaults struct {
 	Domain string `json:"domain,omitempty"`
 }
 
-// InteractionDefaults applies only to Claims requesting the matching route type.
+// InteractionDefaults applies only to instances requesting the matching route type.
 type InteractionDefaults struct {
-	// HTTPRoute is ignored by OpenShiftRoute Claims and does not affect Group readiness.
+	// HTTPRoute is ignored by OpenShiftRoute instances and does not affect Group readiness.
 	// +optional
 	HTTPRoute *HTTPRouteDefaults `json:"httpRoute,omitempty"`
+}
+
+// PrewarmingPolicy controls spare capacity for each resolved configuration.
+// Pools are discovered through instances; an unseen configuration starts cold.
+type PrewarmingPolicy struct {
+	// Replicas is the desired number of unclaimed Sandboxes per managed pool.
+	// These run real applications and consume compute, storage and credentials.
+	// +kubebuilder:validation:Minimum=0
+	Replicas int32 `json:"replicas"`
+	// IdleTTLSeconds retains an unused pool before foreground deletion.
+	// Zero removes unused capacity immediately. Group deletion bypasses this delay.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	IdleTTLSeconds int32 `json:"idleTTLSeconds,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.namespace) == has(oldSelf.namespace)",message="namespace cannot be added or removed after creation"
@@ -50,6 +65,18 @@ type AgentGroupSpec struct {
 	PodSecurity string `json:"podSecurity,omitempty"`
 	// +optional
 	Quota *corev1.ResourceQuotaSpec `json:"quota,omitempty"`
+	// LimitRange supplies native per-container/Pod/PVC defaults and limits.
+	// Policy changes apply when Kubernetes admits new resources.
+	// +optional
+	LimitRange *corev1.LimitRangeSpec `json:"limitRange,omitempty"`
+	// AllocationPaused blocks new Sandboxinstances. Submitted allocations, running
+	// executions, suspension and cleanup continue normally.
+	// +optional
+	AllocationPaused bool `json:"allocationPaused,omitempty"`
+	// Prewarming controls only Arally-managed pools. Omitted preserves manual
+	// scaling and removes unused pools immediately; external pools are never scaled.
+	// +optional
+	Prewarming *PrewarmingPolicy `json:"prewarming,omitempty"`
 	// NetworkPolicy expresses namespace/group policy, not runtime policy.
 	// +optional
 	NetworkPolicy *networkingv1.NetworkPolicySpec `json:"networkPolicy,omitempty"`
@@ -83,10 +110,49 @@ type AgentGroupStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
+	// Summary observes instances and capacity in the owned namespace. Counts may
+	// overlap (for example Ready and Available) and are eventually consistent.
+	// +optional
+	Summary *AgentGroupSummary `json:"summary,omitempty"`
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+type AgentInstanceSummary struct {
+	Total     int32 `json:"total"`
+	Ready     int32 `json:"ready"`
+	Available int32 `json:"available"`
+	Suspended int32 `json:"suspended"`
+	// Pending counts non-expired, non-deleting instances that are neither Ready nor suspended.
+	Pending int32 `json:"pending"`
+	Expired int32 `json:"expired"`
+}
+
+type AgentPoolSummary struct {
+	// Total includes managed and external pools in the namespace.
+	Total int32 `json:"total"`
+	// DesiredSpareReplicas sums native pool spec.replicas.
+	DesiredSpareReplicas int32 `json:"desiredSpareReplicas"`
+	// ReadySpareReplicas sums readyReplicas only for current-generation pool status.
+	// It excludes terminating/stuck resources and is not total physical usage.
+	ReadySpareReplicas int32 `json:"readySpareReplicas"`
+}
+
+type AgentStorageSummary struct {
+	// PVCs includes all PVCs in the namespace, including externally created ones.
+	PVCs int32 `json:"pvcs"`
+	// Requested is the sum of PVC storage requests, including pending/deleting PVCs.
+	Requested resource.Quantity `json:"requested"`
+	// Capacity is reported provisioned capacity, not actual disk usage.
+	Capacity resource.Quantity `json:"capacity"`
+}
+
+type AgentGroupSummary struct {
+	Instances AgentInstanceSummary `json:"instances"`
+	Pools     AgentPoolSummary     `json:"pools"`
+	Storage   AgentStorageSummary  `json:"storage"`
 }
 
 // +kubebuilder:object:root=true

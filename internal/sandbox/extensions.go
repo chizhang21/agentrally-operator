@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// Every Arally AgentClaim requires Extensions templates, pools and allocation.
+// Every Arally AgentInstance requires Extensions templates, pools and allocation.
 // Registering these wire types does not start informers.
 var ExtensionsGroupVersion = schema.GroupVersion{Group: "extensions.agents.x-k8s.io", Version: "v1beta1"}
 

@@ -10,11 +10,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
-func TestCapabilityEventsIgnoreOnlyObservationTimestamp(t *testing.T) {
+func TestCapabilityEventsIgnoreAuditTimestamps(t *testing.T) {
 	before := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Name: "cluster", Generation: 1}}
 	before.Status.ObservedAt = &metav1.Time{Time: time.Now().UTC()}
+	before.Status.Sections = []v1.DiscoverySectionObservation{{Name: "RuntimeDiscoveryReady", LastAttemptAt: before.Status.ObservedAt.DeepCopy(), LastSuccessAt: before.Status.ObservedAt.DeepCopy()}}
 	after := before.DeepCopy()
 	after.Status.ObservedAt.Time = after.Status.ObservedAt.Add(30 * time.Second)
+	after.Status.Sections[0].LastAttemptAt = after.Status.ObservedAt.DeepCopy()
+	after.Status.Sections[0].LastSuccessAt = after.Status.ObservedAt.DeepCopy()
 	filter := CapabilityChanges()
 	if filter.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}) {
 		t.Fatal("timestamp-only refresh woke consumers")

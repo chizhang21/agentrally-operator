@@ -7,6 +7,12 @@ KIND=${KIND:-kind}
 for tool in "$KIND" docker kubectl helm go curl; do
   command -v "$tool" >/dev/null || { echo "Required E2E tool is missing: $tool" >&2; exit 1; }
 done
+export E2E_CNI=${E2E_CNI:-kindnet}
+export E2E_SNAPSHOTS=${E2E_SNAPSHOTS:-false}
+export E2E_OPENCLAW=${E2E_OPENCLAW:-false}
+case "$E2E_CNI" in kindnet|cilium) ;; *) echo 'E2E_CNI must be kindnet or cilium.' >&2; exit 1 ;; esac
+case "$E2E_SNAPSHOTS" in true|false) ;; *) echo 'E2E_SNAPSHOTS must be true or false.' >&2; exit 1 ;; esac
+case "$E2E_OPENCLAW" in true|false) ;; *) echo 'E2E_OPENCLAW must be true or false.' >&2; exit 1 ;; esac
 
 cluster="arally-e2e-$(date +%s)-$$"
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/arally-e2e.XXXXXX")
@@ -20,7 +26,7 @@ finish() {
   trap - EXIT
   if [[ "$created" == true ]]; then
     if (( result != 0 )); then
-      kubectl get pods,events,agentclaims,agentgroups -A -o yaml > "$logs/resources.yaml" 2>&1 || true
+      kubectl get pods,events,agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/resources.yaml" 2>&1 || true
       kubectl -n arally-system logs deployment/arally-operator --all-containers > "$logs/operator.log" 2>&1 || true
       kubectl -n agent-sandbox-system logs deployment/agent-sandbox-controller --all-containers > "$logs/upstream.log" 2>&1 || true
       "$KIND" export logs "$logs/kind" --name "$cluster" || true
@@ -51,7 +57,27 @@ if "$KIND" get clusters | grep -Fxq "$cluster"; then
   exit 1
 fi
 created=true
-"$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --wait 180s
+if [[ "$E2E_CNI" == cilium ]]; then
+  cat > "$temporary/kind.yaml" <<'YAML'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+YAML
+  "$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --config "$temporary/kind.yaml"
+  # Nodes become Ready only after the replacement CNI is installed.
+  helm install cilium oci://quay.io/cilium/charts/cilium --version 1.20.3 -n kube-system \
+    --set ipam.mode=kubernetes --set operator.replicas=1 \
+    --set kubeProxyReplacement=false --set socketLB.enabled=false --wait --timeout=360s
+  kubectl -n kube-system rollout status daemonset/cilium --timeout=240s
+else
+  "$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --wait 180s
+fi
+if [[ "$E2E_SNAPSHOTS" == true ]]; then
+  # Pinned upstream CSI fixtures are installed only inside this new kind cluster.
+  source hack/e2e-snapshots.sh
+  install_snapshot_fixtures "$temporary"
+fi
 
 # Docker's containerd image store can retain a multi-platform index without all
 # its children. Export only the running platform so kind imports complete content.
@@ -63,6 +89,12 @@ load_image() {
 load_image "$image"
 docker pull --platform="$platform" docker.io/library/busybox:1.37.0
 load_image docker.io/library/busybox:1.37.0
+if [[ "$E2E_OPENCLAW" == true ]]; then
+  openclaw_image=$(awk '$1 == "image:" { print $2; exit }' examples/openclaw/definition.yaml)
+  test -n "$openclaw_image"
+  docker pull --platform="$platform" "$openclaw_image"
+  load_image "$openclaw_image"
+fi
 
 upstream="$temporary/upstream.yaml"
 curl -fsSL --retry 3 https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml -o "$upstream"
@@ -78,4 +110,4 @@ helm install arally-operator chart -n arally-system --create-namespace \
   --set-string image.repository="$repository" --set-string image.tag="$tag" \
   --set image.pullPolicy=IfNotPresent --wait --timeout=240s
 ARALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
-  go test -tags=e2e ./tests/e2e -count=1 -timeout=18m -v 2>&1 | tee "$logs/lifecycle.log"
+  go test -tags=e2e ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=25m -v 2>&1 | tee "$logs/lifecycle.log"

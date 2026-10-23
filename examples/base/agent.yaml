@@ -1,12 +1,11 @@
-# Replace the image with your agent image.
+# Apply definition.yaml first.
 apiVersion: arally.io/v1alpha1
-kind: AgentClaim
+kind: AgentInstance
 metadata:
   name: demo-agent
   namespace: arally-demo
 spec:
   agentGroupRef:
     name: demo
-  template: generic
-  runtime:
-    image: registry.example.com/my-agent:v1
+  definitionRef:
+    name: demo-agent

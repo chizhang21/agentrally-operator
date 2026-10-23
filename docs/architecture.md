@@ -7,15 +7,16 @@ The agent application implements its own conversations, model calls, tools and A
 
 ## Responsibilities
 
-Arally exposes three resources in `arally.io/v1alpha1`:
+Arally exposes four resources in `arally.io/v1alpha1`:
 
 | Resource | Scope | Responsibility |
 | --- | --- | --- |
-| AgentGroup | Cluster | Dedicated Namespace, Pod Security settings, optional quota and NetworkPolicy |
-| AgentClaim | Namespace | One agent's configuration, allocation, lifecycle requests and optional HTTP access |
+| AgentGroup | Cluster | Dedicated Namespace, Pod Security, quota, LimitRange, NetworkPolicy and allocation/prewarming policy |
+| AgentDefinition | Namespace | Reusable configuration and immutable published revisions, without allocated execution |
+| AgentInstance | Namespace | Logical identity, pinned definition revision, workspace binding, lifecycle and optional HTTP access |
 | ClusterCapabilities | Cluster | Runtime, storage and network configuration evidence used by deployment checks |
 
-AgentClaim execution requires agent-sandbox Core and Extensions.
+AgentInstance execution requires agent-sandbox Core and Extensions.
 Arally manages configuration and allocation requests. agent-sandbox Extensions
 allocates Sandboxes and refills warm pools. agent-sandbox Core manages their Pods,
 declared PVCs and optional headless Services. Kubernetes stores desired state and
@@ -23,7 +24,7 @@ status; each controller reads and writes resources through the Kubernetes API.
 
 ```mermaid
 flowchart LR
-    U["kubectl / GitOps"] -->|"AgentGroup / AgentClaim"| K["Kubernetes API"]
+    U["kubectl / GitOps"] -->|"AgentGroup / AgentDefinition / AgentInstance"| K["Kubernetes API"]
     A["Arally Operator"] <-->|"Configuration and status"| K
     E["agent-sandbox Extensions"] <-->|"Allocation"| K
     C["agent-sandbox Core"] <-->|"Pod and storage lifecycle"| K
@@ -35,12 +36,14 @@ resolves configuration without modifying the supplied resources.
 
 ## Provisioning and prewarming
 
-An AgentClaim follows one allocation path, whether a warm instance is available
+An AgentInstance follows one allocation path, whether a warm instance is available
 or execution must start from scratch:
 
 ```mermaid
 flowchart LR
-    AC["AgentClaim"] --> R["Arally: resolve and validate"]
+    D["AgentDefinition"] --> V["Published revision: no execution"]
+    V --> AC["AgentInstance pins revision"]
+    AC --> R["Arally: resolve and validate"]
     R --> P["Effective SandboxTemplate and pool"]
     P --> CL["Arally: create SandboxClaim"]
     CL -->|"Extensions allocates"| S["Sandbox"]
@@ -48,36 +51,39 @@ flowchart LR
 ```
 
 1. Check Group readiness and ownership of its namespace.
-2. Resolve a built-in environment or source SandboxTemplate. Apply runtime,
+2. Select the definition's published revision and bind its UID/revision to the instance. Apply container,
    model, workspace and security settings; check references and capabilities.
 3. Persist the desired revision and pool selection. For managed capacity, create
    a Group-owned template snapshot and pool; validate an existing external pool.
-4. Create the allocation SandboxClaim. Verify the assigned Sandbox's ownership
+4. Unless Group allocation is paused, create the allocation SandboxClaim. Verify the assigned Sandbox's ownership
    and configuration before accepting the allocation.
 5. Request the operating mode, reconcile optional HTTP access, and observe Core
    and the owned Pod to report configuration, health and readiness.
 
-Matching configurations share capacity within a Group. Pool identity includes
-Group UID, template source, resolved configuration, selected Agent container and
+Instances of the same definition revision with matching settings share capacity
+within a Group. Pool identity includes
+Group UID, definition UID/revision, resolved configuration, selected Agent container and
 reference resource versions. PVC specifications participate in that identity;
-instance-specific PVC names do not. Generated templates are create-only snapshots.
+instance-specific PVC names do not. Generated templates keep an immutable configuration snapshot.
 External pools are validated without adoption or modification.
 
 With ready spares, Extensions transfers an existing Sandbox to the allocation
-Claim, preserving its Pod and private PVCs, then refills the pool. Otherwise it
+instance, preserving its Pod and private PVCs, then refills the pool. Otherwise it
 creates a new Sandbox. Core provisions each Sandbox's declared PVCs, including
 those of unassigned spares. With private PVC templates, matching agents share
 capacity while keeping their workspace files separate.
 
-New managed pools default to zero spares. Administrators can scale them, and
-Arally preserves the configured count. A spare starts the real application with
+New managed pools default to zero spares. A Group prewarming policy controls the
+spare count per discovered configuration and retains unused capacity for its
+declared idle TTL. Omitted policy preserves manual scaling and immediate cleanup.
+An unseen configuration starts cold. A spare starts the real application with
 its configured credentials and consumes compute and storage before allocation.
 See [pool policy](agent-templates.md#allocation-and-policy) for configuration.
 
 The allocation budget is persisted in status and ends at validated Sandbox
 assignment. Pod startup is observed separately. Manager restarts do not reset the
 budget; an unassigned attempt that times out is cleaned up and requires a new
-`restartToken`. An initially suspended Claim waits for resume before allocating.
+`restartToken`. An initially suspended instance waits for resume before allocating.
 
 ## Resources and ownership
 
@@ -86,22 +92,26 @@ checks ownership before updating managed resources or accepting execution observ
 
 | Resource | Reconciled by | Controller owner |
 | --- | --- | --- |
-| Group Namespace, quota and NetworkPolicy | Arally | AgentGroup |
-| Generated SandboxTemplates and SandboxWarmPools | Arally | AgentGroup |
-| Allocation SandboxClaim, interaction Service and route | Arally | AgentClaim |
+| Group Namespace, quota, LimitRange and NetworkPolicy | Arally | AgentGroup |
+| Published revision SandboxTemplates | Arally | AgentDefinition |
+| Resolved allocation SandboxTemplates and SandboxWarmPools | Arally | AgentGroup |
+| Allocation SandboxClaim, interaction Service and route | Arally | AgentInstance |
 | Unassigned warm Sandbox | Extensions | SandboxWarmPool |
 | Assigned Sandbox | Extensions | Allocation SandboxClaim |
 | Execution Pod, private PVCs and optional headless Service | Core | Sandbox |
 
 AgentGroup creates an `arally-` namespace and rejects an unrelated existing one.
-Claims must use their Group's namespace. Source templates, external pools and
+instances must use their Group's namespace. Source templates, external pools and
 referenced credentials remain user-managed.
 
-The Group prunes generated pools and snapshots with no active AgentClaim or
-native SandboxClaim references, waiting for pool deletion before removing its
-snapshot. Claim replacement, expiry and deletion request foreground deletion of
+The Group prunes generated pools with no active AgentInstance or native SandboxClaim
+references after any configured idle TTL. Group deletion bypasses the delay.
+All pool references, including external pools, protect generated snapshots;
+cleanup waits for pool deletion before removing its snapshot. instance replacement,
+expiry and deletion request foreground deletion of
 the owned SandboxClaim; upstream controllers and garbage collection remove the
-execution. Group deletion waits for AgentClaims, Sandboxes and PVCs to be removed
+execution. Definition deletion waits for referencing instances and drains unused
+managed capacity. Group deletion waits for AgentDefinitions, AgentInstances, Sandboxes and PVCs to be removed
 before deleting the namespace.
 
 Arally patches `operatingMode` on assigned Sandboxes and observes their Pods and
@@ -110,28 +120,35 @@ Pod and PVC access is read-only.
 
 ## Lifecycle and workspace
 
-An AgentClaim is the lasting declaration. Its Sandbox is a replaceable execution,
+An AgentInstance is the lasting declaration. Its Sandbox is a replaceable execution,
 and each private workspace PVC belongs to that Sandbox. Suspend/resume preserves
-the workspace within an execution; execution replacement creates a new workspace.
+the workspace within an execution. Private PVCs are replaced with execution; an
+external `workspace.existingClaimRef` keeps the same recorded PVC UID. The Operator
+never adopts or deletes that PVC. See [definitions and instances](agent-definitions.md).
 
 | Change | Execution behavior | Private workspace |
 | --- | --- | --- |
-| Edit execution configuration | Existing execution continues; a differing configuration requires explicit replacement | Unchanged |
+| Edit definition configuration | Publish a new revision; existing instances stay pinned | Unchanged |
 | Suspend | Core removes the Pod and retains the Sandbox | Retained |
 | Resume | Core starts a new Pod in the same Sandbox | Reused |
 | Recreate a Pod within the same Sandbox | Pod changes; Sandbox remains | Reused |
 | Change `restartToken` | Remove the old allocation, wait for cleanup, then allocate a replacement | Old PVCs removed; new PVCs provisioned |
-| Expire execution or delete AgentClaim | Remove execution and interaction resources | Removed with the Sandbox |
+| Expire execution or delete AgentInstance | Remove execution and interaction resources | Removed with the Sandbox |
 
 Resume restores access to retained files; it does not restore process memory.
+Native snapshot sources initialize private PVCs through CSI. Arally checks local
+VolumeSnapshot readiness and capacity before allocation and includes its UID in
+pool identity. Completed executions retain that initialization identity; later
+source deletion or replacement does not affect their workspaces or resume.
+It neither creates storage snapshots nor owns restoration. Snapshot
+APIs are optional; instances without snapshot sources do not depend on them.
 `Suspended=True` requires current Core confirmation and no remaining execution
 Pod. A Pod still terminating keeps suspension or cleanup pending. Arally reports
 stalls without force-deleting runtime resources.
 
-Expiry with `shutdownPolicy: Retain` keeps the AgentClaim and diagnostics, while
-removing execution and its workspace. Data that must outlive Sandbox replacement
-needs storage managed independently of that execution. Custom templates can
-reference [external PVCs](agent-templates.md#allocation-and-policy), whose access
+Expiry with `shutdownPolicy: Retain` keeps the AgentInstance and diagnostics, while
+removing execution and its private workspace. Data that must outlive Sandbox replacement
+needs storage managed independently of that execution. Instances can bind [external PVCs](agent-definitions.md#workspace-lifetime), whose access
 and sharing constraints still apply. Operating commands and expiry settings are
 in [lifecycle](usage.md#lifecycle).
 
@@ -168,6 +185,12 @@ ClusterCapabilities reports configuration evidence. It does not run runtime,
 storage I/O or traffic-enforcement tests. The default `cluster` report is always
 enabled. See [capability checks](cluster-capabilities.md) for the evidence limits.
 
+Shared-capacity cleanup uses direct reference reads and resource-version
+preconditions. Before creating a native Claim, allocation persists its selection
+and marks reused Arally-owned pool/template metadata for that attempt. This
+prevents a concurrent pruner's older inventory from deleting newly reused
+capacity; snapshot specs and external pool settings remain unchanged.
+
 ## Design decisions
 
 | Decision | Reason | Tradeoff |
@@ -175,7 +198,9 @@ enabled. See [capability checks](cluster-capabilities.md) for the evidence limit
 | Delegate execution to agent-sandbox | Keep one owner of allocation, Pod and storage lifecycle | Requires compatible Core and Extensions APIs |
 | Give each Group a dedicated namespace | Apply namespace policy and quota consistently | Requires cluster permissions; Group deletion waits for resources to be removed |
 | Use one pool allocation path | Cold and warm instances share validation and lifecycle handling | Requires template snapshots, pool selection and unused-capacity cleanup |
+| Publish immutable definition revisions | Reuse configuration across instances and keep existing instances pinned | Published history remains until definition deletion |
 | Snapshot execution configuration and require explicit replacement | Keep a running execution stable while desired settings change | Pod configuration updates wait for `restartToken`; replacement also replaces its private workspace |
+| Bind external workspace PVCs by UID | Retain assistant files across upgrades without changing PVC ownership | Administrators provision and retire storage; existing-workspace spares stay at zero |
 | Provision a private PVC per Sandbox | Prepare independent storage before warm allocation | Spares consume disks; workspace lifetime ends with the execution |
 | Default to zero spares | Let users decide when application startup and idle resource use are acceptable | Prewarming must be enabled explicitly |
 | Persist revisions and allocation budgets in Kubernetes | Resume reconciliation after manager restarts | Progress depends on the API and upstream controllers; assignment and application readiness remain separate |
@@ -185,6 +210,7 @@ enabled. See [capability checks](cluster-capabilities.md) for the evidence limit
 | Package | Responsibility |
 | --- | --- |
 | [cmd](../cmd) | Manager setup, controller registration, leader election and optional Connector startup |
+| [internal/definition](../internal/definition) | Publish and verify immutable native template revisions |
 | [internal/controller](../internal/controller) | CR-specific reconciliation, ownership checks, conditions, Events and watches |
 | [internal/allocation](../internal/allocation) | Pool selection, snapshot creation and unused-capacity cleanup |
 | [internal/podconfig](../internal/podconfig) | Creation markers and comparison of declared, snapshot and admitted Pod configuration |
@@ -192,11 +218,12 @@ enabled. See [capability checks](cluster-capabilities.md) for the evidence limit
 | [internal/templates](../internal/templates) | Embedded environments and runtime overrides |
 | [internal/capabilities](../internal/capabilities) | Configuration discovery and reports |
 | [internal/diagnostics](../internal/diagnostics) | Safe messages with separately retained error causes |
+| [internal/metrics](../internal/metrics) | Cached state gauges and persisted-transition duration histograms |
 
-A controller-runtime manager runs AgentGroup, AgentClaim and ClusterCapabilities
+A controller-runtime manager runs AgentGroup, AgentInstance and ClusterCapabilities
 controllers in one process, using Lease leader election. The wire adapter uses
 `agents.x-k8s.io/v1beta1` for Sandbox and `extensions.agents.x-k8s.io/v1beta1` for
-templates, pools and Claims; it contains no upstream controller logic.
+templates, pools and instances; it contains no upstream controller logic.
 
 ### Reconciliation and status
 
@@ -217,17 +244,24 @@ dependency gates, so a missing new reference does not prevent shutdown.
 | Finished | Core confirms natural completion of the current owned Pod, excluding suspension and Pod deletion. |
 | InteractionReady | Execution is available and the route controller accepted the endpoint. |
 
-Generated Pods carry `ARALLY_CONFIGURATION_REVISION`. External warmed Pods without
-a creation marker report unverified configuration. Reference changes are detected
+Generated Pods carry `ARALLY_CONFIGURATION_REVISION`. External pools must reference
+the matching Group-owned generated snapshot, including its full stamped blueprint;
+unmarked source templates are rejected before allocation. An assigned Sandbox's
+creation evidence is checked against the recorded selection, even after desired
+configuration changes. Reference changes are detected
 through indexed dependency watches or periodic reconciliation; optional route APIs
 use direct reads and polling, so their CRDs are not required at manager startup.
+Group summaries expose namespace capacity; instance timings persist observations of
+allocation, Pod startup, suspension and cleanup. The existing metrics endpoint
+exports bounded labels without instance identity or credential data. Process
+histograms reset on restart; persisted status remains the timing record.
 For operational interpretation, see [status and diagnostics](usage.md#status-and-diagnostics).
 
 ### Optional Connector
 
 `connector.enabled` starts an outbound Connector worker in the elected Operator
 process. The chart conditionally supplies its credentials and additional CR write
-permissions. It relays requests for the three Arally CRs for future Orchestrator
+permissions. It relays requests for the four Arally CRs for future Orchestrator
 integration. Protocol details are in [Outbound Connector](outbound-connector.md).
 
 Installation, operating commands and build workflows are covered separately in

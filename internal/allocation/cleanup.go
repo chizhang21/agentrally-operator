@@ -6,22 +6,33 @@ import (
 	v1 "arally/operator/api/v1alpha1"
 	"arally/operator/internal/sandbox"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Prune removes unused Arally-generated pools and snapshots, returning whether cleanup is pending.
 // Read current references before pruning. Pool selection is persisted before its
-// creation, so an in-flight AgentClaim protects a newly created shared pool.
+// creation, so an in-flight AgentInstance protects a newly created shared pool.
 // Native Claims also protect pools if an external caller uses managed capacity.
 func (m *Manager) Prune(ctx context.Context, group *v1.AgentGroup) (bool, error) {
+	return m.prune(ctx, group, "")
+}
+
+// RetireDefinition drains unused capacity for a deleting definition, preserving native Claim references.
+func (m *Manager) RetireDefinition(ctx context.Context, group *v1.AgentGroup, uid types.UID) (bool, error) {
+	return m.prune(ctx, group, uid)
+}
+
+func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID types.UID) (bool, error) {
 	reader := m.Reader
 	if reader == nil {
 		reader = m.Client
 	}
-	workloads := &v1.AgentClaimList{}
+	workloads := &v1.AgentInstanceList{}
 	claims, pools, templates := sandbox.ExtensionList("SandboxClaim"), sandbox.ExtensionList("SandboxWarmPool"), sandbox.ExtensionList("SandboxTemplate")
 	for _, list := range []*unstructured.UnstructuredList{pools, templates} {
 		if err := reader.List(ctx, list, client.InNamespace(group.NamespaceName())); err != nil {
@@ -53,7 +64,19 @@ func (m *Manager) Prune(ctx context.Context, group *v1.AgentGroup) (bool, error)
 		pool := &pools.Items[i]
 		name, _ := sandbox.PoolTemplateName(pool)
 		remainingTemplates[name] = true // keep template until foreground pool cleanup completes.
-		if !managedByGroup(pool, group) || used[pool.GetName()] {
+		if !managedByGroup(pool, group) || (definitionUID != "" && pool.GetLabels()[definitionUIDLabel] != string(definitionUID)) {
+			continue
+		}
+		if err := m.reconcilePoolPolicy(ctx, pool, group, used[pool.GetName()]); err != nil {
+			return false, err
+		}
+		if used[pool.GetName()] {
+			if definitionUID != "" {
+				pending = true
+			}
+			continue
+		}
+		if definitionUID == "" && m.retainIdlePool(pool, group) {
 			continue
 		}
 		pending = true
@@ -63,7 +86,7 @@ func (m *Manager) Prune(ctx context.Context, group *v1.AgentGroup) (bool, error)
 	}
 	for i := range templates.Items {
 		template := &templates.Items[i]
-		if !managedByGroup(template, group) || remainingTemplates[template.GetName()] {
+		if !managedByGroup(template, group) || (definitionUID != "" && template.GetLabels()[definitionUIDLabel] != string(definitionUID)) || remainingTemplates[template.GetName()] {
 			continue
 		}
 		pending = true
@@ -78,5 +101,13 @@ func (m *Manager) deleteAllocationResource(ctx context.Context, object *unstruct
 	if object.GetDeletionTimestamp() != nil {
 		return nil
 	}
-	return client.IgnoreNotFound(m.Client.Delete(ctx, object, client.PropagationPolicy(metav1.DeletePropagationForeground), &client.DeleteOptions{Preconditions: &metav1.Preconditions{UID: ptr.To(object.GetUID())}}))
+	err := m.Client.Delete(ctx, object, client.PropagationPolicy(metav1.DeletePropagationForeground), &client.DeleteOptions{Preconditions: &metav1.Preconditions{
+		UID: ptr.To(object.GetUID()), ResourceVersion: ptr.To(object.GetResourceVersion()),
+	}})
+	if apierrors.IsConflict(err) {
+		// A concurrent allocation or upstream status write invalidated our
+		// snapshot. Re-evaluate references on the next reconciliation.
+		return nil
+	}
+	return client.IgnoreNotFound(err)
 }

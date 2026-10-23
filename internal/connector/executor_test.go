@@ -10,6 +10,7 @@ import (
 
 	v1 "arally/operator/api/v1alpha1"
 	"arally/operator/internal/controller/clustercapabilities"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -30,12 +31,13 @@ import (
 )
 
 var groupGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "agentgroups"}
-var workloadGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "agentclaims"}
+var workloadGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "agentinstances"}
+var definitionGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "agentdefinitions"}
 var capabilityGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "clustercapabilities"}
 
 func fakeKube(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
-		groupGVR: "AgentGroupList", workloadGVR: "AgentClaimList", capabilityGVR: "ClusterCapabilitiesList",
+		groupGVR: "AgentGroupList", definitionGVR: "AgentDefinitionList", workloadGVR: "AgentInstanceList", capabilityGVR: "ClusterCapabilitiesList",
 	}, objects...)
 }
 
@@ -43,11 +45,13 @@ func TestDisallowedRequestsNeverReachKubernetes(t *testing.T) {
 	for _, req := range []Request{
 		{Method: "GET", Resource: "secrets", Namespace: "demo"},
 		{Method: "GET", Resource: "pods", Namespace: "demo"},
-		{Method: "PUT", Resource: "agentclaims/status", Namespace: "demo"},
+		{Method: "PUT", Resource: "agentinstances/status", Namespace: "demo"},
 		{Method: "PATCH", Resource: "agentgroups", Name: "demo"},
 		{Method: "GET", Resource: "agentgroups", Namespace: "demo"},
-		{Method: "GET", Resource: "agentclaims"},
-		{Method: "GET", Resource: "agentclaims", Namespace: "demo/other"},
+		{Method: "GET", Resource: "agentinstances"},
+		{Method: "GET", Resource: "agentdefinitions"},
+		{Method: "POST", Resource: "agentdefinitions", Namespace: "demo", Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstance","metadata":{"name":"agent"}}`)},
+		{Method: "GET", Resource: "agentinstances", Namespace: "demo/other"},
 		{Method: "GET", Resource: "agentgroups", Name: "../secrets"},
 		{Method: "GET", Resource: "agentgroups", Limit: 501},
 		{Method: "GET", Resource: "agentgroups", Name: "demo", Continue: "token"},
@@ -56,7 +60,7 @@ func TestDisallowedRequestsNeverReachKubernetes(t *testing.T) {
 		{Method: "DELETE", Resource: "clustercapabilities", Name: "cluster"},
 		{Method: "POST", Resource: "agentgroups", Body: json.RawMessage(`{"apiVersion":"v1","kind":"Secret","metadata":{"name":"demo"}}`)},
 		{Method: "POST", Resource: "agentgroups", Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"generateName":"demo-"}}`)},
-		{Method: "POST", Resource: "agentclaims", Namespace: "demo", Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentClaim","metadata":{"name":"agent","namespace":"other"}}`)},
+		{Method: "POST", Resource: "agentinstances", Namespace: "demo", Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstance","metadata":{"name":"agent","namespace":"other"}}`)},
 		{Method: "PUT", Resource: "agentgroups", Name: "demo", Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"demo"}}`)},
 		{Method: "PUT", Resource: "agentgroups", Name: "demo", Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"other","resourceVersion":"1"}}`)},
 		{Method: "DELETE", Resource: "agentgroups", Name: "demo", Body: json.RawMessage(`{}`)},
@@ -80,8 +84,8 @@ func TestNativeWorkloadOperationsPreserveSpecAndUsePreconditions(t *testing.T) {
 	kube := fakeKube()
 	executor := Executor{Client: kube}
 	ctx := context.Background()
-	body := json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentClaim","metadata":{"name":"agent","namespace":"demo"},"spec":{"agentGroupRef":{"name":"demo"},"templateRef":{"name":"agent-generic"},"modelProvider":{"baseURL":"https://model.example/v1","model":"test","apiKeySecretRef":{"name":"credentials","key":"api-key"}}},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`)
-	create := executor.Execute(ctx, Request{ID: "create", Method: "POST", Resource: "agentclaims", Namespace: "demo", Body: body})
+	body := json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstance","metadata":{"name":"agent","namespace":"demo"},"spec":{"agentGroupRef":{"name":"demo"},"definitionRef":{"name":"agent-generic"}},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`)
+	create := executor.Execute(ctx, Request{ID: "create", Method: "POST", Resource: "agentinstances", Namespace: "demo", Body: body})
 	if create.ID != "create" || create.Status != http.StatusCreated {
 		t.Fatalf("create failed: %s", create.Body)
 	}
@@ -97,21 +101,21 @@ func TestNativeWorkloadOperationsPreserveSpecAndUsePreconditions(t *testing.T) {
 	created.SetResourceVersion("7")
 	created.SetUID(types.UID("uid-7"))
 	created.Object["spec"].(map[string]any)["operatingMode"] = "Suspended"
-	update := executor.Execute(ctx, Request{Method: "PUT", Resource: "agentclaims", Namespace: "demo", Name: "agent", Body: mustJSON(&created)})
+	update := executor.Execute(ctx, Request{Method: "PUT", Resource: "agentinstances", Namespace: "demo", Name: "agent", Body: mustJSON(&created)})
 	if update.Status != http.StatusOK {
 		t.Fatalf("update failed: %s", update.Body)
 	}
-	get := executor.Execute(ctx, Request{Method: "GET", Resource: "agentclaims", Namespace: "demo", Name: "agent"})
+	get := executor.Execute(ctx, Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Name: "agent"})
 	var read unstructured.Unstructured
 	_ = json.Unmarshal(get.Body, &read)
 	if get.Status != 200 || read.GetResourceVersion() != "7" || read.Object["spec"].(map[string]any)["operatingMode"] != "Suspended" {
 		t.Fatal("update concurrency token or native fields lost")
 	}
-	list := executor.Execute(ctx, Request{Method: "GET", Resource: "agentclaims", Namespace: "demo", Limit: 25, Continue: "page-2"})
+	list := executor.Execute(ctx, Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Limit: 25, Continue: "page-2"})
 	if list.Status != 200 {
 		t.Fatalf("list failed: %s", list.Body)
 	}
-	deleted := executor.Execute(ctx, Request{Method: "DELETE", Resource: "agentclaims", Namespace: "demo", Name: "agent", Body: json.RawMessage(`{"preconditions":{"uid":"uid-7","resourceVersion":"7"}}`)})
+	deleted := executor.Execute(ctx, Request{Method: "DELETE", Resource: "agentinstances", Namespace: "demo", Name: "agent", Body: json.RawMessage(`{"preconditions":{"uid":"uid-7","resourceVersion":"7"}}`)})
 	if deleted.Status != http.StatusAccepted {
 		t.Fatalf("delete failed: %s", deleted.Body)
 	}
@@ -119,7 +123,7 @@ func TestNativeWorkloadOperationsPreserveSpecAndUsePreconditions(t *testing.T) {
 	if *options.Preconditions.UID != "uid-7" || *options.Preconditions.ResourceVersion != "7" || *options.PropagationPolicy != metav1.DeletePropagationForeground {
 		t.Fatal("safe delete preconditions missing")
 	}
-	if executor.Execute(ctx, Request{Method: "GET", Resource: "agentclaims", Namespace: "demo", Name: "agent"}).Status != 404 {
+	if executor.Execute(ctx, Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Name: "agent"}).Status != 404 {
 		t.Fatal("native not found error lost")
 	}
 	for _, action := range kube.Actions() {
@@ -211,20 +215,40 @@ func TestPaginationReachesNativeAPI(t *testing.T) {
 		calls := 0
 		kube, err := dynamic.NewForConfig(&rest.Config{Host: "https://kube.example", Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			calls++
-			if req.URL.Path != "/apis/arally.io/v1alpha1/namespaces/demo/agentclaims" || req.URL.Query().Get("limit") != wantLimit || req.URL.Query().Get("continue") != "page-2" {
+			if req.URL.Path != "/apis/arally.io/v1alpha1/namespaces/demo/agentinstances" || req.URL.Query().Get("limit") != wantLimit || req.URL.Query().Get("continue") != "page-2" {
 				t.Fatalf("incorrect native list request: %s", req.URL)
 			}
-			response := remoteResponse(req, 200, `{"apiVersion":"arally.io/v1alpha1","kind":"AgentClaimList","metadata":{"continue":"page-3"},"items":[]}`)
+			response := remoteResponse(req, 200, `{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstanceList","metadata":{"continue":"page-3"},"items":[]}`)
 			response.Header.Set("Content-Type", "application/json")
 			return response, nil
 		})})
 		if err != nil {
 			t.Fatal(err)
 		}
-		response := (Executor{Client: kube}).Execute(context.Background(), Request{Method: "GET", Resource: "agentclaims", Namespace: "demo", Limit: limit, Continue: "page-2"})
+		response := (Executor{Client: kube}).Execute(context.Background(), Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Limit: limit, Continue: "page-2"})
 		var list unstructured.UnstructuredList
 		if response.Status != 200 || json.Unmarshal(response.Body, &list) != nil || list.GetContinue() != "page-3" || calls != 1 {
 			t.Fatal("native pagination result lost")
 		}
+	}
+}
+
+func TestConnectorRelaysDefinitionConfiguration(t *testing.T) {
+	kube := fakeKube()
+	body := json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentDefinition","metadata":{"name":"assistant","namespace":"demo"},"spec":{"agentGroupRef":{"name":"demo"},"template":"assistant","container":{"image":"example/assistant:v1","env":[{"name":"API_KEY","valueFrom":{"secretKeyRef":{"name":"credentials","key":"key"}}}]}}}`)
+	response := (Executor{Client: kube}).Execute(context.Background(), Request{Method: "POST", Resource: "agentdefinitions", Namespace: "demo", Body: body})
+	if response.Status != http.StatusCreated {
+		t.Fatal(string(response.Body))
+	}
+	object := &unstructured.Unstructured{}
+	if err := json.Unmarshal(response.Body, object); err != nil {
+		t.Fatal(err)
+	}
+	original := &unstructured.Unstructured{}
+	if err := json.Unmarshal(body, original); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(object.Object["spec"], original.Object["spec"]) || kube.Actions()[0].GetResource() != definitionGVR {
+		t.Fatal("definition relay changed credential references or resource routing")
 	}
 }

@@ -1,7 +1,7 @@
 # Cluster capabilities
 
-`ClusterCapabilities` reports runtime, storage and NetworkPolicy configuration.
-Its controller reads cluster resources; AgentGroup and AgentClaim use the results
+`ClusterCapabilities` reports runtime, storage, snapshot class and NetworkPolicy configuration.
+Its controller reads cluster resources; AgentGroup and AgentInstance use the results
 for deployment checks.
 
 ## Reading status
@@ -12,29 +12,59 @@ kubectl get clustercapabilities cluster -o yaml
 
 Discovery is always enabled. The controller creates `ClusterCapabilities/cluster`
 on startup and recreates it if deleted. Existing report spec and metadata remain
-untouched; discovery only updates status. Only the default report is bootstrapped;
-other named reports, if created, are not recreated after deletion.
+untouched; discovery only updates status. The API accepts only the name `cluster`;
+the controller ignores older reports with other names.
 
-Scans run every 30 seconds and when dependencies change. Check `observedAt`,
-`observedGeneration` and the section's condition:
+Each section is audited directly against the API every 90 seconds. Relevant
+dependency changes are coalesced and compared through the informer cache; an
+unchanged candidate causes no API scan or status write. A changed candidate
+triggers a direct audit of that section. A manager restart audits every section.
+Failed sections retry after 10 seconds, with a separate five-second read budget
+for each section. Snapshot classes use periodic direct reads without an informer,
+so the optional API can appear after startup.
+
+Check `observedGeneration`, `sections[].lastAttemptAt`,
+`sections[].lastSuccessAt` and the corresponding condition:
 
 - `RuntimeDiscoveryReady`
 - `StorageDiscoveryReady`
 - `NetworkPolicyDiscoveryReady`
+- `SnapshotDiscoveryReady`
 - `DiscoveryReady`
 
 Each section can fail independently. A failed read clears that section and sets
-its condition False. `observedAt` records the latest attempt, including failures.
+its condition False. `observedAt` records the latest direct attempt across all
+sections, including failures. Only a successful direct audit renews a section's
+`lastSuccessAt`; cache reads and audits of other sections cannot renew it.
 Deployment checks use successful current-generation sections no older than two
-minutes. The report describes configuration; it does not test runtime execution,
+minutes. `DiscoveryReady=True` means every section was read successfully; a
+missing optional snapshot class API is a valid observation, not an installation
+failure. The report describes configuration; it does not test runtime execution,
 storage I/O or traffic enforcement.
+
+## Native observations
+
+| Fields | Evidence and limits |
+| --- | --- |
+| `defaultRuntime`, `nodeRuntimes` | Default executor stays Unknown; kubelet CRI names and versions do not identify its isolation or image contract. |
+| `runtimes` | RuntimeClass handler, scheduling selectors/tolerations, fixed Pod overhead and advisory eligible node count. These do not prove that the handler works. |
+| `storageClasses` | Provisioner, binding mode, reclaim policy, expansion intent, allowed topologies and backend classification. Expansion intent does not prove resize support. |
+| `csiDrivers`, `csiDriverDetails` | Driver names, attach requirement, fsGroup policy, volume lifecycle modes and CSINode registration counts/topology keys. Driver-specific node IDs are omitted. Registration does not establish health or optional CSI RPC support. |
+| `snapshots.classAPIStatus`, `snapshots.classes` | VolumeSnapshotClass API availability, class driver, deletion policy and default annotation. These do not prove snapshot creation/restore; pre-provisioned snapshots may have no class. |
+| `networkPolicy` | Recognized provider configuration and readiness. `enforcementVerified` stays false even after a separately run traffic test. |
+
+The Operator reads these APIs without touching host sockets or creating probe
+Pods. Missing snapshot APIs produce `Unavailable`; denied reads produce `Unknown`
+and a `PermissionDenied` condition. The catalog hash in `catalogRevision` and
+classification `source`/`rule` fields explain how a result was derived.
 
 ## Discovery catalog
 
 Rules are embedded from [internal/capabilities/catalog](../internal/capabilities/catalog).
-The project maintains them; installation accepts no custom catalog or overrides.
+The project maintains the catalog; installation accepts no custom rule language.
 `arally.io/runtime-type` and `arally.io/storage-type` labels do not affect recognition.
-Add a source rule and regression test, then build a new image to support another provider.
+Use the limited administrator mappings below for custom class names, or add a
+source rule and regression test for a generally applicable provider signature.
 
 | File | Rules |
 | --- | --- |
@@ -57,9 +87,12 @@ Known legacy NFS provisioners can appear without CSIDriver; recognized remote CS
 backends require driver registration. The report lists all classes without ranking them.
 
 Network rules cover Calico, Cilium, OVN-Kubernetes, Antrea, Weave, Azure NPM,
-AWS VPC CNI and kube-router. Flannel/kindnet signatures indicate lack of support.
+AWS VPC CNI and kube-router. Flannel/kindnet signatures describe only those
+components' lack of support; they cannot rule out a coexisting policy engine.
 Checks use provider settings and current-generation DaemonSet readiness. Unknown
-layouts stay Unknown. `enforcementVerified` remains false; test traffic separately.
+layouts and negative-only observations stay Unknown globally. Positive evidence
+means a ready, configured provider was observed. `enforcementVerified` remains
+false; test traffic separately.
 
 Network discovery trusts installations in `kube-system`, `calico-system`,
 `openshift-ovn-kubernetes`, `openshift-sdn` and `kube-flannel`. For another
@@ -73,9 +106,42 @@ Keep these namespaces and the approval label under administrator control.
 DaemonSets with matching names in ordinary tenant namespaces are ignored.
 Approval enables the existing catalog checks; it does not verify packet enforcement.
 
-## AgentClaim and group feedback
+## Administrator mappings
 
-`AgentClaim.status.conditions[CapabilityValidated]` records deployment checks:
+An administrator can classify an existing RuntimeClass or StorageClass on the
+canonical report. For example, merge the following settings into its spec:
+
+```yaml
+spec:
+  runtimeMappings:
+    - runtimeClassName: company-kata
+      family: kata
+      category: VirtualMachine
+      imageContract: LinuxOCI
+  storageMappings:
+    - storageClassName: company-workspaces
+      type: NFS
+```
+
+Mapped results say `source: AdministratorDeclared`. Mappings do not create native
+classes, install handlers, change scheduling, bypass missing CSI registration or
+override NetworkPolicy results. A runtime category of `WebAssembly` requires
+`WasmWASI`; other categories require `LinuxOCI`. Each mapping list accepts at
+most 64 named entries. Remove a mapping to return to built-in/native classification.
+See the [complete report example](../examples/cluster-capabilities.yaml).
+
+## Explicit diagnostics
+
+`make e2e` checks the native report and executes a selected runc RuntimeClass in
+a new disposable kind cluster. Optional profiles exercise Cilium application
+traffic (`E2E_CNI=cilium`) and CSI workspace snapshot restoration
+(`E2E_SNAPSHOTS=true`). See [development tests](development.md#real-lifecycle-release-gate).
+These tests use the caller's isolated test credentials, leave the Operator's
+permissions unchanged, and do not update discovery status with probe results.
+
+## AgentInstance and group feedback
+
+`AgentInstance.status.conditions[CapabilityValidated]` records deployment checks:
 
 | Status | Result | Effect |
 | --- | --- | --- |
@@ -107,7 +173,7 @@ change. Suspension remains possible if model/workspace references are missing;
 that fallback sets `ConfigurationAccepted=False`. Deletion skips these checks.
 Report changes and periodic reconciliation retry blocked deployments.
 
-AgentClaim reads the owned execution Pod for scheduling and container diagnostics,
+AgentInstance reads the owned execution Pod for scheduling and container diagnostics,
 with current Core scheduling feedback as a fallback. `Available` follows current
 Core readiness, refined by Pod observations; `Ready` additionally requires the
 current desired configuration and requested endpoint to be satisfied. These are
@@ -116,7 +182,7 @@ or traffic probe.
 See [status and diagnostics](usage.md#status-and-diagnostics).
 
 Inventory and condition changes enqueue consumers. A timestamp-only refresh does
-not enqueue every AgentClaim or Group; their periodic reconciliation still checks
+not enqueue every AgentInstance or Group; their periodic reconciliation still checks
 freshness, so a refreshed unchanged report can unblock a consumer on its next poll.
 Backends can read the same report through [Connector](outbound-connector.md).
-Claims still specify RuntimeClass, placement, PVCs and Group policy explicitly.
+instances still specify RuntimeClass, placement, PVCs and Group policy explicitly.

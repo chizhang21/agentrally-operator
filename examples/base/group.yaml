@@ -6,7 +6,7 @@ spec:
   namespace: arally-demo
   quota:
     hard:
-      count/agentclaims.arally.io: "20"
+      count/agentinstances.arally.io: "20"
   # Optional defaults for Claims using HTTPRoute; ignored by OpenShiftRoute.
   # interactionDefaults:
   #   httpRoute:

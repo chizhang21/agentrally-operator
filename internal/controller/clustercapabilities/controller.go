@@ -2,6 +2,7 @@ package clustercapabilities
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	v1 "arally/operator/api/v1alpha1"
@@ -14,7 +15,6 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -55,7 +55,11 @@ func nodeDiscoveryChanges() predicate.Predicate {
 type Reconciler struct {
 	client.Client
 	// Reader bypasses the informer cache so timestamps reflect actual API reads.
-	Reader client.Reader
+	Reader  client.Reader
+	Now     func() time.Time
+	mu      sync.Mutex
+	dirty   capabilities.Section
+	started bool
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {
@@ -67,32 +71,38 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	if report.DeletionTimestamp != nil {
 		return ctrl.Result{}, nil
 	}
-	scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	status := capabilities.Discover(scanCtx, r.Reader)
-	status.ObservedGeneration = report.Generation
-	// Preserve transition times across successful/failed refreshes of the same state.
-	conditions := status.Conditions
-	status.Conditions = append([]metav1.Condition(nil), report.Status.Conditions...)
-	for _, condition := range conditions {
-		condition.ObservedGeneration = report.Generation
-		meta.SetStatusCondition(&status.Conditions, condition)
-	}
-	result = ctrl.Result{RequeueAfter: capabilities.RefreshInterval}
-	if equality.Semantic.DeepEqual(report.Status, status) {
-		return result, nil
-	}
 	base := report.DeepCopy()
-	report.Status = status
-	return result, r.Status().Patch(ctx, report, client.MergeFrom(base))
+	r.mu.Lock()
+	dirty := r.dirty
+	r.dirty = 0
+	r.mu.Unlock()
+	reader := r.Reader
+	if reader == nil {
+		reader = r.Client
+	}
+	observer := capabilities.Observer{Reader: reader, Cache: r.Client, Now: r.Now}
+	delay := observer.Refresh(ctx, report, dirty, !r.started)
+	if !equality.Semantic.DeepEqual(base.Status, report.Status) {
+		if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+			r.mu.Lock()
+			r.dirty |= dirty
+			r.mu.Unlock()
+			return ctrl.Result{}, err
+		}
+	}
+	r.started = true
+	return ctrl.Result{RequeueAfter: delay}, nil
 }
 
 // Only the built-in report is bootstrapped. Existing reports and native
 // discovery inputs retain their spec and metadata.
 func (r *Reconciler) loadReport(ctx context.Context, key client.ObjectKey) (*v1.ClusterCapabilities, error) {
+	if key != (client.ObjectKey{Name: defaultReportName}) {
+		return nil, nil
+	}
 	report := &v1.ClusterCapabilities{}
 	if err := r.Get(ctx, key, report); err != nil {
-		if !apierrors.IsNotFound(err) || key != (client.ObjectKey{Name: defaultReportName}) {
+		if !apierrors.IsNotFound(err) {
 			return nil, client.IgnoreNotFound(err)
 		}
 		report.Name = defaultReportName
@@ -104,24 +114,25 @@ func (r *Reconciler) loadReport(ctx context.Context, key client.ObjectKey) (*v1.
 	return report, nil
 }
 
-func (r *Reconciler) mapDependency(ctx context.Context, _ client.Object) []reconcile.Request {
-	reports := &v1.ClusterCapabilitiesList{}
-	if err := r.List(ctx, reports); err != nil {
-		ctrl.LoggerFrom(ctx).Error(diagnostics.SafeError(err), "unable to map dependency to ClusterCapabilities")
-		return nil
+func (r *Reconciler) mapDependency(_ context.Context, object client.Object) []reconcile.Request {
+	var section capabilities.Section
+	switch object.(type) {
+	case *corev1.Node, *nodev1.RuntimeClass:
+		section = capabilities.Runtime
+	case *storagev1.StorageClass, *storagev1.CSIDriver, *storagev1.CSINode:
+		section = capabilities.Storage
+	case *appsv1.DaemonSet, *corev1.ConfigMap, *corev1.Namespace:
+		section = capabilities.Network
 	}
-	requests := make([]reconcile.Request, 0, len(reports.Items))
-	for _, report := range reports.Items {
-		if report.DeletionTimestamp == nil {
-			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&report)})
-		}
-	}
-	return requests
+	r.mu.Lock()
+	r.dirty |= section
+	r.mu.Unlock()
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: defaultReportName}}}
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Client, r.Reader = mgr.GetClient(), mgr.GetAPIReader()
-	enqueue := handler.EnqueueRequestsFromMapFunc(r.mapDependency)
+	enqueue := r.dependencyHandler()
 	// Seed the elected controller's queue even on a fresh cluster with no reports.
 	startup := make(chan event.GenericEvent, 1)
 	startup <- event.GenericEvent{Object: &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Name: defaultReportName}}}
@@ -134,9 +145,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&nodev1.RuntimeClass{}, enqueue).
 		Watches(&storagev1.StorageClass{}, enqueue).
 		Watches(&storagev1.CSIDriver{}, enqueue).
-		Watches(&appsv1.DaemonSet{}, enqueue).
-		WatchesMetadata(&corev1.ConfigMap{}, enqueue, builder.WithPredicates(predicate.NewPredicateFuncs(func(object client.Object) bool { return object.GetName() == "cilium-config" }))).
-		WatchesMetadata(&corev1.Namespace{}, enqueue, builder.WithPredicates(predicate.Funcs{UpdateFunc: func(update event.UpdateEvent) bool {
+		Watches(&storagev1.CSINode{}, enqueue).
+		Watches(&appsv1.DaemonSet{}, enqueue, builder.WithPredicates(networkDaemonChanges())).
+		Watches(&corev1.ConfigMap{}, enqueue, builder.WithPredicates(networkConfigChanges())).
+		Watches(&corev1.Namespace{}, enqueue, builder.WithPredicates(predicate.Funcs{UpdateFunc: func(update event.UpdateEvent) bool {
 			return update.ObjectOld.GetLabels()["arally.io/network-discovery"] != update.ObjectNew.GetLabels()["arally.io/network-discovery"]
 		}, CreateFunc: func(created event.CreateEvent) bool {
 			return created.Object.GetLabels()["arally.io/network-discovery"] == "trusted"

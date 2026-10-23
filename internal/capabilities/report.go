@@ -27,7 +27,17 @@ func SectionCurrent(report *v1.ClusterCapabilities, section string, now time.Tim
 	if report == nil || report.DeletionTimestamp != nil || report.Status.ObservedGeneration != report.Generation || report.Status.ObservedAt == nil {
 		return false
 	}
-	age := now.Sub(report.Status.ObservedAt.Time)
+	var success *metav1.Time
+	for _, observed := range report.Status.Sections {
+		if observed.Name == section {
+			success = observed.LastSuccessAt
+			break
+		}
+	}
+	if success == nil {
+		return false
+	}
+	age := now.Sub(success.Time)
 	if age < 0 || age > capabilityMaxAge {
 		return false
 	}

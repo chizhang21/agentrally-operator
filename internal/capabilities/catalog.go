@@ -1,7 +1,9 @@
 package capabilities
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -43,12 +45,14 @@ type recognitionCatalog struct {
 	Network          []networkDefinition `json:"network"`
 	runtimeByHandler map[string]runtimeDefinition
 	networkByName    map[string]networkDefinition
+	revision         string
 }
 
 var builtins = mustLoadCatalog()
 
 func mustLoadCatalog() recognitionCatalog {
 	var catalog recognitionCatalog
+	hash := sha256.New()
 	for _, name := range []string{"runtimes", "storage", "network"} {
 		data, err := catalogFiles.ReadFile("catalog/" + name + ".yaml")
 		if err != nil {
@@ -57,10 +61,12 @@ func mustLoadCatalog() recognitionCatalog {
 		if err := yaml.UnmarshalStrict(data, &catalog); err != nil {
 			panic(fmt.Errorf("embedded %s catalog: %w", name, err))
 		}
+		hash.Write(data)
 	}
 	if err := catalog.validate(); err != nil {
 		panic(err)
 	}
+	catalog.revision = hex.EncodeToString(hash.Sum(nil))
 	return catalog
 }
 

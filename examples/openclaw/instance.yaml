@@ -1,0 +1,15 @@
+apiVersion: arally.io/v1alpha1
+kind: AgentInstance
+metadata:
+  name: alice
+  namespace: arally-openclaw
+spec:
+  agentGroupRef:
+    name: openclaw
+  definitionRef:
+    name: openclaw
+  workspace:
+    existingClaimRef:
+      name: alice-state
+    mountPath: /workspace
+  operatingMode: Running

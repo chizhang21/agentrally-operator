@@ -19,12 +19,12 @@ var environments embed.FS
 
 // Resolve returns a fresh native Pod template with the user's application settings.
 // Workspace optionally replaces the built-in ephemeral workspace with a private PVC template.
-func Resolve(name string, settings *v1.AgentRuntime, workspace *v1.WorkspaceMount) (*corev1.PodTemplateSpec, error) {
+func Resolve(name string, settings *v1.AgentContainerSpec, workspace *v1.WorkspaceMount) (*corev1.PodTemplateSpec, error) {
 	if name != "generic" && name != "assistant" && name != "coding" {
 		return nil, invalid("template must be generic, assistant or coding")
 	}
 	if settings == nil || strings.TrimSpace(settings.Image) == "" || strings.ContainsAny(settings.Image, " \t\r\n") {
-		return nil, invalid("built-in templates require runtime.image with a valid nonempty OCI image reference")
+		return nil, invalid("built-in templates require container.image with a valid nonempty OCI image reference")
 	}
 	data, err := environments.ReadFile(name + ".yaml")
 	if err != nil {
@@ -35,15 +35,13 @@ func Resolve(name string, settings *v1.AgentRuntime, workspace *v1.WorkspaceMoun
 		return nil, err
 	}
 	if workspace != nil && name != "generic" {
-		removeEphemeralWorkspace(pod)
-		pod.Spec.Containers[0].WorkingDir = workspace.MountPath
-		replaceEnv(&pod.Spec.Containers[0], corev1.EnvVar{Name: "HOME", Value: workspace.MountPath})
+		PrepareWorkspace(pod, workspace)
 	}
-	applyRuntime(pod, settings)
+	applyContainer(pod, settings)
 	return pod, nil
 }
 
-func applyRuntime(pod *corev1.PodTemplateSpec, settings *v1.AgentRuntime) {
+func applyContainer(pod *corev1.PodTemplateSpec, settings *v1.AgentContainerSpec) {
 	container := &pod.Spec.Containers[0]
 	container.Image = settings.Image
 	if settings.ImagePullPolicy != "" {
@@ -101,4 +99,11 @@ func removeEphemeralWorkspace(pod *corev1.PodTemplateSpec) {
 
 func invalid(message string) error {
 	return diagnostics.New("InvalidConfiguration", message, nil)
+}
+
+// PrepareWorkspace replaces only the built-in ephemeral workspace on a copied template.
+func PrepareWorkspace(pod *corev1.PodTemplateSpec, workspace *v1.WorkspaceMount) {
+	removeEphemeralWorkspace(pod)
+	pod.Spec.Containers[0].WorkingDir = workspace.MountPath
+	replaceEnv(&pod.Spec.Containers[0], corev1.EnvVar{Name: "HOME", Value: workspace.MountPath})
 }

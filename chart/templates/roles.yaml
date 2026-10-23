@@ -30,6 +30,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - limitranges
   - namespaces
   - resourcequotas
   - services
@@ -69,9 +70,9 @@ rules:
 - apiGroups:
   - arally.io
   resources:
-  - agentclaims
+  - agentdefinitions
+  - agentgroups
   verbs:
-  - delete
   - get
   - list
   - patch
@@ -80,15 +81,17 @@ rules:
 - apiGroups:
   - arally.io
   resources:
-  - agentclaims/finalizers
+  - agentdefinitions/finalizers
   - agentgroups/finalizers
+  - agentinstances/finalizers
   verbs:
   - update
 - apiGroups:
   - arally.io
   resources:
-  - agentclaims/status
+  - agentdefinitions/status
   - agentgroups/status
+  - agentinstances/status
   - clustercapabilities/status
   verbs:
   - get
@@ -97,8 +100,9 @@ rules:
 - apiGroups:
   - arally.io
   resources:
-  - agentgroups
+  - agentinstances
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -117,7 +121,6 @@ rules:
   - extensions.agents.x-k8s.io
   resources:
   - sandboxclaims
-  - sandboxwarmpools
   verbs:
   - create
   - delete
@@ -132,7 +135,18 @@ rules:
   - delete
   - get
   - list
+  - patch
   - watch
+- apiGroups:
+  - extensions.agents.x-k8s.io
+  resources:
+  - sandboxwarmpools
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
@@ -181,9 +195,22 @@ rules:
   - patch
   - update
 - apiGroups:
+  - snapshot.storage.k8s.io
+  resources:
+  - volumesnapshotclasses
+  verbs:
+  - list
+- apiGroups:
+  - snapshot.storage.k8s.io
+  resources:
+  - volumesnapshots
+  verbs:
+  - get
+- apiGroups:
   - storage.k8s.io
   resources:
   - csidrivers
+  - csinodes
   - storageclasses
   verbs:
   - get

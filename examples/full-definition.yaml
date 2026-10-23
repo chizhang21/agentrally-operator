@@ -1,0 +1,70 @@
+# Reusable configuration. Apply before its AgentInstance.
+apiVersion: arally.io/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: builtin-agent
+  namespace: arally-demo
+spec:
+  agentGroupRef:
+    name: demo
+  template: coding
+  agentContainer: agent
+  container:
+    image: registry.example.com/coding-agent-with-browser:replace-me
+    imagePullPolicy: IfNotPresent
+    command: [/bin/agent]
+    args: [serve, --port, "8080"]
+    runtimeClassName: your-runtime-class
+    imagePullSecrets:
+    - name: registry-credentials
+    env:
+    - name: LOG_LEVEL
+      value: debug
+    - name: CHANNEL_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: agent-credentials
+          key: channel-token
+    envFrom:
+    - configMapRef:
+        name: agent-settings
+    - secretRef:
+        name: agent-credentials
+    resources:
+      requests:
+        cpu: "4"
+        memory: 8Gi
+      limits:
+        cpu: "8"
+        memory: 16Gi
+    ports:
+    - name: http
+      containerPort: 8080
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      httpGet:
+        path: /healthz
+        port: http
+      periodSeconds: 2
+      failureThreshold: 60
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: http
+      periodSeconds: 30
+      failureThreshold: 3
+  security:
+    profile: Restricted
+    serviceAccountName: agent-runtime
+    # Optional: choose an admitted non-root UID; omit for OpenShift's allocated UID.
+    # runAsUser: 1000
+  modelProvider:
+    baseURL: https://model.example.com/v1
+    model: your-model
+    apiKeySecretRef:
+      name: model-credentials
+      key: api-key

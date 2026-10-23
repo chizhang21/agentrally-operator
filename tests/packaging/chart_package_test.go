@@ -154,8 +154,8 @@ func verifyPackagedResources(t *testing.T, archive, image string) {
 			crds++
 		}
 	}
-	if crds != 3 {
-		t.Fatalf("chart archive has %d CRDs, want 3", crds)
+	if crds != 4 {
+		t.Fatalf("chart archive has %d CRDs, want 4", crds)
 	}
 	if _, ok := objects["ClusterCapabilities/cluster"]; ok {
 		t.Fatal("report bootstrap must wait for CRD registration in the controller")

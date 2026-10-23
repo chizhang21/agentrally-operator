@@ -5,12 +5,13 @@ kind: ClusterRole
 metadata:
   labels:
     app.kubernetes.io/name: arally-operator
-  name: agentclaim-editor-role
+  name: agentinstance-editor-role
 rules:
 - apiGroups:
   - arally.io
   resources:
-  - agentclaims
+  - agentdefinitions
+  - agentinstances
   verbs:
   - create
   - delete
@@ -22,6 +23,7 @@ rules:
 - apiGroups:
   - arally.io
   resources:
-  - agentclaims/status
+  - agentdefinitions/status
+  - agentinstances/status
   verbs:
   - get

@@ -7,6 +7,9 @@ English | [简体中文](README.zh-CN.md)
 Describe your agent's image, configuration and lifecycle in Kubernetes resources.
 Manage it through `kubectl` or GitOps.
 
+Select runtime isolation through Kubernetes RuntimeClass, including Kata Containers
+VMs and gVisor sandboxes.
+
 Arally prepares the configuration and requests execution through
 [agent-sandbox Core and Extensions](https://github.com/kubernetes-sigs/agent-sandbox),
 which handle Sandbox allocation and Pod management. Each agent keeps its own
@@ -28,6 +31,34 @@ application logic and API.
   Set spare capacity per configuration and pause new allocations at Group level.
 - **Expose and inspect agents.** Configure optional HTTP access through Gateway
   API or OpenShift Routes, and inspect readiness, Group capacity and lifecycle metrics.
+
+## Runtime isolation
+
+The selected RuntimeClass determines how an agent's Pod is isolated:
+
+| Runtime | Isolation mechanism |
+| --- | --- |
+| Node default | Determined by the node's runtime configuration. |
+| [Kata Containers](https://github.com/kata-containers/kata-containers/blob/main/docs/design/architecture/README.md) | Hardware virtualization with a guest kernel per Pod sandbox. |
+| [gVisor](https://gvisor.dev/docs/) | A per-sandbox application kernel running in userspace. |
+
+Kata provides lightweight VM isolation. Its VM or microVM configuration and
+workload compatibility depend on the installed
+[hypervisor/VMM](https://github.com/kata-containers/kata-containers/blob/main/docs/design/virtualization.md).
+
+Choose an existing RuntimeClass in your `AgentDefinition`:
+
+```yaml
+spec:
+  container:
+    runtimeClassName: kata # Replace with your cluster's actual RuntimeClass name.
+```
+
+List available names with `kubectl get runtimeclasses`. Omitting the field uses
+the node default. Cluster administrators install the runtime, configure its node
+CRI handler and create the RuntimeClass; Arally carries this selection through
+agent-sandbox to the execution Pod. See [runtime configuration](docs/agent-templates.md#container-runtime)
+for custom templates and applying runtime changes to existing agents.
 
 ## How it works
 

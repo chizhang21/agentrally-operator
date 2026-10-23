@@ -6,6 +6,8 @@
 
 用 Kubernetes 资源声明 Agent 的镜像、配置和生命周期，通过 `kubectl` 或 GitOps 管理。
 
+通过 Kubernetes RuntimeClass 选择运行时隔离方式，包括 Kata Containers 虚拟机和 gVisor 沙箱。
+
 Arally 准备运行配置，并通过
 [agent-sandbox Core 和 Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
 申请执行实例，由后者负责 Sandbox 分配和 Pod 管理。每个 Agent 保留自己的应用逻辑和 API。
@@ -22,6 +24,32 @@ Arally 准备运行配置，并通过
   可以按配置设置预热容量，也可以在 Group 层面暂停新分配。
 - **配置访问和查看状态。** 通过 Gateway API 或 OpenShift Route 提供可选的 HTTP 入口，
   并查看就绪状态、组容量概览和生命周期指标。
+
+## 运行时隔离
+
+选用的 RuntimeClass 决定 Agent 所在 Pod 的隔离机制：
+
+| 运行时 | 隔离机制 |
+| --- | --- |
+| 节点默认运行时 | 由节点的运行时配置决定。 |
+| [Kata Containers](https://github.com/kata-containers/kata-containers/blob/main/docs/design/architecture/README.md) | 基于硬件虚拟化，每个 Pod 沙箱使用独立的客户机内核。 |
+| [gVisor](https://gvisor.dev/docs/) | 在用户态运行，每个沙箱拥有独立的应用内核。 |
+
+Kata 提供轻量虚拟机隔离。具体的 VM 或 microVM 配置及工作负载兼容性，取决于集群安装的
+[Hypervisor/VMM](https://github.com/kata-containers/kata-containers/blob/main/docs/design/virtualization.md)。
+
+在 `AgentDefinition` 中选择已有的 RuntimeClass：
+
+```yaml
+spec:
+  container:
+    runtimeClassName: kata # 替换为集群中实际存在的 RuntimeClass 名称。
+```
+
+使用 `kubectl get runtimeclasses` 查看可用名称。省略该字段时使用节点默认运行时。
+集群管理员负责安装运行时、配置节点 CRI handler 并创建 RuntimeClass；Arally 通过
+agent-sandbox 将该选择传递到执行 Pod。自定义模板的配置方式，以及如何将运行时变更应用到已有
+Agent，见[运行时配置](docs/agent-templates.md#container-runtime)。
 
 ## 工作方式
 

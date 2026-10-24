@@ -53,9 +53,7 @@ func desiredExecution(ctx context.Context, c client.Reader, workload *v1.AgentIn
 	if err := applyWorkspace(ctx, c, effective, resolved, container); err != nil {
 		return nil, err
 	}
-	if err := applyBuiltinWorkspacePermissions(ctx, c, effective, revision.Spec.Template != "", template); err != nil {
-		return nil, err
-	}
+	applyBuiltinWorkspacePermissions(effective, revision.Spec.Template != "", template)
 	if err := validateVolumeClaimTemplates(resolved.VolumeClaimTemplates, &template.Spec); err != nil {
 		return nil, err
 	}

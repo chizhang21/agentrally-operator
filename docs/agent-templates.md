@@ -62,13 +62,13 @@ A different mountPath also changes the built-in working directory and HOME, unle
 state paths itself. Without a PVC, workspace data is lost on Pod replacement.
 The mount and PVC template are resolved before allocation; source templates remain unchanged.
 
-For built-in environments with a writable workspace PVC, the Operator sets
-`fsGroup: 1000` and `fsGroupChangePolicy: OnRootMismatch`. Kubernetes or the CSI
-driver grants the supplemental group access to the volume; the image's process UID
-is unchanged. The storage driver must support `fsGroup` volume permissions.
-Namespaces with OpenShift SCC UID/group allocations leave these fields to admission.
-Read-only workspaces and custom SandboxTemplate security settings are unchanged.
-Use a custom template for other volume permission requirements.
+For built-in environments with a writable workspace PVC and an explicit
+`security.runAsUser`, the Operator uses that UID as `fsGroup` with
+`fsGroupChangePolicy: OnRootMismatch`. Kubernetes or the CSI driver grants that
+group access to the volume. When the UID is omitted, admission and storage
+configuration determine permissions. The storage driver must support `fsGroup`
+volume permissions. Read-only workspaces and custom SandboxTemplate security
+settings are unchanged. Use a custom template to set a separate volume group.
 
 `modelProvider` supplies `OPENAI_BASE_URL`, `ARALLY_MODEL_NAME` and Secret-backed
 `OPENAI_API_KEY`; the image must consume or map them. See the
@@ -175,5 +175,4 @@ from unused-template cleanup. See [pool settings](usage.md#pool-allocation).
 
 Core's headless Service and the optional HTTP access Service are separate.
 [custom-template.yaml](../examples/custom-template.yaml) shows native Pod settings.
-[AnyUID](../examples/anyuid.yaml) uses a built-in environment and needs administrator
-authorization.
+Process identity settings are described in [Usage](usage.md#agent-process-identity).

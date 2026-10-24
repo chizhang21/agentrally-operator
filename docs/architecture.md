@@ -1,6 +1,6 @@
 # Architecture
 
-Arally manages containerized agent instances on Kubernetes and OpenShift. Users
+Arally manages containerized agent instances on Kubernetes. Users
 declare an image, configuration and lifecycle; the Operator prepares the group's
 namespace and policies, requests execution, and reports the observed state.
 The agent application implements its own conversations, model calls, tools and API.
@@ -155,16 +155,16 @@ in [lifecycle](usage.md#lifecycle).
 ## Access and trust
 
 Control requests use the Kubernetes API. Optional HTTP traffic follows a separate
-path through an existing Gateway or OpenShift router:
+path through an existing Gateway:
 
 ```mermaid
 flowchart LR
-    U["HTTP client"] --> G["Gateway / OpenShift router"]
+    U["HTTP client"] --> G["Gateway"]
     G --> S["Interaction Service:80"]
     S --> P["Agent Pod: interaction.port"]
 ```
 
-Arally creates an HTTPRoute or OpenShift Route to configure that path, plus a
+Arally creates an HTTPRoute to configure that path, plus a
 ClusterIP Service targeting Core's published Pod selector. This Service is
 separate from Core's optional headless Service. `InteractionReady` reflects
 execution availability and route-controller acceptance, not an HTTP or
@@ -173,7 +173,7 @@ authentication probe. See [interaction endpoints](usage.md#interaction-endpoint)
 Group NetworkPolicy uses the supplied Pod and namespace selectors. Enforcement
 depends on the CNI; an allow rule authorizes matching Pods and does not require
 traffic to pass through a Gateway. Pod Security defaults to Restricted. AnyUID
-requires administrator-granted OpenShift SCC access; Arally cannot grant it.
+requires a Baseline namespace policy and a dedicated ServiceAccount.
 See [group security](usage.md#group-namespace-and-security).
 
 Secrets are fetched by explicit reference, without listing, watching or caching.

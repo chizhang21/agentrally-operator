@@ -85,7 +85,7 @@ func networkProvider(ctx context.Context, reader client.Reader, ds appsv1.Daemon
 // System installation namespaces and explicitly approved custom namespaces are
 // administrator-controlled. Names in ordinary tenant namespaces are not evidence.
 func trustedNetworkNamespace(ctx context.Context, reader client.Reader, name string) (bool, error) {
-	if oneOf(name, "kube-system", "calico-system", "openshift-ovn-kubernetes", "openshift-sdn", "kube-flannel") {
+	if oneOf(name, "kube-system", "calico-system", "kube-flannel") {
 		return true, nil
 	}
 	namespace := &corev1.Namespace{}

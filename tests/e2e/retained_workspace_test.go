@@ -40,11 +40,22 @@ func TestRetainedWorkspaceUpgrade(t *testing.T) {
 	pvcUID := pvc.UID
 	definition, instance := testAgent(group, "assistant", agentCommand("v1"))
 	definition.Spec.Template = "assistant"
+	definition.Spec.Security.RunAsUser = ptr.To(int64(2345))
 	definition.Spec.Container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}}
 	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", ExistingClaimRef: &v1.PersistentVolumeClaimReference{Name: pvc.Name}}
 	create(t, ctx, kube, definition)
 	create(t, ctx, kube, instance)
 	readyAgent(t, ctx, kube, instance)
+	pod := &corev1.Pod{}
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, pod); err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.SecurityContext == nil || pod.Spec.SecurityContext.FSGroup == nil || *pod.Spec.SecurityContext.FSGroup != 2345 {
+		t.Fatal("explicit identity did not reach the workspace volume group")
+	}
+	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "id", "-u"); got != "2345" {
+		t.Fatal("execution did not use the selected process UID", got)
+	}
 	previousRevision, previousPod := instance.Status.Definition.Revision, instance.Status.PodUID
 	execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "sh", "-ec", "printf retained-user-state > /workspace/session; sync")
 	definition.Spec.Container.Args = []string{agentCommand("v2")}

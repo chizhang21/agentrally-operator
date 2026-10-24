@@ -7,7 +7,7 @@ spec:
   quota:
     hard:
       count/agentinstances.arally.io: "20"
-  # Optional defaults for Claims using HTTPRoute; ignored by OpenShiftRoute.
+  # Optional defaults for instances using HTTPRoute.
   # interactionDefaults:
   #   httpRoute:
   #     gatewayRef:

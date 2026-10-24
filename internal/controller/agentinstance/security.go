@@ -11,8 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Explicit AnyUID intent never creates SCCs or RBAC grants. Namespace policy
-// and ServiceAccount SCC authorization must be prepared by the administrator.
+// Process identity is constrained by namespace policy and an existing account.
 func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace string, security *v1.AgentSecurity, template *corev1.PodTemplateSpec) error {
 	if security == nil {
 		return nil
@@ -32,7 +31,7 @@ func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace str
 	}
 	if profile == "AnyUID" {
 		if security.ServiceAccountName == "" || security.ServiceAccountName == "default" {
-			return diagnostics.New("SecurityAccountRequired", "AnyUID requires a dedicated serviceAccountName with administrator-granted SCC access", nil)
+			return diagnostics.New("SecurityAccountRequired", "AnyUID requires a dedicated serviceAccountName", nil)
 		}
 		ns := &corev1.Namespace{}
 		if err := reader.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
@@ -41,10 +40,6 @@ func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace str
 		if ns.Labels["pod-security.kubernetes.io/enforce"] != "baseline" {
 			return diagnostics.New("SecurityPolicyDenied", "AnyUID requires an administrator-managed AgentGroup with podSecurity: Baseline", nil)
 		}
-		if template.Annotations == nil {
-			template.Annotations = map[string]string{}
-		}
-		template.Annotations["openshift.io/required-scc"] = "anyuid"
 	}
 	if security.ServiceAccountName != "" {
 		account := &corev1.ServiceAccount{}
@@ -61,11 +56,6 @@ func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace str
 	}
 	template.Spec.SecurityContext.RunAsNonRoot = ptr.To(profile == "Restricted")
 	template.Spec.SecurityContext.RunAsUser = security.RunAsUser
-	if profile == "AnyUID" {
-		// The classic anyuid SCC may prohibit explicitly requested seccomp
-		// profiles. Leave filtering to the cluster/runtime in this opt-in mode.
-		template.Spec.SecurityContext.SeccompProfile = nil
-	}
 	for _, containers := range [][]corev1.Container{template.Spec.Containers, template.Spec.InitContainers} {
 		for i := range containers {
 			sc := containers[i].SecurityContext
@@ -75,9 +65,6 @@ func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace str
 			}
 			sc.RunAsNonRoot = ptr.To(profile == "Restricted")
 			sc.RunAsUser = security.RunAsUser
-			if profile == "AnyUID" {
-				sc.SeccompProfile = nil
-			}
 		}
 	}
 	return nil

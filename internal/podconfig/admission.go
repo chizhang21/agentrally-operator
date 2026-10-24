@@ -111,7 +111,7 @@ func retainRequestedVolumes(left, right *corev1.PodSpec) bool {
 	return true
 }
 
-// SCC and Pod Security admission may fill omitted security fields. Explicit
+// Admission controllers may fill omitted security fields. Explicit
 // security requests remain exact; revision evidence detects later removals.
 func normalizeAdmissionContainerSecurity(desired, actual *corev1.SecurityContext) *corev1.SecurityContext {
 	if desired == nil {

@@ -2,35 +2,22 @@
 
 English | [简体中文](README.zh-CN.md)
 
-**Deploy and manage containerized agents on Kubernetes and OpenShift.**
+**Deploy and manage containerized agents on Kubernetes.**
 
-Describe your agent's image, configuration and lifecycle in Kubernetes resources.
-Manage it through `kubectl` or GitOps.
+Run your own agent images and manage their configuration and lifecycle through
+`kubectl` or GitOps. Choose a built-in environment or a custom `SandboxTemplate`,
+and reference existing Secrets and ConfigMaps.
+
+Organize agents into groups with namespace policies and resource quotas. Prewarm
+capacity, suspend or resume execution, and retain workspace data across upgrades
+with external PVCs. Optional HTTP access, readiness status and lifecycle metrics
+support day-to-day operation.
 
 Select runtime isolation through Kubernetes RuntimeClass, including Kata Containers
-VMs and gVisor sandboxes.
-
-Arally prepares the configuration and requests execution through
-[agent-sandbox Core and Extensions](https://github.com/kubernetes-sigs/agent-sandbox),
-which handle Sandbox allocation and Pod management. Each agent keeps its own
-application logic and API.
-
-## What you can do
-
-- **Run your own agent images.** Choose a `generic`, `assistant` or `coding`
-  environment, or bring a custom `SandboxTemplate`. Built-in environments provide
-  Pod defaults; you supply the agent application.
-- **Connect credentials and storage.** Reference existing Secrets and ConfigMaps,
-  and provision a private workspace PVC for each Sandbox, including warm instances.
-  Reference an external workspace PVC to retain files across execution upgrades.
-  Initialize private workspaces from an existing VolumeSnapshot when CSI supports restoration.
-- **Control the lifecycle.** Suspend, resume or explicitly restart an agent.
-  Configure shutdown deadlines and cleanup after completion.
-- **Organize agents into groups.** Give each group a dedicated namespace with
-  Pod Security settings, resource quotas, LimitRange and network policies.
-  Set spare capacity per configuration and pause new allocations at Group level.
-- **Expose and inspect agents.** Configure optional HTTP access through Gateway
-  API or OpenShift Routes, and inspect readiness, Group capacity and lifecycle metrics.
+VMs and gVisor sandboxes. Arally builds on
+[agent-sandbox Core and Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
+for Sandbox allocation and Pod management; each agent keeps its own application
+logic and API.
 
 ## Runtime isolation
 
@@ -60,57 +47,13 @@ CRI handler and create the RuntimeClass; Arally carries this selection through
 agent-sandbox to the execution Pod. See [runtime configuration](docs/agent-templates.md#container-runtime)
 for custom templates and applying runtime changes to existing agents.
 
-## How it works
-
-Arally exposes four resources in `arally.io/v1alpha1`:
-
-| Resource | Scope | Responsibility |
-| --- | --- | --- |
-| `AgentGroup` | Cluster | Prepares a group's namespace and policies. |
-| `AgentDefinition` | Namespaced | Publishes reusable configuration and immutable revisions without starting an agent. |
-| `AgentInstance` | Namespaced | Pins a definition revision and controls one agent's execution, workspace and lifecycle. |
-| `ClusterCapabilities` | Cluster | Reports runtime, storage and network configuration for deployment checks. |
-
-Create an `AgentGroup` first, then publish an AgentDefinition and create
-AgentInstances in its namespace. For example, the [base Group](examples/base/group.yaml) prepares `arally-demo`, and
-this [AgentInstance](examples/base/agent.yaml) requests an agent there:
-
-```yaml
-apiVersion: arally.io/v1alpha1
-kind: AgentDefinition
-metadata:
-  name: demo-agent
-  namespace: arally-demo
-spec:
-  agentGroupRef:
-    name: demo
-  template: generic
-  container:
-    image: registry.example.com/my-agent:v1
----
-apiVersion: arally.io/v1alpha1
-kind: AgentInstance
-metadata:
-  name: demo-agent
-  namespace: arally-demo
-spec:
-  agentGroupRef:
-    name: demo
-  definitionRef:
-    name: demo-agent
-```
-
-Arally manages configuration, template snapshots, pools and allocation requests.
-The required agent-sandbox controllers allocate Sandboxes and manage their Pods.
-See [Architecture](docs/architecture.md) for the resource relationships.
-
 ## Quick start
 
 This walkthrough builds the Operator from source and installs a local Helm chart.
 
 ### Prerequisites
 
-- A Kubernetes or OpenShift cluster and permission to manage CRDs and cluster RBAC.
+- A Kubernetes cluster and permission to manage CRDs and cluster RBAC.
 - agent-sandbox **Core and Extensions v1.0.5**, installed using the
   [upstream installation steps](docs/installation.md#install-upstream-agent-sandbox).
 - kubectl, Helm 3.17 or later, Docker, Make and Python 3 on your workstation.

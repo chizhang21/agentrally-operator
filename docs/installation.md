@@ -61,9 +61,8 @@ instances using snapshot sources; it is not a startup dependency. See
 [workspace initialization](usage.md#initialize-from-a-volumesnapshot).
 
 See [chart values](../chart/values.yaml) for available settings,
-[Connector setup](outbound-connector.md#installation) for backend integration,
-and [Agent SCC setup](usage.md#legacy-agent-images-on-openshift) for root or
-fixed-UID Agent images on OpenShift. Continue with [deploying an agent](usage.md).
+and [Connector setup](outbound-connector.md#installation) for backend integration.
+Continue with [deploying an agent](usage.md).
 
 ### Upgrade Arally
 

@@ -29,6 +29,8 @@ func TestAnyUIDRequiresNamespaceAndDedicatedAccount(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, definition, w, source := testutil.Fixture()
+			source.Spec.SecurityContext = &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}
+			source.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeLocalhost, LocalhostProfile: ptr.To("profiles/agent.json")}}
 			if tc.builtin {
 				definition.Spec.TemplateRef = nil
 				definition.Spec.Template = "generic"
@@ -51,11 +53,17 @@ func TestAnyUIDRequiresNamespaceAndDedicatedAccount(t *testing.T) {
 			if tc.want != "" {
 				return
 			}
-			if template.Annotations["openshift.io/required-scc"] != "anyuid" || template.Spec.ServiceAccountName != "legacy" || *template.Spec.Containers[0].SecurityContext.RunAsNonRoot || *template.Spec.Containers[0].SecurityContext.RunAsUser != 0 {
+			if template.Spec.ServiceAccountName != "legacy" || *template.Spec.Containers[0].SecurityContext.RunAsNonRoot || *template.Spec.Containers[0].SecurityContext.RunAsUser != 0 {
 				t.Fatalf("AnyUID not propagated: %+v", template)
 			}
-			if template.Spec.SecurityContext.SeccompProfile != nil || template.Spec.Containers[0].SecurityContext.SeccompProfile != nil {
-				t.Fatal("classic anyuid SCC must not receive an explicit seccomp profile")
+			if len(template.Annotations) != 0 {
+				t.Fatal("process identity injected admission annotations")
+			}
+			if template.Spec.SecurityContext.SeccompProfile == nil || template.Spec.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+				t.Fatal("UID selection removed the declared seccomp profile")
+			}
+			if !tc.builtin && !reflect.DeepEqual(template.Spec.Containers[0].SecurityContext.SeccompProfile, source.Spec.Containers[0].SecurityContext.SeccompProfile) {
+				t.Fatal("UID selection changed the container's explicit seccomp profile")
 			}
 			if *template.Spec.AutomountServiceAccountToken {
 				t.Fatal("API credentials enabled")

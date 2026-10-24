@@ -63,7 +63,7 @@ networkPolicy:
     - podSelector: {}
 ```
 
-This leaves egress open. Add ingress rules for the Gateway/router and monitoring
+This leaves egress open. Add ingress rules for the Gateway and monitoring
 where needed. NetworkPolicy requires an enforcing CNI. Templates delegate network
 policy to the Group. Pod Security defaults to Restricted.
 
@@ -80,26 +80,18 @@ deleted. Unpause the Group to allow new allocations. This does not suspend agent
 or stop prewarmed processes. Restart cleanup can finish while paused; the
 replacement waits for unpause.
 
-### Legacy Agent images on OpenShift
+<a id="legacy-agent-images-on-openshift"></a>
 
-For root or fixed-UID images, create a Group named `legacy` with
-`spec.podSecurity: Baseline`.
-After its namespace exists, an administrator prepares a dedicated account:
+### Agent process identity
 
-```sh
-oc -n arally-legacy create serviceaccount legacy-agent
-oc -n arally-legacy create role legacy-agent-anyuid \
-  --verb=use --resource=securitycontextconstraints.security.openshift.io --resource-name=anyuid
-oc -n arally-legacy create rolebinding legacy-agent-anyuid \
-  --role=legacy-agent-anyuid --serviceaccount=arally-legacy:legacy-agent
-oc auth can-i use scc/anyuid \
-  --as=system:serviceaccount:arally-legacy:legacy-agent -n arally-legacy
-```
+Built-in environments use non-root containers. Set `AgentDefinition.spec.security.runAsUser`
+for an explicit UID, or omit it to use the image or admission default.
+`security.serviceAccountName` selects an existing namespaced ServiceAccount.
 
-The [AnyUID instance](../examples/anyuid.yaml) selects this account and UID.
-Arally does not grant SCC permissions. AnyUID permits UID selection, not privileged
-execution or host access; seccomp is left to the cluster/runtime in this mode.
-See [OKD SCC documentation](https://docs.okd.io/latest/authentication/managing-security-context-constraints.html).
+For images requiring UID 0, an administrator prepares a Group with
+`spec.podSecurity: Baseline` and a dedicated ServiceAccount. The definition can
+then select `security.profile: AnyUID` and the required UID. Namespace policy and
+ServiceAccount authorization remain administrator-managed.
 
 ## Interaction endpoint
 
@@ -111,8 +103,8 @@ interaction:
   type: HTTPRoute
 ```
 
-For OpenShift/OKD, use `type: OpenShiftRoute`. Omit interaction for no managed
-endpoint; removing it deletes the route and access Service.
+Omit interaction for no managed endpoint; removing it deletes the HTTPRoute and
+access Service.
 
 For HTTPRoute, shared settings belong in `AgentGroup.spec`:
 
@@ -134,8 +126,7 @@ An IP alone cannot supply a domain. HTTPS is preferred within the selected Gatew
 
 instances can override port, hostname, scheme and Gateway; see
 [full.yaml](../examples/full.yaml). An omitted Gateway namespace means the instance's
-namespace. OpenShiftRoute ignores these Group defaults and defaults to an assigned
-hostname with HTTPS edge termination. The backend serves HTTP in either case.
+namespace. The backend serves HTTP; the Gateway handles external TLS termination.
 The access Service uses port 80. Allow its traffic through Group NetworkPolicy
 and provide application authentication in the agent or ingress infrastructure.
 

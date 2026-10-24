@@ -58,7 +58,7 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 					if group == "security.openshift.io" {
 						for _, verb := range rule.Verbs {
 							if verb != "get" && verb != "list" && verb != "watch" {
-								t.Fatal("Operator must never create or grant SCC use")
+								t.Fatal("Operator must not grant admission-policy management permissions")
 							}
 						}
 					}

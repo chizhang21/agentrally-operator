@@ -6,14 +6,11 @@ import (
 	"testing"
 
 	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
 	"arally/operator/internal/sandbox"
 	"arally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -22,15 +19,16 @@ import (
 func TestBuiltinWorkspaceVolumePermissions(t *testing.T) {
 	for _, category := range []string{"generic", "assistant", "coding"} {
 		for _, tc := range []struct {
-			name, annotation string
-			readOnly, noPVC  bool
-			wantGroup        bool
+			name            string
+			uid             *int64
+			readOnly, noPVC bool
+			wantGroup       bool
 		}{
-			{name: "writable-pvc", wantGroup: true},
-			{name: "read-only-pvc", readOnly: true},
-			{name: "ephemeral", noPVC: true},
-			{name: "openshift-uid-range", annotation: "openshift.io/sa.scc.uid-range"},
-			{name: "openshift-group-range", annotation: "openshift.io/sa.scc.supplemental-groups"},
+			{name: "explicit-uid", uid: ptr.To(int64(1000)), wantGroup: true},
+			{name: "different-uid", uid: ptr.To(int64(2345)), wantGroup: true},
+			{name: "admission-default"},
+			{name: "read-only-pvc", uid: ptr.To(int64(2345)), readOnly: true},
+			{name: "ephemeral", uid: ptr.To(int64(2345)), noPVC: true},
 		} {
 			t.Run(category+"/"+tc.name, func(t *testing.T) {
 				g, ns, definition, w, _ := testutil.Fixture()
@@ -39,24 +37,28 @@ func TestBuiltinWorkspaceVolumePermissions(t *testing.T) {
 				if !tc.noPVC {
 					w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace", ReadOnly: tc.readOnly}
 				}
-				if tc.annotation != "" {
-					ns.Annotations = map[string]string{tc.annotation: "1000700000/10000"}
-				}
+				definition.Spec.Security = &v1.AgentSecurity{RunAsUser: tc.uid}
 				c, _ := testutil.Client(t, definition, g, ns, w)
 				before := w.DeepCopy()
-				pod, _, err := desiredExecutionForTest(ctx, c, w)
+				guard := interceptor.NewClient(c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
+					if _, ok := object.(*corev1.Namespace); ok {
+						t.Fatal("workspace permissions read namespace-specific policy")
+					}
+					return c.Get(ctx, key, object, opts...)
+				}})
+				pod, _, err := desiredExecutionForTest(ctx, guard, w)
 				if err != nil {
 					t.Fatal(err)
 				}
 				sc := pod.Spec.SecurityContext
 				if tc.wantGroup {
-					if sc == nil || sc.FSGroup == nil || *sc.FSGroup != 1000 || sc.FSGroupChangePolicy == nil || *sc.FSGroupChangePolicy != corev1.FSGroupChangeOnRootMismatch {
+					if sc == nil || sc.FSGroup == nil || *sc.FSGroup != *tc.uid || sc.FSGroupChangePolicy == nil || *sc.FSGroupChangePolicy != corev1.FSGroupChangeOnRootMismatch {
 						t.Fatalf("writable workspace has no usable volume group: %+v", sc)
 					}
 				} else if sc != nil && (sc.FSGroup != nil || sc.FSGroupChangePolicy != nil) {
 					t.Fatalf("volume defaults changed an unaffected workload: %+v", sc)
 				}
-				if !reflect.DeepEqual(before, w) || len(pod.Spec.InitContainers) != 0 || sc.RunAsUser != nil || !*pod.Spec.Containers[0].SecurityContext.RunAsNonRoot {
+				if !reflect.DeepEqual(before, w) || len(pod.Spec.InitContainers) != 0 || !reflect.DeepEqual(sc.RunAsUser, tc.uid) || !*pod.Spec.Containers[0].SecurityContext.RunAsNonRoot {
 					t.Fatal("volume permissions must not change the Claim, process UID or privilege model")
 				}
 			})
@@ -86,28 +88,11 @@ func TestWorkspacePermissionsPreserveNativeTemplates(t *testing.T) {
 	}
 }
 
-func TestBuiltinWorkspaceNamespaceReadFailure(t *testing.T) {
-	g, ns, definition, w, _ := testutil.Fixture()
-	definition.Spec.TemplateRef, definition.Spec.Template = nil, "coding"
-	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1"}
-	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
-	c, _ := testutil.Client(t, definition, g, ns, w)
-	guard := interceptor.NewClient(c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
-		if _, ok := object.(*corev1.Namespace); ok {
-			return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, key.Name, nil)
-		}
-		return c.Get(ctx, key, object, opts...)
-	}})
-	_, _, err := desiredExecutionForTest(ctx, guard, w)
-	if reason, _ := diagnostics.Classify(err); reason != "DependencyAccessDenied" {
-		t.Fatalf("unreadable namespace must not silently select a volume group: %v", err)
-	}
-}
-
 func TestBuiltinWorkspacePermissionsReachAllocation(t *testing.T) {
 	g, ns, definition, w, _ := testutil.Fixture()
 	definition.Spec.TemplateRef, definition.Spec.Template = nil, "coding"
 	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1"}
+	definition.Spec.Security = &v1.AgentSecurity{RunAsUser: ptr.To(int64(2345))}
 	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
 	c, scheme := testutil.Client(t, definition, g, ns, w)
 	reconcileWithUpstreamSimulation(t, &Reconciler{Client: c, Scheme: scheme}, w)
@@ -120,24 +105,7 @@ func TestBuiltinWorkspacePermissionsReachAllocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	group, _, _ := unstructured.NestedInt64(object.Object, "spec", "podTemplate", "spec", "securityContext", "fsGroup")
-	if group != 1000 {
+	if group != 2345 {
 		t.Fatal("volume group did not reach the pool's SandboxTemplate")
-	}
-}
-
-func TestWorkspaceNamespaceDependencyMapping(t *testing.T) {
-	g, ns, definition, w, _ := testutil.Fixture()
-	definition.Spec.TemplateRef, definition.Spec.Template = nil, "coding"
-	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1"}
-	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
-	other := w.DeepCopy()
-	other.Name, other.Namespace = "other", "arally-other"
-	readOnly := w.DeepCopy()
-	readOnly.Name, readOnly.Spec.Workspace.ReadOnly = "read-only", true
-	c, scheme := indexedClient(t, g, ns, w, other, readOnly)
-	r := &Reconciler{Client: c, Scheme: scheme}
-	requests := r.mapDependency(ctx, ns)
-	if len(requests) != 1 || requests[0].NamespacedName != client.ObjectKeyFromObject(w) {
-		t.Fatalf("namespace policy changes did not map to the affected workspace: %+v", requests)
 	}
 }

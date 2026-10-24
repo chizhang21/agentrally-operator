@@ -258,7 +258,7 @@ func (r *Reconciler) ensureInteractionRoute(ctx context.Context, w *v1.AgentInst
 				return err
 			}
 		}
-		// Preserve OpenShift's admission-assigned hostname when the user omits it.
+		// Preserve the controller-assigned hostname when the user omits it.
 		assigned, _, _ := unstructured.NestedString(route.Object, "spec", "host")
 		spec := interactionRouteSpec(w, assigned)
 		if err := unstructured.SetNestedMap(route.Object, spec, "spec"); err != nil {

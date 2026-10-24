@@ -94,9 +94,9 @@ layouts and negative-only observations stay Unknown globally. Positive evidence
 means a ready, configured provider was observed. `enforcementVerified` remains
 false; test traffic separately.
 
-Network discovery trusts installations in `kube-system`, `calico-system`,
-`openshift-ovn-kubernetes`, `openshift-sdn` and `kube-flannel`. For another
-installation namespace, an administrator can explicitly approve its evidence:
+Network discovery trusts installations in `kube-system`, `calico-system` and
+`kube-flannel`. For another installation namespace, an administrator can explicitly
+approve its evidence:
 
 ```sh
 kubectl label namespace YOUR_CNI_NAMESPACE arally.io/network-discovery=trusted

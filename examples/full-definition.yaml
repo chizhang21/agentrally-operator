@@ -60,7 +60,7 @@ spec:
   security:
     profile: Restricted
     serviceAccountName: agent-runtime
-    # Optional: choose an admitted non-root UID; omit for OpenShift's allocated UID.
+    # Optional: choose a non-root UID; omit to use the image or admission default.
     # runAsUser: 1000
   modelProvider:
     baseURL: https://model.example.com/v1

@@ -84,7 +84,7 @@ func TestOperatorLifecycle(t *testing.T) {
 		},
 	}
 	// The local-path provisioner supplies writable directories in this test
-	// cluster. This checks per-Sandbox storage, not arbitrary CSI or SCC behavior.
+	// cluster. This checks per-Sandbox storage, not arbitrary CSI behavior.
 	t.Log("An in-flight allocation survives upstream downtime and manager replacement")
 	kubectl(t, kubeconfig, "-n", "agent-sandbox-system", "scale", "deployment/agent-sandbox-controller", "--replicas=0")
 	kubectl(t, kubeconfig, "-n", "agent-sandbox-system", "rollout", "status", "deployment/agent-sandbox-controller", "--timeout=120s")

@@ -26,9 +26,6 @@ func instanceDependencyKeys(object client.Object) []string {
 		if workspace.ExistingClaimRef != nil {
 			keys = append(keys, "PersistentVolumeClaim/"+workspace.ExistingClaimRef.Name)
 		}
-		if !workspace.ReadOnly {
-			keys = append(keys, "Namespace/"+w.Namespace)
-		}
 	}
 	for _, name := range w.Status.VolumeClaims {
 		keys = append(keys, "PersistentVolumeClaim/"+name)

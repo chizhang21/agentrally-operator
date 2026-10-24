@@ -132,12 +132,12 @@ connector:
 				t.Fatalf("operator scheduling settings lost: %+v", pod)
 			}
 			if pod.SecurityContext == nil || pod.SecurityContext.FSGroup != nil || pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot || pod.SecurityContext.SeccompProfile == nil || pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
-				t.Fatalf("SCC-compatible non-root defaults lost: %+v", pod.SecurityContext)
+				t.Fatalf("admission-compatible non-root defaults lost: %+v", pod.SecurityContext)
 			}
-			// Rendering checks configuration; SCC admission needs a live cluster.
+			// Rendering checks configuration; admission needs a live cluster.
 			uid := pod.SecurityContext.RunAsUser
 			if tc.uid == 0 && uid != nil {
-				t.Fatalf("default UID %d blocks Namespace UID allocation by SCC", *uid)
+				t.Fatalf("default UID %d overrides the image or admission identity", *uid)
 			}
 			if tc.uid != 0 && (uid == nil || *uid != tc.uid) {
 				t.Fatalf("explicit UID was not rendered: %+v", pod.SecurityContext)

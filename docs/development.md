@@ -110,7 +110,7 @@ The leader-election test verifies that only the elected Connector polls, backend
 changes leader readiness, and a standby takes over on shutdown. CI runs both;
 selecting integration tests without the required binaries fails explicitly.
 
-Controller unit tests use fake clients. Scheduling, SCC admission, garbage collection,
+Controller unit tests use fake clients. Scheduling, admission, garbage collection,
 CSI, CNI and upstream controller behavior need cluster tests. Run
 `go test -race ./internal/...` for concurrency changes. Packaging tests live in
 `tests/packaging`; see [packaging sources](../chart/README.md).
@@ -184,6 +184,6 @@ the Operator gains no Pod creation, exec or CSI socket access. An explicitly
 selected profile must pass; missing infrastructure is not silently skipped.
 
 Results apply to these versions, handlers, volumes and traffic paths. They do not
-establish Kata teardown, OpenShift SCC, arbitrary CSI, Gateway routing or
+establish Kata teardown, arbitrary CSI, Gateway routing or
 cluster-wide NetworkPolicy compatibility. Passive discovery remains configuration
 evidence and keeps `enforcementVerified=false` after these tests.

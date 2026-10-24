@@ -2,28 +2,17 @@
 
 [English](README.md) | 简体中文
 
-**在 Kubernetes 和 OpenShift 上部署、管理容器化 Agent。**
+**在 Kubernetes 上部署、管理容器化 Agent。**
 
-用 Kubernetes 资源声明 Agent 的镜像、配置和生命周期，通过 `kubectl` 或 GitOps 管理。
+运行自己的 Agent 镜像，通过 `kubectl` 或 GitOps 管理配置和生命周期。
+选择内置环境或自定义 `SandboxTemplate`，引用已有的 Secret 和 ConfigMap。
+
+按组管理 Agent，为各组配置命名空间策略和资源配额。预热容量、暂停或恢复执行，
+通过外部 PVC 在升级时保留工作区数据。可选的 HTTP 入口、就绪状态和生命周期指标支持日常运维。
 
 通过 Kubernetes RuntimeClass 选择运行时隔离方式，包括 Kata Containers 虚拟机和 gVisor 沙箱。
-
-Arally 准备运行配置，并通过
-[agent-sandbox Core 和 Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
-申请执行实例，由后者负责 Sandbox 分配和 Pod 管理。每个 Agent 保留自己的应用逻辑和 API。
-
-## 可以做什么
-
-- **运行自己的 Agent 镜像。** 选择 `generic`、`assistant`、`coding` 环境，
-  或使用自定义 `SandboxTemplate`。内置环境提供 Pod 默认配置，Agent 应用由你的镜像提供。
-- **接入凭据和存储。** 引用已有的 Secret、ConfigMap，并为每个 Sandbox 创建独立的工作空间 PVC，
-  预热实例也使用自己的卷。引用外部工作区 PVC 可在升级时保留文件；
-  CSI 支持恢复时，可从已有 VolumeSnapshot 初始化私有工作空间。
-- **控制生命周期。** 暂停、恢复或显式重启 Agent，也可以设置关闭期限或在任务完成后回收。
-- **按组管理 Agent。** 每组使用专用命名空间，配置 Pod Security、资源配额、LimitRange 和网络策略。
-  可以按配置设置预热容量，也可以在 Group 层面暂停新分配。
-- **配置访问和查看状态。** 通过 Gateway API 或 OpenShift Route 提供可选的 HTTP 入口，
-  并查看就绪状态、组容量概览和生命周期指标。
+Arally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
+完成 Sandbox 分配和 Pod 管理；每个 Agent 保留自己的应用逻辑和 API。
 
 ## 运行时隔离
 
@@ -51,56 +40,13 @@ spec:
 agent-sandbox 将该选择传递到执行 Pod。自定义模板的配置方式，以及如何将运行时变更应用到已有
 Agent，见[运行时配置](docs/agent-templates.md#container-runtime)。
 
-## 工作方式
-
-Arally 在 `arally.io/v1alpha1` 下提供四种资源：
-
-| 资源 | 作用域 | 职责 |
-| --- | --- | --- |
-| `AgentGroup` | 集群 | 准备一个组的命名空间和策略。 |
-| `AgentDefinition` | 命名空间 | 发布可复用配置和不可变版本，不启动 Agent。 |
-| `AgentInstance` | 命名空间 | 固定定义版本，管理一个 Agent 的执行、工作区和生命周期。 |
-| `ClusterCapabilities` | 集群 | 报告运行时、存储和网络配置，供部署检查参考。 |
-
-先创建 `AgentGroup`，再发布 AgentDefinition，并在同一命名空间中创建 AgentInstance。例如，
-[基础 Group](examples/base/group.yaml) 准备 `arally-demo` 命名空间，
-下面的 [AgentInstance](examples/base/agent.yaml) 在其中申请一个 Agent：
-
-```yaml
-apiVersion: arally.io/v1alpha1
-kind: AgentDefinition
-metadata:
-  name: demo-agent
-  namespace: arally-demo
-spec:
-  agentGroupRef:
-    name: demo
-  template: generic
-  container:
-    image: registry.example.com/my-agent:v1
----
-apiVersion: arally.io/v1alpha1
-kind: AgentInstance
-metadata:
-  name: demo-agent
-  namespace: arally-demo
-spec:
-  agentGroupRef:
-    name: demo
-  definitionRef:
-    name: demo-agent
-```
-
-Arally 管理配置、模板快照、池和分配申请；所依赖的 agent-sandbox 控制器负责分配
-Sandbox 并管理 Pod。资源关系详见[架构说明](docs/architecture.md)。
-
 ## 快速开始
 
 以下步骤从源码构建 Operator，并安装本地打包的 Helm Chart。
 
 ### 前提条件
 
-- Kubernetes 或 OpenShift 集群，以及管理 CRD 和集群 RBAC 的权限。
+- Kubernetes 集群，以及管理 CRD 和集群 RBAC 的权限。
 - 已安装 agent-sandbox **Core 和 Extensions v1.0.5**，步骤见
   [上游安装说明](docs/installation.md#install-upstream-agent-sandbox)。
 - 本机安装 kubectl、Helm 3.17 或更高版本、Docker、Make 和 Python 3。

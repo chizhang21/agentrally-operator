@@ -22,11 +22,9 @@ uses [base/definition.yaml](base/definition.yaml). Apply that file before the in
 | [http-api-agent/](http-api-agent/README.md) | Ordered deployment with Secret environment variables, pull credentials and HTTPRoute | Agent image, model settings, API keys and Gateway |
 | [openclaw/](openclaw/README.md) | Resident assistant with state retained across upgrades | External PVC and per-user credentials |
 | [codex-mobile/](codex-mobile/README.md) | Build a Codex Mobile image locally or through a manual workflow | Docker, or a GitHub fork with Actions enabled |
-| [openshift.yaml](openshift.yaml) | OpenShift HTTP endpoint | Image serving port 8080 and Route API |
-| [anyuid.yaml](anyuid.yaml) | Legacy image needing a fixed UID/root | Baseline Group and [SCC-authorized account](../docs/usage.md#legacy-agent-images-on-openshift) |
 | [rbac/editor.yaml](rbac/editor.yaml) | Namespace-scoped deployer access | Administrator applies the [RoleBinding](rbac/README.md) |
 
-Apply one instance example at a time. The base, HTTPRoute and OpenShift examples use the same
+Apply one instance example at a time. The base and HTTPRoute examples use the same
 name; do not apply the directory recursively. `full.yaml` is a field reference,
 not a ready-to-run deployment.
 
@@ -37,5 +35,5 @@ only to declare administrator mappings.
 Read it with `kubectl get clustercapabilities cluster -o yaml`.
 
 For an endpoint, declare the Agent's HTTP port and set `interaction.type`.
-HTTPRoute uses Group defaults or Gateway discovery; OpenShiftRoute uses the router.
+HTTPRoute uses Group defaults or Gateway discovery.
 See [interaction setup](../docs/usage.md#interaction-endpoint).

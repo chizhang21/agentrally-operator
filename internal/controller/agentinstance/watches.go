@@ -37,8 +37,6 @@ func (r *Reconciler) mapDependency(ctx context.Context, object client.Object) []
 		namespace, key = dependency.NamespaceName(), "AgentGroup/"+dependency.Name
 	case *v1.AgentDefinition:
 		key = "AgentDefinition/" + dependency.Name
-	case *corev1.Namespace:
-		namespace, key = dependency.Name, "Namespace/"+dependency.Name
 	case *unstructured.Unstructured:
 		if dependency.GroupVersionKind() != sandbox.ExtensionsGroupVersion.WithKind("SandboxTemplate") {
 			return nil
@@ -140,7 +138,6 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(sandbox.ExtensionObject("SandboxTemplate"), handler.EnqueueRequestsFromMapFunc(r.mapDependency)).
 		Watches(&v1.AgentDefinition{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).
 		Watches(&v1.AgentGroup{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).
-		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).
 		Watches(&v1.ClusterCapabilities{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency), builder.WithPredicates(controller.CapabilityChanges())).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).
 		Watches(&corev1.PersistentVolumeClaim{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).Complete(r)

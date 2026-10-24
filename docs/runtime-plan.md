@@ -126,7 +126,8 @@ Optimize the existing allocation path only when measurements identify a bottlene
 
 A real Kata profile must use an installed runtime and actual runtime-backed Pods.
 A renamed runc RuntimeClass is not Kata evidence.
-No existing shared cluster is changed as part of this plan.
+Initial acceptance uses disposable clusters.
+A live Kata run requires a separately confirmed target and deployment authorization.
 
 Files: prewarming policy, pool reconciliation, E2E runner and development documentation.
 Verify: deterministic budget tests, envtest, isolated lifecycle E2E and optional hardware-backed runtime profile.
@@ -138,7 +139,7 @@ Verify: deterministic budget tests, envtest, isolated lifecycle E2E and optional
 - [x] Preserve existing documentation edits and use separate sentences and paragraphs for different meanings.
 - [x] Run generation, source checks, lint, tests and applicable integration/E2E checks.
 
-No Git commit, push, image publication or shared-cluster deployment is included.
+Git publication and live deployment require separate user instructions.
 
 ## Validation record
 
@@ -151,13 +152,13 @@ Validation completed on 2026-10-24.
 | Real API integration | `go test -tags=integration ./cmd ./tests/packaging -count=1 -timeout=180s` with envtest binaries | Passed |
 | Focused runtime E2E | Retained exclusive workspace, activity lifecycle and total spare budget | 3 passed in 454.509 seconds |
 | Complete E2E | `E2E_CNI=cilium E2E_SNAPSHOTS=true E2E_OPENCLAW=true make e2e` | 11 passed, 1 Kata-specific skip, in 1569.947 seconds |
-| Real Kata runtime | Optional `TestKataRuntimeLifecycle` profile | Not run; a suitable runtime installation and host are unavailable |
+| Real Kata runtime | `TestKataRuntimeLifecycle` on a separately authorized existing cluster | Passed in 348.283 seconds |
 
 Both E2E runs used the matching local image through `E2E_IMAGE=arally-operator:runtime-plan-final`.
 Its image ID was `sha256:02ca5dc4f9380e95368b3253c1999250203130639924dbd80fb12dff8091de69`.
 The 207 runtime, test and Chart source files remained unchanged throughout final acceptance.
 Both disposable clusters were deleted after their runs.
-No image was published and no shared cluster was modified.
+Those initial isolated runs did not publish images or modify shared clusters.
 
 The complete profile exercised real Core and Extensions controllers, Cilium traffic enforcement, CSI snapshot recovery and OpenClaw lifecycle behavior.
 It also covered definition pinning, dependency recovery, exclusive workspace contention, automatic idle suspension, wake-up, manual suspension, maximum lifetime and managed-spare budgeting.
@@ -173,4 +174,18 @@ Observed complete-profile readiness measurements:
 
 These are nearest-rank smoke measurements in disposable kind, not production SLOs or application transaction latency.
 Readiness polling and Kubernetes timestamp precision limit the observations.
-Real Kata teardown remains unverified until the optional profile runs on suitable hardware.
+
+## Existing-cluster Kata acceptance
+
+After a separately authorized Operator upgrade, the Kata profile passed on an existing Kubernetes cluster on 2026-10-24.
+It used the installed `kata-qemu-runtime-rs` handler and a temporary local-path workspace.
+The workload reported guest kernel `6.18.35`; the host reported `6.12.43+deb13-amd64`.
+
+The test verified execution startup, suspension, workspace data retention on resume, explicit replacement and final reclamation.
+A controlled Pod finalizer held cleanup beyond five minutes to verify the stalled condition.
+Removing that test finalizer allowed normal cleanup to complete.
+The temporary Group, namespace and persistent volume were removed.
+
+The requested agent remained suspended with its original external PVC UID and Bound state.
+Other existing agents remained Ready and Available with unchanged Pod UIDs.
+This validates the exercised Kata lifecycle paths and storage configuration; it is not a general isolation attestation.

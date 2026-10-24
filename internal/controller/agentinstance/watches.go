@@ -118,7 +118,7 @@ func (r *Reconciler) mapClaimSandbox(ctx context.Context, object client.Object) 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Client, r.Scheme = mgr.GetClient(), mgr.GetScheme()
 	r.Reader = mgr.GetAPIReader()
-	r.Recorder = mgr.GetEventRecorderFor("arally-agentinstance")
+	r.Recorder = mgr.GetEventRecorder("arally-agentinstance")
 	if r.Scheme == nil {
 		return fmt.Errorf("manager scheme is required")
 	}

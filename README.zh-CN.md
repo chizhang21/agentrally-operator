@@ -1,8 +1,8 @@
-# Arally Operator
+# AgentRally Operator
 
 [English](README.md) | 简体中文
 
-**在 Kubernetes 上部署、管理容器化 Agent。**
+**在 Kubernetes 上部署、管理隔离的 AI Agent 运行环境。**
 
 运行自己的 Agent 镜像，通过 `kubectl` 或 GitOps 管理配置和生命周期。
 选择内置环境或自定义 `SandboxTemplate`，引用已有的 Secret 和 ConfigMap。
@@ -17,7 +17,7 @@
 
 通过 Kubernetes RuntimeClass 选择运行时隔离方式，包括 Kata Containers 虚拟机和 gVisor 沙箱。
 
-Arally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
+AgentRally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
 完成 Sandbox 分配和 Pod 管理。
 每个 Agent 保留自己的应用逻辑和 API。
 
@@ -47,7 +47,7 @@ spec:
 省略该字段时使用节点默认运行时。
 
 集群管理员负责安装运行时、配置节点 CRI handler 并创建 RuntimeClass。
-Arally 通过 agent-sandbox 将该选择传递到执行 Pod。
+AgentRally 通过 agent-sandbox 将该选择传递到执行 Pod。
 
 自定义模板的配置方式，以及如何将运行时变更应用到已有 Agent，
 见[运行时配置](docs/agent-templates.md#container-runtime)。

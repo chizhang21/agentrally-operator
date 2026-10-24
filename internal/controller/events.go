@@ -5,12 +5,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 )
 
 // Publish only persisted condition transitions. Message-only changes and periodic
 // observations do not create event traffic; configuration and Secret data are not used.
-func RecordConditionChanges(recorder record.EventRecorder, object runtime.Object, before, after []metav1.Condition) {
+func RecordConditionChanges(recorder events.EventRecorder, object runtime.Object, before, after []metav1.Condition) {
 	if recorder == nil {
 		return
 	}
@@ -40,6 +40,6 @@ func RecordConditionChanges(recorder record.EventRecorder, object runtime.Object
 		if condition.Status == metav1.ConditionUnknown && condition.Type == ConditionReady {
 			continue
 		}
-		recorder.Eventf(object, eventType, condition.Reason, "%s: %s", condition.Type, condition.Message)
+		recorder.Eventf(object, nil, eventType, condition.Reason, "Reconcile", "%s: %s", condition.Type, condition.Message)
 	}
 }

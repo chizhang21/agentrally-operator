@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -29,7 +29,7 @@ type Reconciler struct {
 	// Reader obtains current native references and capability evidence.
 	Reader   client.Reader
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	// InteractionClient bypasses the cache for optional routing APIs.
 	InteractionClient client.Client
 	// Now makes deadline planning deterministic in controller tests.

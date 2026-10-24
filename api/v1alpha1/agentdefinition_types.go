@@ -74,8 +74,6 @@ type AgentDefinitionList struct {
 	Items           []AgentDefinition `json:"items"`
 }
 
-func init() { SchemeBuilder.Register(&AgentDefinition{}, &AgentDefinitionList{}) }
-
 type ModelProvider struct {
 	// +kubebuilder:validation:MinLength=1
 	BaseURL string `json:"baseURL"`

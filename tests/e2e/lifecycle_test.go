@@ -14,8 +14,10 @@ import (
 	v1 "arally/operator/api/v1alpha1"
 	"arally/operator/internal/sandbox"
 
+	"github.com/go-logr/logr/testr"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	nodev1 "k8s.io/api/node/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -108,6 +110,18 @@ func TestOperatorLifecycle(t *testing.T) {
 		})
 	}
 	awaitReady()
+	await(t, "Operator events.k8s.io/v1 delivery", func() (bool, error) {
+		events := &eventsv1.EventList{}
+		if err := kube.List(ctx, events, client.InNamespace(ns)); err != nil {
+			return false, err
+		}
+		for _, event := range events.Items {
+			if event.Regarding.UID == claim.UID && event.ReportingController == "arally-agentinstance" && event.Action == "Reconcile" {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
 	if !claim.Status.Provisioning.StartedAt.Equal(started) || claim.Status.Provisioning.LaunchType != "cold" {
 		t.Fatal("allocation clock or launch provenance did not survive restart", claim.Status.Provisioning)
 	}
@@ -432,26 +446,52 @@ func conditionTrue(conditions []metav1.Condition, kind string, generation int64)
 
 func e2eClient(t *testing.T) (client.Client, string) {
 	t.Helper()
+	return e2eClientForTarget(t, "", "")
+}
+
+func kataE2EClient(t *testing.T) (client.Client, string) {
+	t.Helper()
+	return e2eClientForTarget(t, os.Getenv("E2E_KATA_CONTEXT"), os.Getenv("E2E_KATA_API_SERVER"))
+}
+
+func validateE2ETarget(context, server, expectedContext, expectedServer string) error {
+	if expectedContext != "" || expectedServer != "" {
+		if expectedContext == "" || expectedServer == "" || context != expectedContext || server != expectedServer {
+			return fmt.Errorf("Kata target must match both E2E_KATA_CONTEXT and E2E_KATA_API_SERVER")
+		}
+		return nil
+	}
+	if !strings.HasPrefix(context, "kind-arally-e2e-") {
+		return fmt.Errorf("E2E requires the driver's disposable kind context")
+	}
+	return nil
+}
+
+func e2eClientForTarget(t *testing.T, expectedContext, expectedServer string) (client.Client, string) {
+	t.Helper()
 	kubeconfig := os.Getenv("ARALLY_E2E_KUBECONFIG")
 	if kubeconfig == "" {
 		t.Fatal("run make e2e to create an isolated cluster")
 	}
 	raw, err := clientcmd.LoadFromFile(kubeconfig)
-	if err != nil || !strings.HasPrefix(raw.CurrentContext, "kind-arally-e2e-") {
-		t.Fatal("E2E requires the driver's disposable kind context", err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := validateE2ETarget(raw.CurrentContext, cfg.Host, expectedContext, expectedServer); err != nil {
+		t.Fatal(err)
+	}
 	cfg.Timeout = 30 * time.Second
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, coordinationv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, coordinationv1.AddToScheme, eventsv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}
 	}
-	kube, err := client.New(cfg, client.Options{Scheme: scheme})
+	kube, err := client.New(cfg, client.Options{Scheme: scheme, Log: testr.New(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

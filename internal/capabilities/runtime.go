@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	v1 "arally/operator/api/v1alpha1"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,7 +48,8 @@ func matchesRuntimeNode(n corev1.Node, r *nodev1.RuntimeClass) bool {
 		}
 		tolerated := false
 		for _, t := range tolerations {
-			if t.ToleratesTaint(&taint) {
+			// Cluster feature gates are not observed; preserve Equal/Exists matching.
+			if t.ToleratesTaint(logr.Discard(), &taint, false) {
 				tolerated = true
 				break
 			}

@@ -20,6 +20,7 @@ package controller
 // +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch
 // Event reads are UID-filtered diagnostics; the Operator never watches all Events.
 // +kubebuilder:rbac:groups=core,resources=events,verbs=list;create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch,namespace=system
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;patch;delete
 

@@ -126,6 +126,25 @@ func TestRuntimeDiscoveryPreservesFamiliesAndChecksScheduling(t *testing.T) {
 	}
 }
 
+func TestRuntimeDiscoveryDoesNotAssumeComparisonTolerations(t *testing.T) {
+	for _, test := range []struct {
+		operator corev1.TolerationOperator
+		value    string
+	}{{corev1.TolerationOpLt, "3"}, {corev1.TolerationOpGt, "1"}} {
+		t.Run(string(test.operator), func(t *testing.T) {
+			node := linuxNode("tainted")
+			node.Spec.Taints = []corev1.Taint{{Key: "capacity", Value: "2", Effect: corev1.TaintEffectNoSchedule}}
+			kata := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "kata"}, Handler: "kata-qemu", Scheduling: &nodev1.Scheduling{
+				Tolerations: []corev1.Toleration{{Key: "capacity", Operator: test.operator, Value: test.value, Effect: corev1.TaintEffectNoSchedule}},
+			}}
+			observed := findRuntime(t, Discover(t.Context(), testClient(t, node, kata)), "kata")
+			if observed.EligibleNodes != 0 || observed.Status != "Unknown" || observed.Reason != "NoEligibleNodes" {
+				t.Fatalf("unverified scheduler feature advertised an eligible runtime: %+v", observed)
+			}
+		})
+	}
+}
+
 func TestStorageDiscoveryKeepsUnknownLocalAndIndependentCSIInventory(t *testing.T) {
 	local := class("local", "rancher.io/local-path")
 	local.Labels = map[string]string{"arally.io/storage-type": "Block"}

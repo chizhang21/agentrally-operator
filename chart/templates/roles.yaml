@@ -129,6 +129,13 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - extensions.agents.x-k8s.io
   resources:
   - sandboxclaims

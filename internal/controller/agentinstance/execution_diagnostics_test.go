@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 )
 
 func TestExecutionDiagnosticsReachAgentInstance(t *testing.T) {
@@ -35,7 +35,7 @@ func TestExecutionDiagnosticsReachAgentInstance(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g, ns, definition, w, source := testutil.Fixture()
 			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
-			recorder := record.NewFakeRecorder(100)
+			recorder := events.NewFakeRecorder(100)
 			r := &Reconciler{Client: c, Scheme: scheme, Recorder: recorder, Now: func() time.Time { return now }}
 			reconcileWithUpstreamSimulation(t, r, w)
 			pod := ownedExecutionPod(t, c, w)

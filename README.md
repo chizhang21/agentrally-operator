@@ -1,8 +1,8 @@
-# Arally Operator
+# AgentRally Operator
 
 English | [简体中文](README.zh-CN.md)
 
-**Deploy and manage containerized agents on Kubernetes.**
+**Deploy and manage isolated AI agent runtimes on Kubernetes.**
 
 Run your own agent images and manage their configuration and lifecycle through `kubectl`
 or GitOps.
@@ -21,7 +21,7 @@ operation.
 Select runtime isolation through Kubernetes RuntimeClass, including Kata Containers VMs
 and gVisor sandboxes.
 
-Arally builds on
+AgentRally builds on
 [agent-sandbox Core and Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
 for Sandbox allocation and Pod management.
 Each agent keeps its own application logic and API.
@@ -53,7 +53,7 @@ Omitting the field uses the node default.
 
 Cluster administrators install the runtime, configure its node CRI handler and create
 the RuntimeClass.
-Arally carries this selection through agent-sandbox to the execution Pod.
+AgentRally carries this selection through agent-sandbox to the execution Pod.
 
 See [runtime configuration](docs/agent-templates.md#container-runtime) for custom
 templates and applying runtime changes to existing agents.

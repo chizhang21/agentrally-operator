@@ -17,6 +17,7 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 	reportCreate := false
 	discoveryReads := map[string]bool{}
 	interactionWrites := map[string]bool{}
+	eventWrites := map[string]bool{}
 	for _, doc := range renderObjects(t, "--set", "replicaCount=2") {
 		var kind metav1.TypeMeta
 		if err := yaml.Unmarshal(doc, &kind); err != nil {
@@ -64,6 +65,11 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 					}
 				}
 				for _, resource := range rule.Resources {
+					if resource == "events" && slices.Contains(rule.APIGroups, "events.k8s.io") {
+						for _, verb := range rule.Verbs {
+							eventWrites[verb] = true
+						}
+					}
 					if resource == "secrets" {
 						for _, verb := range rule.Verbs {
 							if verb != "get" {
@@ -126,6 +132,11 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 	for _, resource := range []string{"services", "httproutes", "routes", "sandboxwarmpools", "sandboxtemplates", "sandboxclaims"} {
 		if !interactionWrites[resource] {
 			t.Fatalf("interaction write permission missing: %s", resource)
+		}
+	}
+	for _, verb := range []string{"create", "patch"} {
+		if !eventWrites[verb] {
+			t.Fatalf("events.k8s.io write permission missing: %s", verb)
 		}
 	}
 	if !deployment || !role || services != 1 || !reportCreate {

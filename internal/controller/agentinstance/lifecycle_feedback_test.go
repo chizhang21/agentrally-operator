@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 )
 
@@ -81,7 +81,7 @@ func TestCoreLifecycleFeedbackRetainsFailedInstanceAndClearsStaleState(t *testin
 func TestReconcileEventsAreNotRepeated(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
 	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
-	recorder := record.NewFakeRecorder(20)
+	recorder := events.NewFakeRecorder(20)
 	r := &Reconciler{Client: c, Scheme: scheme, Recorder: recorder}
 	reconcileWithUpstreamSimulation(t, r, w)
 	count := len(recorder.Events)

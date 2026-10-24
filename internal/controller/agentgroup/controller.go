@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,7 +41,7 @@ type Reconciler struct {
 	client.Client
 	Reader   client.Reader
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {
@@ -196,7 +196,7 @@ func (r *Reconciler) mapCapabilities(ctx context.Context, object client.Object) 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Client, r.Scheme = mgr.GetClient(), mgr.GetScheme()
 	r.Reader = mgr.GetAPIReader()
-	r.Recorder = mgr.GetEventRecorderFor("arally-agentgroup")
+	r.Recorder = mgr.GetEventRecorder("arally-agentgroup")
 	return ctrl.NewControllerManagedBy(mgr).For(&v1.AgentGroup{}).
 		Owns(&corev1.Namespace{}).Owns(&corev1.ResourceQuota{}).Owns(&corev1.LimitRange{}).Owns(&networkingv1.NetworkPolicy{}).
 		Watches(&v1.AgentInstance{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember), builder.WithPredicates(groupMemberChanges())).

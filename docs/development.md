@@ -236,6 +236,27 @@ It verifies workspace retention across suspension, explicit replacement, and sta
 It removes only its own test finalizer before checking normal reclamation.
 Successful execution validates these lifecycle paths; it is not a general security attestation.
 
+For an existing Kata-enabled cluster, run only the Kata test with an explicitly confirmed context and API server:
+
+```sh
+ARALLY_E2E_KUBECONFIG=/path/to/private-kubeconfig \
+E2E_KATA_CONTEXT=my-kata-cluster \
+E2E_KATA_API_SERVER=https://kubernetes.example.com:6443 \
+E2E_RUNTIME_CLASS=kata-qemu \
+E2E_KATA_STORAGE_CLASS=disposable-workspaces \
+go test -tags=e2e ./tests/e2e -run '^TestKataRuntimeLifecycle$' -count=1 -v -timeout=18m
+```
+
+Both target values must exactly match the kubeconfig.
+The selected StorageClass must use `reclaimPolicy: Delete` for the temporary workspace.
+The test creates a uniquely named `kata-e2e-` Group and removes its resources on success.
+It never creates or deletes the existing cluster or installs runtimes.
+Other lifecycle tests still require the driver's disposable kind context.
+
+The controlled cleanup hold deliberately takes more than five minutes.
+Cleanup removes only the test's finalizer from the same Pod UID, including on failure.
+After a failed live run, inspect the reported temporary Group before removing any remaining resources.
+
 The Cilium profile replaces kindnet using the official
 [kind installation](https://docs.cilium.io/en/stable/installation/kind/) with Cilium
 1.20.3.

@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -174,9 +177,12 @@ func TestGroupSpareBudget(t *testing.T) {
 func TestKataRuntimeLifecycle(t *testing.T) {
 	name := os.Getenv("E2E_RUNTIME_CLASS")
 	if name == "" {
-		t.Skip("set E2E_RUNTIME_CLASS with an installed Kata runtime in the disposable cluster")
+		if os.Getenv("E2E_KATA_CONTEXT") != "" || os.Getenv("E2E_KATA_API_SERVER") != "" {
+			t.Fatal("the live Kata profile requires E2E_RUNTIME_CLASS")
+		}
+		t.Skip("set E2E_RUNTIME_CLASS with an installed Kata runtime")
 	}
-	kube, kubeconfig := e2eClient(t)
+	kube, kubeconfig := kataE2EClient(t)
 	ctx := context.Background()
 	class := &nodev1.RuntimeClass{}
 	if err := kube.Get(ctx, client.ObjectKey{Name: name}, class); err != nil {
@@ -185,16 +191,35 @@ func TestKataRuntimeLifecycle(t *testing.T) {
 	if !strings.Contains(strings.ToLower(class.Handler), "kata") {
 		t.Fatal("Kata profile requires an actual Kata runtime handler, not a runc alias")
 	}
-	group := readyGroup(t, ctx, kube, "kata-runtime")
+	storageClass := os.Getenv("E2E_KATA_STORAGE_CLASS")
+	if os.Getenv("E2E_KATA_CONTEXT") != "" {
+		if storageClass == "" {
+			t.Fatal("the live Kata profile requires E2E_KATA_STORAGE_CLASS for disposable workspace storage")
+		}
+		storage := &storagev1.StorageClass{}
+		if err := kube.Get(ctx, client.ObjectKey{Name: storageClass}, storage); err != nil {
+			t.Fatal(err)
+		}
+		if storage.ReclaimPolicy == nil || *storage.ReclaimPolicy != corev1.PersistentVolumeReclaimDelete {
+			t.Fatal("the live Kata workspace StorageClass must use reclaimPolicy Delete")
+		}
+	}
+	groupName := fmt.Sprintf("kata-e2e-%d", time.Now().UnixNano())
+	t.Logf("Creating isolated Kata Group %s on the verified target", groupName)
+	group := readyGroup(t, ctx, kube, groupName)
 	group.Spec.ExecutionPolicy = &v1.ExecutionPolicy{AllowedRuntimeClasses: []string{name}}
 	update(t, ctx, kube, group)
 	definition, instance := testAgent(group, "kata", "sleep 3600")
 	definition.Spec.Container.RuntimeClassName = &name
 	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("32Mi")}}}}
+	if storageClass != "" {
+		instance.Spec.Workspace.VolumeClaimTemplate.StorageClassName = &storageClass
+	}
 	create(t, ctx, kube, definition)
 	create(t, ctx, kube, instance)
 	readyAgent(t, ctx, kube, instance)
 	t.Logf("Selected Kata handler %s executed with kernel %s", class.Handler, execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "uname", "-r"))
+	t.Logf("Kata namespace=%s InstanceUID=%s SandboxUID=%s PodUID=%s", instance.Namespace, instance.UID, instance.Status.SandboxUID, instance.Status.PodUID)
 	execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "sh", "-ec", "printf kata-workspace > /workspace/canary; sync")
 	oldPod := instance.Status.PodUID
 	instance.Spec.OperatingMode = sandbox.Suspended
@@ -224,6 +249,20 @@ func TestKataRuntimeLifecycle(t *testing.T) {
 	}
 	const hold = "e2e.arally.io/hold-cleanup"
 	changePodFinalizer(t, ctx, kube, pod, hold, true)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		current := &corev1.Pod{}
+		if err := kube.Get(cleanupCtx, client.ObjectKeyFromObject(pod), current); apierrors.IsNotFound(err) {
+			return
+		} else if err != nil {
+			t.Error("inspect test cleanup hold", err)
+			return
+		}
+		if current.UID == pod.UID && slices.Contains(current.Finalizers, hold) {
+			changePodFinalizer(t, cleanupCtx, kube, current, hold, false)
+		}
+	})
 	if err := kube.Delete(ctx, instance); err != nil {
 		t.Fatal(err)
 	}

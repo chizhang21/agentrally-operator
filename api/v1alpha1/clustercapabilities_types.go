@@ -248,5 +248,3 @@ type ClusterCapabilitiesList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ClusterCapabilities `json:"items"`
 }
-
-func init() { SchemeBuilder.Register(&ClusterCapabilities{}, &ClusterCapabilitiesList{}) }

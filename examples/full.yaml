@@ -33,6 +33,12 @@ spec:
     shutdownPolicy: Retain
     retainFailed: true
     ttlSecondsAfterFinished: 3600
+    # Optional wall-clock limit from allocation, including suspended time:
+    # maxLifetimeSeconds: 28800
+    # Optional idle suspension requires a caller-maintained activity Lease:
+    # idleTimeoutSeconds: 900
+    # activityLeaseRef:
+    #   name: builtin-agent-activity
     # Optional absolute deadline, including dependency/allocation time:
     # shutdownTime: "2099-01-01T00:00:00Z"
   provisioning:

@@ -209,6 +209,137 @@ func TestManagedPrewarmingPolicySurvivesIdleReconciliationRestart(t *testing.T) 
 	}
 }
 
+func TestManagedSpareBudgetRedistributesWithoutIncreasingTotal(t *testing.T) {
+	group, ns, _, _, _ := testutil.Fixture()
+	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 3, MaxTotalReplicas: ptr.To(int32(4)), IdleTTLSeconds: 300}
+	var objects []client.Object
+	for _, name := range []string{"a", "b", "c", "retained", "external"} {
+		pool := sandbox.ExtensionObject("SandboxWarmPool")
+		pool.SetName(name)
+		pool.SetNamespace(ns.Name)
+		pool.SetLabels(map[string]string{allocation.ManagedLabel: "true"})
+		pool.SetOwnerReferences(ns.OwnerReferences)
+		pool.Object["spec"] = map[string]interface{}{"replicas": int64(9)}
+		if name == "retained" {
+			pool.SetAnnotations(map[string]string{"arally.io/existing-workspace": "true"})
+		}
+		if name == "external" {
+			pool.SetLabels(nil)
+			pool.SetOwnerReferences(nil)
+		}
+		objects = append(objects, pool)
+	}
+	c, scheme := testutil.Client(t, objects...)
+	converged := false
+	counted := interceptor.NewClient(c, interceptor.Funcs{Patch: func(ctx context.Context, c client.WithWatch, object client.Object, patch client.Patch, options ...client.PatchOption) error {
+		if err := c.Patch(ctx, object, patch, options...); err != nil {
+			return err
+		}
+		if converged {
+			pools := sandbox.ExtensionList("SandboxWarmPool")
+			if err := c.List(ctx, pools); err != nil {
+				return err
+			}
+			var total int64
+			for _, pool := range pools.Items {
+				if pool.GetLabels()[allocation.ManagedLabel] == "true" {
+					replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas")
+					total += replicas
+				}
+			}
+			if total > 4 {
+				t.Fatalf("redistribution exceeded total budget: %d", total)
+			}
+		}
+		return nil
+	}})
+	manager := allocation.Manager{Client: counted, Reader: c, Scheme: scheme}
+	if _, err := manager.Prune(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	converged = true
+	for name, expected := range map[string]int64{"a": 2, "b": 1, "c": 1, "retained": 0, "external": 9} {
+		pool := sandbox.ExtensionObject("SandboxWarmPool")
+		if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: name}, pool); err != nil {
+			t.Fatal(err)
+		}
+		if replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas"); replicas != expected {
+			t.Fatalf("%s replicas=%d, want %d", name, replicas, expected)
+		}
+	}
+	added := objects[0].DeepCopyObject().(client.Object)
+	added.SetName("d")
+	added.SetResourceVersion("")
+	added.(*unstructured.Unstructured).Object["spec"] = map[string]interface{}{"replicas": int64(0)}
+	if err := c.Create(ctx, added); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Prune(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Prune(ctx, group); err != nil {
+		t.Fatal("idempotent budget reconciliation failed", err)
+	}
+	terminating := sandbox.ExtensionObject("SandboxWarmPool")
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "a"}, terminating); err != nil {
+		t.Fatal(err)
+	}
+	terminating.SetFinalizers([]string{"test/pool-cleanup"})
+	if err := c.Update(ctx, terminating); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Delete(ctx, terminating); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Prune(ctx, group); err != nil {
+		t.Fatal("terminating pool budget was redistributed too early", err)
+	}
+}
+
+func TestNewPoolsStartWithoutSpareBudgetOvershoot(t *testing.T) {
+	group, ns, definition, w, source := testutil.Fixture()
+	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 3, MaxTotalReplicas: ptr.To(int32(1))}
+	c, scheme := testutil.Client(t, group, ns, definition, w, nativeTemplate(definition, source))
+	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
+	reconcileAllocation(t, r, w)
+	state := getAgentInstance(t, c, w)
+	pool := allocationObject(t, c, w, "SandboxWarmPool", state.Status.Provisioning.PoolName)
+	if replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas"); replicas != 0 {
+		t.Fatal("allocation bypassed the shared spare budget")
+	}
+}
+
+func TestDefinitionRetirementLeavesSiblingBudgetToGroup(t *testing.T) {
+	group, ns, _, _, _ := testutil.Fixture()
+	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 3, MaxTotalReplicas: ptr.To(int32(4)), IdleTTLSeconds: 300}
+	pool := sandbox.ExtensionObject("SandboxWarmPool")
+	pool.SetName("other-definition")
+	pool.SetNamespace(ns.Name)
+	pool.SetOwnerReferences(ns.OwnerReferences)
+	pool.SetLabels(map[string]string{allocation.ManagedLabel: "true", "arally.io/definition-uid": "other-definition-uid"})
+	pool.Object["spec"] = map[string]interface{}{"replicas": int64(0)}
+	c, scheme := testutil.Client(t, pool)
+	manager := allocation.Manager{Client: c, Reader: c, Scheme: scheme}
+	if _, err := manager.RetireDefinition(ctx, group, "deleted-definition-uid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(pool), pool); err != nil {
+		t.Fatal(err)
+	}
+	if replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas"); replicas != 0 {
+		t.Fatal("definition cleanup redistributed a sibling's capacity")
+	}
+	if _, err := manager.Prune(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(pool), pool); err != nil {
+		t.Fatal(err)
+	}
+	if replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas"); replicas != 3 {
+		t.Fatal("Group reconciliation did not apply its budget")
+	}
+}
+
 func TestExternalPoolRequiresVerifiedSnapshotBeforeAllocation(t *testing.T) {
 	for _, tc := range []struct {
 		name, reason string

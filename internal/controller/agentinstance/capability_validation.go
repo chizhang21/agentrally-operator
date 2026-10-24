@@ -45,6 +45,7 @@ func (v *capabilityValidation) add(status metav1.ConditionStatus, reason, messag
 
 func validateCapabilities(ctx context.Context, reader client.Reader, w *v1.AgentInstance, group *v1.AgentGroup, pod *corev1.PodSpec, claims []corev1.PersistentVolumeClaimTemplate) metav1.Condition {
 	v := newCapabilityValidation(w.Generation)
+	validateExecutionPolicy(pod, group.Spec.ExecutionPolicy, &v)
 	var report *v1.ClusterCapabilities
 	if pod.RuntimeClassName != nil || len(pod.Volumes) > 0 || len(claims) > 0 || group.Spec.NetworkPolicy != nil {
 		report = capabilities.ReadReport(ctx, reader)

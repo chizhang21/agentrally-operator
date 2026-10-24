@@ -15,6 +15,8 @@ const (
 	ConditionPodScheduled          = "PodScheduled"
 	ConditionFinished              = "Finished"
 	ConditionSuspended             = "Suspended"
+	ConditionCleanupReady          = "CleanupReady"
+	ConditionActivityReady         = "ActivityReady"
 )
 
 // Transition reasons also consumed by event classification and state checks.

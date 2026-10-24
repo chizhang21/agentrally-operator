@@ -21,5 +21,8 @@ func (r *Reconciler) finalize(ctx context.Context, workload *v1.AgentInstance) (
 	if !done {
 		return r.pending(ctx, workload, "Deleting", "Waiting for owned execution and interaction foreground cleanup")
 	}
+	if err := r.releaseWorkspace(ctx, workload); err != nil {
+		return r.failed(ctx, workload, err)
+	}
 	return ctrl.Result{}, controller.RemoveFinalizer(ctx, r.Client, workload, AgentInstanceFinalizer)
 }

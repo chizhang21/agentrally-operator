@@ -77,14 +77,27 @@ func (r *Reconciler) bindWorkspace(ctx context.Context, instance *v1.AgentInstan
 		if binding == nil || *current != *binding {
 			return diagnostics.New("WorkspaceBindingChanged", "The external workspace identity changed; create a new instance to bind different storage", nil)
 		}
-		return nil
 	}
 	if binding == nil {
 		return nil
 	}
-	base := instance.DeepCopy()
-	instance.Status.Workspace = binding.DeepCopy()
-	return r.patchStatus(ctx, instance, base)
+	if instance.Spec.Workspace != nil && instance.Spec.Workspace.Exclusive {
+		if err := r.reserveWorkspace(ctx, instance, binding); err != nil {
+			return err
+		}
+	}
+	if instance.Status.Workspace == nil {
+		base := instance.DeepCopy()
+		instance.Status.Workspace = binding.DeepCopy()
+		if err := r.Status().Patch(ctx, instance, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+			return err
+		}
+	}
+	reservation, err := r.readWorkspaceReservation(ctx, instance, binding)
+	if err == nil && instance.Spec.Workspace != nil && instance.Spec.Workspace.Exclusive && (reservation == nil || reservation.Annotations[workspaceReservationReady] != "true") {
+		return diagnostics.New("WorkspaceReservationChanged", "Exclusive workspace reservation is no longer present", nil)
+	}
+	return err
 }
 
 // Validate the shared storage blueprint before starting any warm instances.

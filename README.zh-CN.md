@@ -7,12 +7,19 @@
 运行自己的 Agent 镜像，通过 `kubectl` 或 GitOps 管理配置和生命周期。
 选择内置环境或自定义 `SandboxTemplate`，引用已有的 Secret 和 ConfigMap。
 
-按组管理 Agent，为各组配置命名空间策略和资源配额。预热容量、暂停或恢复执行，
-通过外部 PVC 在升级时保留工作区数据。可选的 HTTP 入口、就绪状态和生命周期指标支持日常运维。
+按组管理 Agent，为各组配置命名空间策略和资源配额。
+支持容量预热。
+
+暂停或恢复执行。
+通过外部 PVC 在升级时保留工作区数据。
+
+可选的 HTTP 入口、就绪状态和生命周期指标支持日常运维。
 
 通过 Kubernetes RuntimeClass 选择运行时隔离方式，包括 Kata Containers 虚拟机和 gVisor 沙箱。
+
 Arally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kubernetes-sigs/agent-sandbox)
-完成 Sandbox 分配和 Pod 管理；每个 Agent 保留自己的应用逻辑和 API。
+完成 Sandbox 分配和 Pod 管理。
+每个 Agent 保留自己的应用逻辑和 API。
 
 ## 运行时隔离
 
@@ -24,7 +31,8 @@ Arally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kubernetes-
 | [Kata Containers](https://github.com/kata-containers/kata-containers/blob/main/docs/design/architecture/README.md) | 基于硬件虚拟化，每个 Pod 沙箱使用独立的客户机内核。 |
 | [gVisor](https://gvisor.dev/docs/) | 在用户态运行，每个沙箱拥有独立的应用内核。 |
 
-Kata 提供轻量虚拟机隔离。具体的 VM 或 microVM 配置及工作负载兼容性，取决于集群安装的
+Kata 提供轻量虚拟机隔离。
+具体的 VM 或 microVM 配置及工作负载兼容性，取决于集群安装的
 [Hypervisor/VMM](https://github.com/kata-containers/kata-containers/blob/main/docs/design/virtualization.md)。
 
 在 `AgentDefinition` 中选择已有的 RuntimeClass：
@@ -35,10 +43,14 @@ spec:
     runtimeClassName: kata # 替换为集群中实际存在的 RuntimeClass 名称。
 ```
 
-使用 `kubectl get runtimeclasses` 查看可用名称。省略该字段时使用节点默认运行时。
-集群管理员负责安装运行时、配置节点 CRI handler 并创建 RuntimeClass；Arally 通过
-agent-sandbox 将该选择传递到执行 Pod。自定义模板的配置方式，以及如何将运行时变更应用到已有
-Agent，见[运行时配置](docs/agent-templates.md#container-runtime)。
+使用 `kubectl get runtimeclasses` 查看可用名称。
+省略该字段时使用节点默认运行时。
+
+集群管理员负责安装运行时、配置节点 CRI handler 并创建 RuntimeClass。
+Arally 通过 agent-sandbox 将该选择传递到执行 Pod。
+
+自定义模板的配置方式，以及如何将运行时变更应用到已有 Agent，
+见[运行时配置](docs/agent-templates.md#container-runtime)。
 
 ## 快速开始
 
@@ -55,6 +67,7 @@ Agent，见[运行时配置](docs/agent-templates.md#container-runtime)。
 ### 1. 构建并打包 Operator
 
 将 `registry.example.com/your-team` 替换为你的镜像仓库路径，并提前登录该仓库。
+
 以下命令构建 Linux amd64 镜像，与 Chart 默认节点选择器一致。
 
 ```sh
@@ -106,10 +119,14 @@ kubectl -n arally-demo describe agentinstance demo-agent
 
 ## 生命周期行为
 
-- **暂停和恢复：** 删除并重建 Pod。PVC 数据保留，进程内存和临时文件不会保留。
+- **暂停和恢复：** 删除并重建 Pod。
+  PVC 数据保留，进程内存和临时文件不会保留。
+- **空闲管理：** 通过调用方维护的可选[活动 Lease](docs/activity.md)，自动暂停和唤醒执行。
 - **配置更新：** 已分配的 Agent 继续使用当前 Pod 配置，直到你设置新的 `restartToken`。
-  私有 PVC 随 Sandbox 替换，引用的外部工作区 PVC 则保留数据。定义更新不会自动改变已固定的实例版本。
-- **到期回收：** 通过可选的关闭期限和完成后 TTL，控制何时回收执行资源、是否保留 AgentInstance。
+  定义更新不会自动改变已固定的实例版本。
+- **工作区保留：** 私有 PVC 随 Sandbox 替换，引用的外部工作区 PVC 则保留数据。
+- **到期回收：** 通过可选的最长执行时间、关闭期限和完成后 TTL，控制何时回收执行资源。
+  关闭策略决定是否保留 AgentInstance。
 
 操作命令和保留策略见[生命周期说明](docs/usage.md#lifecycle)。
 
@@ -133,12 +150,16 @@ kubectl -n arally-demo describe agentinstance demo-agent
 
 ## 项目状态
 
-当前 API 为 **alpha**。`ClusterCapabilities` 提供只读配置报告，供部署规划参考。
+当前 API 为 **alpha**。
 
-网络隔离需要配置 NetworkPolicy，并由支持它的 CNI 执行。应用认证由 Agent 或入口设施提供。
+`ClusterCapabilities` 提供只读配置报告，供部署规划参考。
+
+网络隔离需要配置 NetworkPolicy，并由支持它的 CNI 执行。
+
+应用认证由 Agent 或入口设施提供。
 配置细节见[使用指南](docs/usage.md)。
 
-[贡献指南](CONTRIBUTING.md) · [变更记录](CHANGELOG.md) · [安全策略](SECURITY.md)
+[贡献指南](CONTRIBUTING.md) · [安全策略](SECURITY.md)
 
 ## 许可证
 

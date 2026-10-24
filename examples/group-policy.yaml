@@ -9,7 +9,12 @@ spec:
   # Applications start with their real credentials before allocation.
   prewarming:
     replicas: 1
+    maxTotalReplicas: 4
     idleTTLSeconds: 300
+  # Optional administrator constraints for all resolved execution containers.
+  # executionPolicy:
+  #   allowedRuntimeClasses: [kata-qemu]
+  #   requireImageDigest: true
   limitRange:
     limits:
     - type: Container

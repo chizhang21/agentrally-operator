@@ -33,7 +33,7 @@ func TestPoolSummaryUsesCurrentAPIWithoutStartingAnInformer(t *testing.T) {
 		if err := c.Update(context.Background(), pool); err != nil {
 			t.Fatal(err)
 		}
-		summary, err := r.summary(context.Background(), group)
+		summary, _, err := r.observe(context.Background(), group)
 		if err != nil || summary == nil || summary.Pools.Total != 1 || summary.Pools.DesiredSpareReplicas != 2 || summary.Pools.ReadySpareReplicas != int32(ready) {
 			t.Fatalf("pool summary did not observe refill changes: %+v, %v", summary, err)
 		}

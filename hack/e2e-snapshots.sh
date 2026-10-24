@@ -18,6 +18,12 @@ install_snapshot_fixtures() {
   tar -xzf "$directory/hostpath.tar.gz" -C "$directory"
   local snapshotter="$directory/external-snapshotter-8.2.0"
   local hostpath="$directory/csi-driver-host-path-1.16.1/deploy/kubernetes-1.30/hostpath"
+  local fixture_image
+  while read -r fixture_image; do
+    docker pull --platform="$platform" "$fixture_image"
+    load_image "$fixture_image"
+  done < <(awk '$1 == "image:" {print $2}' "$hostpath/csi-hostpath-plugin.yaml" \
+    "$snapshotter/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml" | sort -u)
   kubectl apply --server-side -f "$snapshotter/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml" \
     -f "$snapshotter/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml" \
     -f "$snapshotter/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"

@@ -2,10 +2,15 @@ package agentgroup
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	v1 "arally/operator/api/v1alpha1"
+	"arally/operator/internal/allocation"
+	"arally/operator/internal/sandbox"
 	"arally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
@@ -16,6 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
@@ -108,6 +115,106 @@ func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
 }
 
 var ctx = context.Background()
+
+func TestDeletionGuardUsesCurrentInventory(t *testing.T) {
+	for _, unavailable := range []bool{false, true} {
+		t.Run(fmt.Sprint(unavailable), func(t *testing.T) {
+			group, ns, _, _, _ := testutil.Fixture()
+			group.Finalizers = []string{GroupFinalizer}
+			pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "retained", Namespace: ns.Name}}
+			actual, scheme := testutil.Client(t, group, ns, pvc)
+			if err := actual.Delete(ctx, group); err != nil {
+				t.Fatal(err)
+			}
+			cached := interceptor.NewClient(actual, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, options ...client.ListOption) error {
+				if pvcs, ok := list.(*corev1.PersistentVolumeClaimList); ok {
+					pvcs.Items = nil
+					return nil
+				}
+				return c.List(ctx, list, options...)
+			}})
+			reader := interceptor.NewClient(actual, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, options ...client.ListOption) error {
+				if _, ok := list.(*corev1.PersistentVolumeClaimList); ok && unavailable {
+					return errors.New("inventory unavailable")
+				}
+				return c.List(ctx, list, options...)
+			}})
+			r := &Reconciler{Client: cached, Reader: reader, Scheme: scheme}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(group)})
+			if (err != nil) != unavailable {
+				t.Fatalf("unexpected inventory result: %v", err)
+			}
+			if err := actual.Get(ctx, client.ObjectKeyFromObject(ns), ns); err != nil || ns.DeletionTimestamp != nil {
+				t.Fatal("namespace deletion bypassed PVC protection", err)
+			}
+		})
+	}
+}
+
+func TestCapacityFailureDoesNotHidePolicyReadiness(t *testing.T) {
+	group, ns, _, _, _ := testutil.Fixture()
+	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 2, IdleTTLSeconds: 60}
+	pool := sandbox.ExtensionObject("SandboxWarmPool")
+	pool.SetName("managed")
+	pool.SetNamespace(ns.Name)
+	pool.SetLabels(map[string]string{allocation.ManagedLabel: "true"})
+	pool.SetOwnerReferences(ns.OwnerReferences)
+	pool.Object["spec"] = map[string]interface{}{"replicas": int64(0)}
+	actual, scheme := testutil.Client(t, group, ns, pool)
+	denied := interceptor.NewClient(actual, interceptor.Funcs{Patch: func(ctx context.Context, c client.WithWatch, object client.Object, patch client.Patch, opts ...client.PatchOption) error {
+		if object.GetName() == pool.GetName() {
+			return errors.New("pool update unavailable")
+		}
+		return c.Patch(ctx, object, patch, opts...)
+	}})
+	r := &Reconciler{Client: denied, Reader: actual, Scheme: scheme}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(group)}); err == nil {
+		t.Fatal("pool failure was lost")
+	}
+	if err := actual.Get(ctx, client.ObjectKeyFromObject(group), group); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Condition(t, group.Status.Conditions, "Ready", metav1.ConditionTrue)
+	testutil.Condition(t, group.Status.Conditions, "CapacityReady", metav1.ConditionFalse)
+}
+
+func TestGroupDeletionProtectsPendingNativeAllocation(t *testing.T) {
+	group, ns, _, _, _ := testutil.Fixture()
+	group.Finalizers = []string{GroupFinalizer}
+	claim := sandbox.ExtensionObject("SandboxClaim")
+	claim.SetName("pending-native-allocation")
+	claim.SetNamespace(ns.Name)
+	c, scheme := testutil.Client(t, group, ns, claim)
+	if err := c.Delete(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(group)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(ns), ns); err != nil || ns.DeletionTimestamp != nil {
+		t.Fatal("pending native allocation did not protect the namespace", err)
+	}
+}
+
+func TestGroupIgnoresActivityButObservesAllocationAndSummaryChanges(t *testing.T) {
+	_, _, _, instance, _ := testutil.Fixture()
+	changed := instance.DeepCopy()
+	changed.Status.Activity = &v1.AgentInstanceActivityStatus{ValidUntil: &metav1.MicroTime{Time: time.Now().UTC()}}
+	predicate := groupMemberChanges()
+	if predicate.Update(event.UpdateEvent{ObjectOld: instance, ObjectNew: changed}) {
+		t.Fatal("heartbeat triggered a full Group inventory")
+	}
+	changed.Status.Provisioning = &v1.AgentInstanceProvisioningStatus{PoolName: "new-pool", TemplateName: "new-template"}
+	if !predicate.Update(event.UpdateEvent{ObjectOld: instance, ObjectNew: changed}) {
+		t.Fatal("selection was hidden from pool pruning")
+	}
+	changed = instance.DeepCopy()
+	changed.Status.Conditions = []metav1.Condition{{Type: "Available", Status: metav1.ConditionTrue, ObservedGeneration: instance.Generation}}
+	if !predicate.Update(event.UpdateEvent{ObjectOld: instance, ObjectNew: changed}) {
+		t.Fatal("availability change was hidden from Group summary")
+	}
+}
 
 func TestCapabilitiesWatchMapsPolicyGroups(t *testing.T) {
 	group, ns, _, _, _ := testutil.Fixture()

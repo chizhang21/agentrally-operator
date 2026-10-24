@@ -40,11 +40,35 @@ type PrewarmingPolicy struct {
 	// These run real applications and consume compute, storage and credentials.
 	// +kubebuilder:validation:Minimum=0
 	Replicas int32 `json:"replicas"`
+	// MaxTotalReplicas caps desired managed spares across configurations.
+	// The Group distributes this budget evenly in stable pool-name order.
+	// External pools are excluded; ResourceQuota remains the admission boundary.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxTotalReplicas *int32 `json:"maxTotalReplicas,omitempty"`
 	// IdleTTLSeconds retains an unused pool before foreground deletion.
 	// Zero removes unused capacity immediately. Group deletion bypasses this delay.
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	IdleTTLSeconds int32 `json:"idleTTLSeconds,omitempty"`
+}
+
+// ExecutionPolicy constrains resolved execution Pods independently of capability discovery.
+type ExecutionPolicy struct {
+	// AllowedRuntimeClasses requires an explicitly selected RuntimeClass from this list.
+	// Omitted permits the cluster default or any existing class.
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=253
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	AllowedRuntimeClasses []string `json:"allowedRuntimeClasses,omitempty"`
+	// RequireImageDigest requires SHA-256, SHA-384 or SHA-512 image digests on all
+	// regular and init containers. It does not resolve mutable registry tags.
+	// +optional
+	RequireImageDigest bool `json:"requireImageDigest,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.namespace) == has(oldSelf.namespace)",message="namespace cannot be added or removed after creation"
@@ -77,6 +101,9 @@ type AgentGroupSpec struct {
 	// scaling and removes unused pools immediately; external pools are never scaled.
 	// +optional
 	Prewarming *PrewarmingPolicy `json:"prewarming,omitempty"`
+	// ExecutionPolicy supplies administrator constraints for execution Pods.
+	// +optional
+	ExecutionPolicy *ExecutionPolicy `json:"executionPolicy,omitempty"`
 	// NetworkPolicy expresses namespace/group policy, not runtime policy.
 	// +optional
 	NetworkPolicy *networkingv1.NetworkPolicySpec `json:"networkPolicy,omitempty"`

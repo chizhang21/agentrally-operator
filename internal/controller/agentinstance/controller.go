@@ -53,12 +53,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	if handled, result, err := r.reconcileRestart(ctx, workload); handled || err != nil {
 		return result, err
 	}
+	if err := r.observeActivity(ctx, workload); err != nil {
+		return ctrl.Result{}, err
+	}
 	if handled, result, err := r.reconcileExpiry(ctx, workload); handled || err != nil {
 		return result, err
 	}
 	// Stopping an owned execution and enforcing an in-flight allocation budget
 	// must not depend on whether a new desired configuration can be resolved.
-	if workload.Spec.OperatingMode == sandbox.Suspended {
+	if executionMode(workload) == sandbox.Suspended {
 		object, err := r.existingExecution(ctx, workload)
 		if err == nil {
 			if err := r.suspensionRequest(ctx, workload, true); err != nil {
@@ -94,6 +97,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 
 // withExecutionDeadlines bounds all retry paths, including paths that exit before allocation.
 func (r *Reconciler) withExecutionDeadlines(workload *v1.AgentInstance, result ctrl.Result) ctrl.Result {
+	if activity := workload.Status.Activity; activity != nil && workload.DeletionTimestamp == nil && meta.IsStatusConditionTrue(workload.Status.Conditions, controller.ConditionActivityReady) {
+		for _, deadline := range []*metav1.MicroTime{activity.ValidUntil, activity.IdleDeadline} {
+			if deadline == nil || !deadline.After(r.now()) {
+				continue
+			}
+			delay := deadline.Sub(r.now())
+			if result.RequeueAfter == 0 || delay < result.RequeueAfter {
+				result.RequeueAfter = delay
+			}
+		}
+	}
 	if lifecycle := workload.Status.Lifecycle; lifecycle != nil && lifecycle.ExpiredAt == nil && lifecycle.ExpiresAt != nil {
 		delay := lifecycle.ExpiresAt.Sub(r.now())
 		if delay <= 0 {
@@ -130,7 +144,7 @@ func (r *Reconciler) readyGroup(ctx context.Context, workload *v1.AgentInstance)
 	}
 	condition := meta.FindStatusCondition(group.Status.Conditions, controller.ConditionReady)
 	// Policy/quota preparation gates provisioning, not stopping an owned execution.
-	suspending := workload.Spec.OperatingMode == sandbox.Suspended
+	suspending := executionMode(workload) == sandbox.Suspended
 	if !suspending && (group.DeletionTimestamp != nil || condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != group.Generation) {
 		return nil, true, diagnostics.New(controller.ReasonGroupNotReady, "Waiting for the AgentGroup namespace and policy", nil)
 	}
@@ -148,7 +162,7 @@ func (r *Reconciler) readyGroup(ctx context.Context, workload *v1.AgentInstance)
 }
 
 func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentInstance, group *v1.AgentGroup) (ctrl.Result, error) {
-	mode := workload.Spec.OperatingMode
+	mode := executionMode(workload)
 	if mode == "" {
 		mode = sandbox.Running
 	}

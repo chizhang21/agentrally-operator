@@ -21,6 +21,7 @@ package controller
 // Event reads are UID-filtered diagnostics; the Operator never watches all Events.
 // +kubebuilder:rbac:groups=core,resources=events,verbs=list;create;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch,namespace=system
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;patch;delete
 
 // Capability discovery only reads native resources. It creates the default report
 // when absent, preserving spec/metadata on existing reports.

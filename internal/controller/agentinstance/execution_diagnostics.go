@@ -32,7 +32,7 @@ func (r *Reconciler) executionReadiness(ctx context.Context, w *v1.AgentInstance
 		ready.Message = "Cannot inspect the execution Pod; check Sandbox ownership and operator Pod read permissions"
 		ready.LastTransitionTime = metav1.Time{}
 		return ready
-	case w.Spec.OperatingMode == sandbox.Suspended:
+	case executionMode(w) == sandbox.Suspended:
 		diagnostic = suspensionDiagnostic(pod, r.now())
 		if pod == nil && !suspended {
 			// Core must still acknowledge the current Sandbox generation.

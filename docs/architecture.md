@@ -1,7 +1,7 @@
 # Architecture
 
-Arally manages containerized agent instances on Kubernetes. Users
-declare an image, configuration and lifecycle; the Operator prepares the group's
+Arally manages containerized agent instances on Kubernetes.
+Users declare an image, configuration and lifecycle; the Operator prepares the group's
 namespace and policies, requests execution, and reports the observed state.
 The agent application implements its own conversations, model calls, tools and API.
 
@@ -17,10 +17,12 @@ Arally exposes four resources in `arally.io/v1alpha1`:
 | ClusterCapabilities | Cluster | Runtime, storage and network configuration evidence used by deployment checks |
 
 AgentInstance execution requires agent-sandbox Core and Extensions.
-Arally manages configuration and allocation requests. agent-sandbox Extensions
-allocates Sandboxes and refills warm pools. agent-sandbox Core manages their Pods,
-declared PVCs and optional headless Services. Kubernetes stores desired state and
-status; each controller reads and writes resources through the Kubernetes API.
+Arally manages configuration and allocation requests.
+agent-sandbox Extensions allocates Sandboxes and refills warm pools.
+agent-sandbox Core manages their Pods, declared PVCs and optional headless Services.
+
+Kubernetes stores desired state and status; each controller reads and writes resources
+through the Kubernetes API.
 
 ```mermaid
 flowchart LR
@@ -30,14 +32,15 @@ flowchart LR
     C["agent-sandbox Core"] <-->|"Pod and storage lifecycle"| K
 ```
 
-The Operator runs independently of a backend. Users supply agent images, source
-SandboxTemplates, Secrets and ServiceAccounts. Arally reads these references and
-resolves configuration without modifying the supplied resources.
+The Operator runs independently of a backend.
+Users supply agent images, source SandboxTemplates, Secrets and ServiceAccounts.
+Arally reads these references and resolves configuration without modifying the supplied
+resources.
 
 ## Provisioning and prewarming
 
-An AgentInstance follows one allocation path, whether a warm instance is available
-or execution must start from scratch:
+An AgentInstance follows one allocation path, whether a warm instance is available or
+execution must start from scratch:
 
 ```mermaid
 flowchart LR
@@ -51,44 +54,53 @@ flowchart LR
 ```
 
 1. Check Group readiness and ownership of its namespace.
-2. Select the definition's published revision and bind its UID/revision to the instance. Apply container,
-   model, workspace and security settings; check references and capabilities.
-3. Persist the desired revision and pool selection. For managed capacity, create
-   a Group-owned template snapshot and pool; validate an existing external pool.
-4. Unless Group allocation is paused, create the allocation SandboxClaim. Verify the assigned Sandbox's ownership
-   and configuration before accepting the allocation.
-5. Request the operating mode, reconcile optional HTTP access, and observe Core
-   and the owned Pod to report configuration, health and readiness.
+2. Select the definition's published revision and bind its UID/revision to the instance.
+   Apply container, model, workspace and security settings; check references and
+   capabilities.
+3. Persist the desired revision and pool selection.
+   For managed capacity, create a Group-owned template snapshot and pool; validate an
+   existing external pool.
+4. Unless Group allocation is paused, create the allocation SandboxClaim.
+   Verify the assigned Sandbox's ownership and configuration before accepting the
+   allocation.
+5. Request the operating mode, reconcile optional HTTP access, and observe Core and the
+   owned Pod to report configuration, health and readiness.
 
-Instances of the same definition revision with matching settings share capacity
-within a Group. Pool identity includes
-Group UID, definition UID/revision, resolved configuration, selected Agent container and
-reference resource versions. PVC specifications participate in that identity;
-instance-specific PVC names do not. Generated templates keep an immutable configuration snapshot.
+Instances of the same definition revision with matching settings share capacity within a
+Group.
+Pool identity includes Group UID, definition UID/revision, resolved configuration,
+selected Agent container and reference resource versions.
+PVC specifications participate in that identity; instance-specific PVC names do not.
+Generated templates keep an immutable configuration snapshot.
 External pools are validated without adoption or modification.
 
-With ready spares, Extensions transfers an existing Sandbox to the allocation
-instance, preserving its Pod and private PVCs, then refills the pool. Otherwise it
-creates a new Sandbox. Core provisions each Sandbox's declared PVCs, including
-those of unassigned spares. With private PVC templates, matching agents share
-capacity while keeping their workspace files separate.
+With ready spares, Extensions transfers an existing Sandbox to the allocation instance,
+preserving its Pod and private PVCs, then refills the pool.
+Otherwise it creates a new Sandbox.
+Core provisions each Sandbox's declared PVCs, including those of unassigned spares.
+With private PVC templates, matching agents share capacity while keeping their workspace
+files separate.
 
-New managed pools default to zero spares. A Group prewarming policy controls the
-spare count per discovered configuration and retains unused capacity for its
-declared idle TTL. Omitted policy preserves manual scaling and immediate cleanup.
-An unseen configuration starts cold. A spare starts the real application with
-its configured credentials and consumes compute and storage before allocation.
+New managed pools default to zero spares.
+A Group prewarming policy controls the spare count per discovered configuration and
+retains unused capacity for its declared idle TTL.
+Omitted policy preserves manual scaling and immediate cleanup.
+An unseen configuration starts cold.
+A spare starts the real application with its configured credentials and consumes compute
+and storage before allocation.
 See [pool policy](agent-templates.md#allocation-and-policy) for configuration.
 
-The allocation budget is persisted in status and ends at validated Sandbox
-assignment. Pod startup is observed separately. Manager restarts do not reset the
-budget; an unassigned attempt that times out is cleaned up and requires a new
-`restartToken`. An initially suspended instance waits for resume before allocating.
+The allocation budget is persisted in status and ends at validated Sandbox assignment.
+Pod startup is observed separately.
+Manager restarts do not reset the budget; an unassigned attempt that times out is
+cleaned up and requires a new `restartToken`.
+An initially suspended instance waits for resume before allocating.
 
 ## Resources and ownership
 
-Owner references define the hierarchy used for garbage collection. Arally also
-checks ownership before updating managed resources or accepting execution observations.
+Owner references define the hierarchy used for garbage collection.
+Arally also checks ownership before updating managed resources or accepting execution
+observations.
 
 | Resource | Reconciled by | Controller owner |
 | --- | --- | --- |
@@ -101,30 +113,39 @@ checks ownership before updating managed resources or accepting execution observ
 | Execution Pod, private PVCs and optional headless Service | Core | Sandbox |
 
 AgentGroup creates an `arally-` namespace and rejects an unrelated existing one.
-instances must use their Group's namespace. Source templates, external pools and
-referenced credentials remain user-managed.
+instances must use their Group's namespace.
+Source templates, external pools and referenced credentials remain user-managed.
 
 The Group prunes generated pools with no active AgentInstance or native SandboxClaim
-references after any configured idle TTL. Group deletion bypasses the delay.
-All pool references, including external pools, protect generated snapshots;
-cleanup waits for pool deletion before removing its snapshot. instance replacement,
-expiry and deletion request foreground deletion of
-the owned SandboxClaim; upstream controllers and garbage collection remove the
-execution. Definition deletion waits for referencing instances and drains unused
-managed capacity. Group deletion waits for AgentDefinitions, AgentInstances, Sandboxes and PVCs to be removed
-before deleting the namespace.
+references after any configured idle TTL.
+Group deletion bypasses the delay.
 
-Arally patches `operatingMode` on assigned Sandboxes and observes their Pods and
-PVCs. Its RBAC grants Sandbox patch access without field-level restrictions;
-Pod and PVC access is read-only.
+All pool references, including external pools, protect generated snapshots; cleanup
+waits for pool deletion before removing its snapshot.
+
+instance replacement, expiry and deletion request foreground deletion of the owned
+SandboxClaim; upstream controllers and garbage collection remove the execution.
+
+Definition deletion waits for referencing instances and drains unused managed capacity.
+
+Group deletion waits for AgentDefinitions, AgentInstances, allocation Claims, Sandboxes and PVCs to be
+removed before deleting the namespace.
+
+Arally patches `operatingMode` on assigned Sandboxes and observes their Pods and PVCs.
+Its RBAC grants Sandbox patch access without field-level restrictions; Pod and PVC
+access is read-only.
 
 ## Lifecycle and workspace
 
-An AgentInstance is the lasting declaration. Its Sandbox is a replaceable execution,
-and each private workspace PVC belongs to that Sandbox. Suspend/resume preserves
-the workspace within an execution. Private PVCs are replaced with execution; an
-external `workspace.existingClaimRef` keeps the same recorded PVC UID. The Operator
-never adopts or deletes that PVC. See [definitions and instances](agent-definitions.md).
+An AgentInstance is the lasting declaration.
+Its Sandbox is a replaceable execution, and each private workspace PVC belongs to that
+Sandbox.
+Suspend/resume preserves the workspace within an execution.
+
+Private PVCs are replaced with execution; an external `workspace.existingClaimRef` keeps
+the same recorded PVC UID.
+The Operator never adopts or deletes that PVC.
+See [definitions and instances](agent-definitions.md).
 
 | Change | Execution behavior | Private workspace |
 | --- | --- | --- |
@@ -136,26 +157,41 @@ never adopts or deletes that PVC. See [definitions and instances](agent-definiti
 | Expire execution or delete AgentInstance | Remove execution and interaction resources | Removed with the Sandbox |
 
 Resume restores access to retained files; it does not restore process memory.
-Native snapshot sources initialize private PVCs through CSI. Arally checks local
-VolumeSnapshot readiness and capacity before allocation and includes its UID in
-pool identity. Completed executions retain that initialization identity; later
-source deletion or replacement does not affect their workspaces or resume.
-It neither creates storage snapshots nor owns restoration. Snapshot
-APIs are optional; instances without snapshot sources do not depend on them.
-`Suspended=True` requires current Core confirmation and no remaining execution
-Pod. A Pod still terminating keeps suspension or cleanup pending. Arally reports
-stalls without force-deleting runtime resources.
+
+Optional activity-driven idle suspension uses a caller-maintained Lease fenced to the Instance and Sandbox UIDs.
+It leaves user intent unchanged and resumes the same accepted revision on fresh activity.
+Manual suspension takes precedence.
+Maximum execution lifetime counts from allocation and is independent of activity.
+See [Activity](activity.md) for the signal contract.
+
+Optional exclusive external workspaces use separate Instance-owned coordination Leases.
+The reservation survives execution replacement, and deletion releases it only after execution cleanup.
+PVC ownership remains external.
+
+Native snapshot sources initialize private PVCs through CSI.
+Arally checks local VolumeSnapshot readiness and capacity before allocation and includes
+its UID in pool identity.
+Completed executions retain that initialization identity; later source deletion or
+replacement does not affect their workspaces or resume.
+It neither creates storage snapshots nor owns restoration.
+Snapshot APIs are optional; instances without snapshot sources do not depend on them.
+
+`Suspended=True` requires current Core confirmation and no remaining execution Pod.
+A Pod still terminating keeps suspension or cleanup pending.
+Arally reports stalls without force-deleting runtime resources.
 
 Expiry with `shutdownPolicy: Retain` keeps the AgentInstance and diagnostics, while
-removing execution and its private workspace. Data that must outlive Sandbox replacement
-needs storage managed independently of that execution. Instances can bind [external PVCs](agent-definitions.md#workspace-lifetime), whose access
-and sharing constraints still apply. Operating commands and expiry settings are
-in [lifecycle](usage.md#lifecycle).
+removing execution and its private workspace.
+Data that must outlive Sandbox replacement needs storage managed independently of that
+execution.
+Instances can bind [external PVCs](agent-definitions.md#workspace-lifetime), whose
+access and sharing constraints still apply.
+Operating commands and expiry settings are in [lifecycle](usage.md#lifecycle).
 
 ## Access and trust
 
-Control requests use the Kubernetes API. Optional HTTP traffic follows a separate
-path through an existing Gateway:
+Control requests use the Kubernetes API.
+Optional HTTP traffic follows a separate path through an existing Gateway:
 
 ```mermaid
 flowchart LR
@@ -164,32 +200,38 @@ flowchart LR
     S --> P["Agent Pod: interaction.port"]
 ```
 
-Arally creates an HTTPRoute to configure that path, plus a
-ClusterIP Service targeting Core's published Pod selector. This Service is
-separate from Core's optional headless Service. `InteractionReady` reflects
-execution availability and route-controller acceptance, not an HTTP or
-authentication probe. See [interaction endpoints](usage.md#interaction-endpoint).
+Arally creates an HTTPRoute to configure that path, plus a ClusterIP Service targeting
+Core's published Pod selector.
+This Service is separate from Core's optional headless Service.
 
-Group NetworkPolicy uses the supplied Pod and namespace selectors. Enforcement
-depends on the CNI; an allow rule authorizes matching Pods and does not require
-traffic to pass through a Gateway. Pod Security defaults to Restricted. AnyUID
-requires a Baseline namespace policy and a dedicated ServiceAccount.
+`InteractionReady` reflects execution availability and route-controller acceptance, not
+an HTTP or authentication probe.
+See [interaction endpoints](usage.md#interaction-endpoint).
+
+Group NetworkPolicy uses the supplied Pod and namespace selectors.
+Enforcement depends on the CNI; an allow rule authorizes matching Pods and does not
+require traffic to pass through a Gateway.
+
+Pod Security defaults to Restricted.
+AnyUID requires a Baseline namespace policy and a dedicated ServiceAccount.
 See [group security](usage.md#group-namespace-and-security).
 
 Secrets are fetched by explicit reference, without listing, watching or caching.
 Configuration identity records reference versions rather than Secret contents.
-The Operator's ClusterRole still permits GET across namespaces; Group namespace
-checks are controller logic, not namespace-scoped Operator RBAC.
 
-ClusterCapabilities reports configuration evidence. It does not run runtime,
-storage I/O or traffic-enforcement tests. The default `cluster` report is always
-enabled. See [capability checks](cluster-capabilities.md) for the evidence limits.
+The Operator's ClusterRole still permits GET across namespaces; Group namespace checks
+are controller logic, not namespace-scoped Operator RBAC.
 
-Shared-capacity cleanup uses direct reference reads and resource-version
-preconditions. Before creating a native Claim, allocation persists its selection
-and marks reused Arally-owned pool/template metadata for that attempt. This
-prevents a concurrent pruner's older inventory from deleting newly reused
-capacity; snapshot specs and external pool settings remain unchanged.
+ClusterCapabilities reports configuration evidence.
+It does not run runtime, storage I/O or traffic-enforcement tests.
+The default `cluster` report is always enabled.
+See [capability checks](cluster-capabilities.md) for the evidence limits.
+
+Shared-capacity cleanup uses direct reference reads and resource-version preconditions.
+Before creating a native Claim, allocation persists its selection and marks reused
+Arally-owned pool/template metadata for that attempt.
+This prevents a concurrent pruner's older inventory from deleting newly reused capacity;
+snapshot specs and external pool settings remain unchanged.
 
 ## Design decisions
 
@@ -221,16 +263,18 @@ capacity; snapshot specs and external pool settings remain unchanged.
 | [internal/metrics](../internal/metrics) | Cached state gauges and persisted-transition duration histograms |
 
 A controller-runtime manager runs AgentGroup, AgentInstance and ClusterCapabilities
-controllers in one process, using Lease leader election. The wire adapter uses
-`agents.x-k8s.io/v1beta1` for Sandbox and `extensions.agents.x-k8s.io/v1beta1` for
-templates, pools and instances; it contains no upstream controller logic.
+controllers in one process, using Lease leader election.
+The wire adapter uses `agents.x-k8s.io/v1beta1` for Sandbox and
+`extensions.agents.x-k8s.io/v1beta1` for templates, pools and instances; it contains no
+upstream controller logic.
 
 ### Reconciliation and status
 
 Controllers resume from observed state and persist status only when it changes.
-Condition transitions emit Events after persistence. Pause requests on owned
-execution and in-flight allocation deadlines run before desired-configuration
-dependency gates, so a missing new reference does not prevent shutdown.
+Condition transitions emit Events after persistence.
+Pause requests on owned execution and in-flight allocation deadlines run before
+desired-configuration dependency gates, so a missing new reference does not prevent
+shutdown.
 
 | Condition | Meaning |
 | --- | --- |
@@ -244,25 +288,31 @@ dependency gates, so a missing new reference does not prevent shutdown.
 | Finished | Core confirms natural completion of the current owned Pod, excluding suspension and Pod deletion. |
 | InteractionReady | Execution is available and the route controller accepted the endpoint. |
 
-Generated Pods carry `ARALLY_CONFIGURATION_REVISION`. External pools must reference
-the matching Group-owned generated snapshot, including its full stamped blueprint;
-unmarked source templates are rejected before allocation. An assigned Sandbox's
-creation evidence is checked against the recorded selection, even after desired
-configuration changes. Reference changes are detected
-through indexed dependency watches or periodic reconciliation; optional route APIs
-use direct reads and polling, so their CRDs are not required at manager startup.
+Generated Pods carry `ARALLY_CONFIGURATION_REVISION`.
+External pools must reference the matching Group-owned generated snapshot, including its
+full stamped blueprint; unmarked source templates are rejected before allocation.
+An assigned Sandbox's creation evidence is checked against the recorded selection, even
+after desired configuration changes.
+
+Reference changes are detected through indexed dependency watches or periodic
+reconciliation; optional route APIs use direct reads and polling, so their CRDs are not
+required at manager startup.
+
 Group summaries expose namespace capacity; instance timings persist observations of
-allocation, Pod startup, suspension and cleanup. The existing metrics endpoint
-exports bounded labels without instance identity or credential data. Process
-histograms reset on restart; persisted status remains the timing record.
-For operational interpretation, see [status and diagnostics](usage.md#status-and-diagnostics).
+allocation, Pod startup, suspension and cleanup.
+The existing metrics endpoint exports bounded labels without instance identity or
+credential data.
+
+Process histograms reset on restart; persisted status remains the timing record.
+For operational interpretation, see
+[status and diagnostics](usage.md#status-and-diagnostics).
 
 ### Optional Connector
 
-`connector.enabled` starts an outbound Connector worker in the elected Operator
-process. The chart conditionally supplies its credentials and additional CR write
-permissions. It relays requests for the four Arally CRs for future Orchestrator
-integration. Protocol details are in [Outbound Connector](outbound-connector.md).
+`connector.enabled` starts an outbound Connector worker in the elected Operator process.
+The chart conditionally supplies its credentials and additional CR write permissions.
+It relays requests for the four Arally CRs for future Orchestrator integration.
+Protocol details are in [Outbound Connector](outbound-connector.md).
 
 Installation, operating commands and build workflows are covered separately in
 [installation](installation.md), [usage](usage.md) and [development](development.md).

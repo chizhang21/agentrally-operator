@@ -1,11 +1,12 @@
 # Deploying and operating agents
 
 This guide covers Agent configuration and day-to-day operations after
-[installing the controllers](installation.md). Build and test instructions are in
-[Development](development.md).
+[installing the controllers](installation.md).
+Build and test instructions are in [Development](development.md).
 
-From a local checkout, replace the image in [definition.yaml](../examples/base/definition.yaml),
-then create the Group, definition and instance in order:
+From a local checkout, replace the image in
+[definition.yaml](../examples/base/definition.yaml), then create the Group, definition
+and instance in order:
 
 ```sh
 kubectl apply -f examples/base/group.yaml
@@ -20,24 +21,31 @@ kubectl -n arally-demo wait agentinstance/demo-agent --for=condition=Ready --tim
 
 Administrators install controllers, create Groups, set policies and grant access.
 Agent deployers manage definitions and instances in their assigned namespace using the
-[editor role and RoleBinding](../examples/rbac/README.md). This role can read
-status but cannot write it. Templates, Secrets, PVCs and Pod inspection need
-separate permissions. The Operator has its own installation-managed RBAC.
+[editor role and RoleBinding](../examples/rbac/README.md).
+This role can read status but cannot write it.
+
+Templates, Secrets, PVCs and Pod inspection need separate permissions.
+
+The Operator has its own installation-managed RBAC.
 
 ## Agent templates
 
-On AgentDefinition, choose `spec.template: generic`, `assistant` or `coding` and set `container.image`.
-For sidecars or other Pod settings, use `templateRef.name` to select a
-SandboxTemplate in the same namespace, without `template` or `container`.
+On AgentDefinition, choose `spec.template: generic`, `assistant` or `coding` and set
+`container.image`.
+For sidecars or other Pod settings, use `templateRef.name` to select a SandboxTemplate
+in the same namespace, without `template` or `container`.
 See [environment settings](agent-templates.md) for defaults and template constraints.
 
-Set `AgentInstance.spec.definitionRef.name` to that definition. Both resources must
-reference the same Group. Definitions publish immutable configuration; instances pin
-it at allocation. See [version selection and workspace lifetime](agent-definitions.md).
+Set `AgentInstance.spec.definitionRef.name` to that definition.
+Both resources must reference the same Group.
+
+Definitions publish immutable configuration; instances pin it at allocation.
+See [version selection and workspace lifetime](agent-definitions.md).
 
 Use [full-definition.yaml](../examples/full-definition.yaml) and
-[full.yaml](../examples/full.yaml) as the configuration and instance field references, or start
-from a focused [example](../examples/README.md). To inspect the installed schema:
+[full.yaml](../examples/full.yaml) as the configuration and instance field references,
+or start from a focused [example](../examples/README.md).
+To inspect the installed schema:
 
 ```sh
 kubectl explain agentdefinition.spec --recursive
@@ -46,13 +54,14 @@ kubectl explain agentinstance.spec --recursive
 
 ## Group namespace and security
 
-AgentGroup creates `arally-<group-name>`; read `status.namespace` for the resolved
-name. An explicit `spec.namespace` must start with `arally-` and cannot change.
-Definitions, instances, Secrets, ConfigMaps, PVCs and source templates belong in that namespace.
+AgentGroup creates `arally-<group-name>`; read `status.namespace` for the resolved name.
+An explicit `spec.namespace` must start with `arally-` and cannot change.
+Definitions, instances, Secrets, ConfigMaps, PVCs and source templates belong in that
+namespace.
 Arally does not adopt an unrelated existing namespace.
 
-Separate namespaces do not block traffic. For same-Group ingress only, add to
-`AgentGroup.spec`:
+Separate namespaces do not block traffic.
+For same-Group ingress only, add to `AgentGroup.spec`:
 
 ```yaml
 networkPolicy:
@@ -63,48 +72,69 @@ networkPolicy:
     - podSelector: {}
 ```
 
-This leaves egress open. Add ingress rules for the Gateway and monitoring
-where needed. NetworkPolicy requires an enforcing CNI. Templates delegate network
-policy to the Group. Pod Security defaults to Restricted.
+This leaves egress open.
+Add ingress rules for the Gateway and monitoring where needed.
+NetworkPolicy requires an enforcing CNI.
+Templates delegate network policy to the Group.
+Pod Security defaults to Restricted.
 
-`spec.limitRange` accepts a native LimitRange spec for container/Pod/PVC defaults
-and limits. Arally owns `arally-limits` in the Group namespace. Removing the field
-removes that policy; changes apply to newly admitted resources. Admission-added
-resource defaults do not cause `RestartRequired`; explicit requested quantities
-remain part of configuration checks. See [Group policy](../examples/group-policy.yaml).
+Use `spec.executionPolicy.allowedRuntimeClasses` to require an explicitly selected runtime from an administrator's list.
+Use `spec.executionPolicy.requireImageDigest: true` to require digest-pinned regular and init containers.
+Both constraints apply to the final resolved Pod, including custom templates.
+An omitted policy preserves existing behavior.
+RuntimeClass selection is configuration evidence; it does not attest the node runtime.
+Policy checks gate new Arally allocations and resumes.
+Already submitted allocations and running executions may continue after a policy change.
+Existing native pool snapshots are not rewritten by this policy.
+Use Kubernetes admission controls when independently submitted native workloads must obey the same constraints.
 
-To stop new allocations, set `spec.allocationPaused: true`. Waiting instances report
-`AllocationPaused` without starting a new allocation budget. Already submitted
-allocations may finish; existing agents can continue, suspend, resume or be
-deleted. Unpause the Group to allow new allocations. This does not suspend agents
-or stop prewarmed processes. Restart cleanup can finish while paused; the
-replacement waits for unpause.
+`spec.limitRange` accepts a native LimitRange spec for container/Pod/PVC defaults and
+limits.
+Arally owns `arally-limits` in the Group namespace.
+Removing the field removes that policy; changes apply to newly admitted resources.
+
+Admission-added resource defaults do not cause `RestartRequired`; explicit requested
+quantities remain part of configuration checks.
+See [Group policy](../examples/group-policy.yaml).
+
+To stop new allocations, set `spec.allocationPaused: true`.
+Waiting instances report `AllocationPaused` without starting a new allocation budget.
+
+Already submitted allocations may finish; existing agents can continue, suspend, resume
+or be deleted.
+Unpause the Group to allow new allocations.
+This does not suspend agents or stop prewarmed processes.
+
+Restart cleanup can finish while paused; the replacement waits for unpause.
 
 <a id="legacy-agent-images-on-openshift"></a>
 
 ### Agent process identity
 
-Built-in environments use non-root containers. Set `AgentDefinition.spec.security.runAsUser`
-for an explicit UID, or omit it to use the image or admission default.
+Built-in environments use non-root containers.
+Set `AgentDefinition.spec.security.runAsUser` for an explicit UID, or omit it to use the
+image or admission default.
+
 `security.serviceAccountName` selects an existing namespaced ServiceAccount.
 
 For images requiring UID 0, an administrator prepares a Group with
-`spec.podSecurity: Baseline` and a dedicated ServiceAccount. The definition can
-then select `security.profile: AnyUID` and the required UID. Namespace policy and
-ServiceAccount authorization remain administrator-managed.
+`spec.podSecurity: Baseline` and a dedicated ServiceAccount.
+The definition can then select `security.profile: AnyUID` and the required UID.
+Namespace policy and ServiceAccount authorization remain administrator-managed.
 
 ## Interaction endpoint
 
-Declare the application's named TCP `http` port, or its sole TCP port, in the
-definition container or native template. Then add to `AgentInstance.spec`:
+Declare the application's named TCP `http` port, or its sole TCP port, in the definition
+container or native template.
+Then add to `AgentInstance.spec`:
 
 ```yaml
 interaction:
   type: HTTPRoute
 ```
 
-Omit interaction for no managed endpoint; removing it deletes the HTTPRoute and
-access Service.
+Omit interaction for no managed endpoint; removing it deletes the HTTPRoute and access
+Service.
 
 For HTTPRoute, shared settings belong in `AgentGroup.spec`:
 
@@ -118,17 +148,24 @@ interactionDefaults:
     domain: agents.example.com
 ```
 
-The Gateway must allow HTTPRoutes from the Group namespace. Configure DNS and TLS
-for the domain; Arally creates neither. If omitted, Arally discovers an eligible
-Gateway/listener and uses its wildcard hostname. A unique eligible default Gateway
-takes precedence; multiple eligible Gateways/listeners require an explicit choice.
-An IP alone cannot supply a domain. HTTPS is preferred within the selected Gateway.
+The Gateway must allow HTTPRoutes from the Group namespace.
+Configure DNS and TLS for the domain; Arally creates neither.
+
+If omitted, Arally discovers an eligible Gateway/listener and uses its wildcard
+hostname.
+A unique eligible default Gateway takes precedence; multiple eligible Gateways/listeners
+require an explicit choice.
+An IP alone cannot supply a domain.
+HTTPS is preferred within the selected Gateway.
 
 instances can override port, hostname, scheme and Gateway; see
-[full.yaml](../examples/full.yaml). An omitted Gateway namespace means the instance's
-namespace. The backend serves HTTP; the Gateway handles external TLS termination.
-The access Service uses port 80. Allow its traffic through Group NetworkPolicy
-and provide application authentication in the agent or ingress infrastructure.
+[full.yaml](../examples/full.yaml).
+An omitted Gateway namespace means the instance's namespace.
+
+The backend serves HTTP; the Gateway handles external TLS termination.
+The access Service uses port 80.
+Allow its traffic through Group NetworkPolicy and provide application authentication in
+the agent or ingress infrastructure.
 
 ```sh
 kubectl -n arally-demo wait agentinstance/demo-agent \
@@ -138,11 +175,13 @@ kubectl -n arally-demo get agentinstance demo-agent \
 ```
 
 InteractionReady checks route acceptance and workload readiness, not end-to-end
-connectivity or authentication. Suspension retains the URL but makes it unavailable.
+connectivity or authentication.
+Suspension retains the URL but makes it unavailable.
 
 ## Environment variables and Secrets
 
-Create Secrets in the Group namespace. Under `AgentDefinition.spec.container`:
+Create Secrets in the Group namespace.
+Under `AgentDefinition.spec.container`:
 
 ```yaml
 env:
@@ -155,21 +194,25 @@ env:
       key: api-key
 ```
 
-Custom templates use the native container's env fields. `envFrom` is also supported.
-Arally checks references without publishing values and reads Secrets without
-listing, watching or caching them. Periodic reconciliation detects version changes;
-use a new restart token to apply them to the process. See the
-[ordered HTTP Agent example](../examples/http-api-agent/README.md).
+Custom templates use the native container's env fields.
+`envFrom` is also supported.
+Arally checks references without publishing values and reads Secrets without listing,
+watching or caching them.
+Periodic reconciliation detects version changes; use a new restart token to apply them
+to the process.
+See the [ordered HTTP Agent example](../examples/http-api-agent/README.md).
 
 ## Model and workspace
 
-`AgentDefinition.spec.modelProvider` in [full-definition.yaml](../examples/full-definition.yaml) injects `OPENAI_BASE_URL`,
-`ARALLY_MODEL_NAME` and Secret-backed `OPENAI_API_KEY`. The application must consume
-or map these variables. `agentContainer` selects the target container; the default
-is the first container.
+`AgentDefinition.spec.modelProvider` in
+[full-definition.yaml](../examples/full-definition.yaml) injects `OPENAI_BASE_URL`,
+`ARALLY_MODEL_NAME` and Secret-backed `OPENAI_API_KEY`.
+The application must consume or map these variables.
 
-For a private workspace, declare a native PVC spec in the instance. Core provisions
-one PVC per Sandbox, including each unassigned warm instance:
+`agentContainer` selects the target container; the default is the first container.
+
+For a private workspace, declare a native PVC spec in the instance.
+Core provisions one PVC per Sandbox, including each unassigned warm instance:
 
 ```yaml
 workspace:
@@ -182,11 +225,14 @@ workspace:
     # storageClassName: your-storage-class
 ```
 
-This also sets `ARALLY_WORKSPACE_PATH`. Omit `storageClassName` to use the cluster
-default. Arally carries the spec through the pool template; Core creates and owns
-the PVC. `status.volumeClaims` maps logical volume names to their allocated PVCs.
+This also sets `ARALLY_WORKSPACE_PATH`.
+Omit `storageClassName` to use the cluster default.
+Arally carries the spec through the pool template; Core creates and owns the PVC.
+
+`status.volumeClaims` maps logical volume names to their allocated PVCs.
 Pending WaitForFirstConsumer claims can bind after Core creates the Pod.
-See [workspace permissions and defaults](agent-templates.md#persistent-state-and-credentials).
+See
+[workspace permissions and defaults](agent-templates.md#persistent-state-and-credentials).
 
 For storage retained across execution upgrades, use an existing PVC on the instance:
 
@@ -204,22 +250,25 @@ See [OpenClaw](../examples/openclaw/README.md) for paths, probes and upgrades.
 ### Initialize from a VolumeSnapshot
 
 Set the native PVC `dataSource` (or local `dataSourceRef`) to a ready
-`snapshot.storage.k8s.io/VolumeSnapshot` in the instance namespace. See
-[snapshot-workspace.yaml](../examples/snapshot-workspace.yaml). Arally checks
-that the snapshot exists, is not terminating, reports `readyToUse: true`, and
-fits within the requested storage capacity when `restoreSize` is reported.
-New allocations include the source UID in configuration identity, so an old
-warmed workspace cannot be reused for a recreated source. After allocation,
-suspend/resume reuses that execution's private workspace even if its initialization
-snapshot is deleted or no longer ready. A replacement execution needs a ready
-source again.
+`snapshot.storage.k8s.io/VolumeSnapshot` in the instance namespace.
+See [snapshot-workspace.yaml](../examples/snapshot-workspace.yaml).
+Arally checks that the snapshot exists, is not terminating, reports `readyToUse: true`,
+and fits within the requested storage capacity when `restoreSize` is reported.
+New allocations include the source UID in configuration identity, so an old warmed
+workspace cannot be reused for a recreated source.
 
-The snapshot CRDs, snapshot controller and a compatible CSI driver must already
-exist. The PVC StorageClass must use a driver that can restore that snapshot.
-Preflight is read-only; CSI performs restoration. Arally does not create snapshots,
-copy live workspace data or verify application consistency. Cross-namespace
-snapshot sources are unsupported. Ordinary workspaces require none of these
-snapshot APIs.
+After allocation, suspend/resume reuses that execution's private workspace even if its
+initialization snapshot is deleted or no longer ready.
+A replacement execution needs a ready source again.
+
+The snapshot CRDs, snapshot controller and a compatible CSI driver must already exist.
+The PVC StorageClass must use a driver that can restore that snapshot.
+Preflight is read-only; CSI performs restoration.
+Arally does not create snapshots, copy live workspace data or verify application
+consistency.
+Cross-namespace snapshot sources are unsupported.
+
+Ordinary workspaces require none of these snapshot APIs.
 
 ## Status and diagnostics
 
@@ -228,21 +277,35 @@ kubectl -n arally-demo get agentinstances
 kubectl -n arally-demo describe agentinstance demo-agent
 ```
 
-Read Conditions, Events and `status.podName`. `Ready=True` requires current-generation
-configuration to be applied and the execution to be ready, including a requested
-interaction endpoint. `Available` reports current Core/Pod health independently.
-A healthy old instance can have `Available=True` and `Ready=False/RestartRequired`
-while an update waits for explicit restart. An unverified creation revision cannot
-produce `Ready=True`. Neither condition proves application credentials work.
+Read Conditions, Events and `status.podName`.
+`Ready=True` requires current-generation configuration to be applied and the execution
+to be ready, including a requested interaction endpoint.
 
-`AgentGroup.status.summary` reports instance counts, native pool capacity and all
-PVC requests/provisioned capacity in its namespace. Ready and Available counts
-overlap; capacity is not disk usage. Pool readiness uses current-generation
-upstream status and excludes terminating/stuck capacity. `status.provisioning.launchType`
-reports `warm` or `cold` when upstream supplies it; missing provenance stays unknown.
+`Available` reports current Core/Pod health independently.
+A healthy old instance can have `Available=True` and `Ready=False/RestartRequired` while
+an update waits for explicit restart.
+An unverified creation revision cannot produce `Ready=True`.
+
+Neither condition proves application credentials work.
+
+`AgentGroup.status.summary` reports instance counts, native pool capacity and all PVC
+requests/provisioned capacity in its namespace.
+Ready and Available counts overlap; capacity is not disk usage.
+Pool readiness uses current-generation upstream status and excludes terminating/stuck
+capacity.
+
+Group `Ready` reports namespace and policy preparation.
+`CapacityReady` independently reports managed pool reconciliation and current-generation spare readiness.
+An external pool does not gate this condition.
+
+`CleanupReady` on an Instance reports owned execution cleanup and diagnoses stalls without bypassing finalizers.
+
+`status.provisioning.launchType` reports `warm` or `cold` when upstream supplies it;
+missing provenance stays unknown.
+
 `AgentInstance.status.timings` records observed Pod creation/first availability,
-suspension submission/completion and cleanup submission/completion. Pod timings
-reset with a new Pod UID; replacement starts a new execution timing record.
+suspension submission/completion and cleanup submission/completion.
+Pod timings reset with a new Pod UID; replacement starts a new execution timing record.
 
 The existing metrics endpoint exposes the following business measurements:
 
@@ -257,13 +320,18 @@ The existing metrics endpoint exposes the following business measurements:
 | `arally_agent_cleanup_duration_seconds` | Cleanup submission to owned allocation/access-resource removal |
 | `arally_observation_success` | Whether cached instance and Group collection succeeded |
 
-Duration metrics are histograms. The allocation histogram's `_count` series provides
-observed allocation counts by `launch_type` (`warm`, `cold`, `unknown`). Individual instance names and
-credential values are never metric labels. Histograms count transitions after
-successful status writes and reset when the Operator process restarts; they are
-not a durable event ledger. Group summaries are eventually consistent, and a
-failed cache read omits state gauges instead of publishing false zeros. Enable
-`metrics.serviceMonitor.enabled` when Prometheus Operator is installed.
+Duration metrics are histograms.
+The allocation histogram's `_count` series provides observed allocation counts by
+`launch_type` (`warm`, `cold`, `unknown`).
+
+Individual instance names and credential values are never metric labels.
+Histograms count transitions after successful status writes and reset when the Operator
+process restarts; they are not a durable event ledger.
+
+Group summaries are eventually consistent, and a failed cache read omits state gauges
+instead of publishing false zeros.
+
+Enable `metrics.serviceMonitor.enabled` when Prometheus Operator is installed.
 
 | Ready reason | What to check |
 | --- | --- |
@@ -283,9 +351,10 @@ failed cache read omits state gauges instead of publishing false zeros. Enable
 | `PodTerminationStalled` | Pod remains at least five minutes past its deletion timestamp; ask an administrator to inspect kubelet, runtime, volume teardown and finalizers. |
 | `PodObservationBlocked` | Pod ownership or the Operator's Pod read permission. |
 
-Five-minute stalls add diagnostics without forcing deletion or restart. Inspect
-the named Pod and its events for original errors; Arally does not publish raw
-container/Event messages or Secret values. More detail is in
+Five-minute stalls add diagnostics without forcing deletion or restart.
+Inspect the named Pod and its events for original errors; Arally does not publish raw
+container/Event messages or Secret values.
+More detail is in
 [reconciliation and status](architecture.md#reconciliation-and-status).
 
 ## Lifecycle
@@ -303,8 +372,9 @@ kubectl -n arally-demo wait agentinstance/demo-agent \
   --for=condition=Ready --timeout=5m
 ```
 
-Core removes and recreates the Pod. PVC data remains; process memory and emptyDir
-data do not. This is stop/start, not checkpoint/restore.
+Core removes and recreates the Pod.
+PVC data remains; process memory and emptyDir data do not.
+This is stop/start, not checkpoint/restore.
 
 After publishing a definition update or rotating credentials, set a new restart token:
 
@@ -313,21 +383,29 @@ kubectl -n arally-demo patch agentinstance demo-agent --type=merge \
   -p '{"spec":{"restartToken":"restart-1"}}'
 ```
 
-Change the token for each restart; repeating it does nothing. Definition edits
-publish a new revision and leave pinned instances running on their old version.
-Restart adopts the latest publication unless `spec.revision` selects a specific
-hash. Changing that explicit revision or rotating environment credentials can
-report RestartRequired until restart. ConfigurationApplied
-checks the owned Pod's creation revision; it does not prove application hot reload.
-Secret volumes retain Kubernetes update behavior; Arally does not freeze or copy
-Secret contents. The pending-update condition describes creation evidence.
-Arally replaces execution through its owning SandboxClaim. **Private workspaces are
-replaced:** upstream garbage collection removes the old Sandbox and its PVCs.
+Change the token for each restart; repeating it does nothing.
+Definition edits publish a new revision and leave pinned instances running on their old
+version.
+Restart adopts the latest publication unless `spec.revision` selects a specific hash.
+Changing that explicit revision or rotating environment credentials can report
+RestartRequired until restart.
+
+ConfigurationApplied checks the owned Pod's creation revision; it does not prove
+application hot reload.
+
+Secret volumes retain Kubernetes update behavior; Arally does not freeze or copy Secret
+contents.
+The pending-update condition describes creation evidence.
+
+Arally replaces execution through its owning SandboxClaim.
+**Private workspaces are replaced:** upstream garbage collection removes the old Sandbox
+and its PVCs.
 An external `existingClaimRef` workspace retains its files across replacement.
 Suspend/resume and Pod recreation within the same Sandbox retain its PVCs.
 
-Delete AgentInstances, then AgentDefinitions, before the Group. Wait for execution cleanup, then inspect
-remaining Sandboxes and PVCs before moving or removing data:
+Delete AgentInstances, then AgentDefinitions, before the Group.
+Wait for execution cleanup, then inspect remaining Sandboxes and PVCs before moving or
+removing data:
 
 ```sh
 kubectl -n arally-demo delete agentinstance demo-agent --wait=true --timeout=120s
@@ -336,7 +414,8 @@ kubectl -n arally-demo get agentdefinitions,agentinstances,sandboxes,pvc
 ```
 
 Deleting the Group's Namespace deletes remaining namespaced resources, including
-Secrets. Do not use Group deletion as a substitute for data retention planning.
+Secrets.
+Do not use Group deletion as a substitute for data retention planning.
 
 ### Execution expiry
 
@@ -345,25 +424,36 @@ The optional `lifecycle` block in [full.yaml](../examples/full.yaml) controls ex
 | Field | Behavior |
 | --- | --- |
 | `shutdownTime` | Absolute deadline, including time waiting for dependencies or allocation. Also applies to failed and suspended agents. |
+| `maxLifetimeSeconds` | Wall-clock execution limit from validated allocation, including suspension. Activity does not reset it. |
 | `ttlSecondsAfterFinished` | Starts when Core confirms that the current owned Pod completed naturally. Suspension does not start this TTL. |
 | `retainFailed` | True by default; false allows completion TTL to remove failed executions. |
 | `shutdownPolicy: Retain` | Removes execution and interaction resources, keeps the instance with `Expired=True`. |
 | `shutdownPolicy: Delete` | Deletes the instance through its finalizer. |
 
-Sandbox-owned workspace PVCs are removed with execution; externally supplied
-Secrets and externally managed workspace PVCs remain. `Retain` preserves the
-AgentInstance and diagnostics; it does not retain Sandbox-owned private PVCs.
+The earliest applicable execution deadline wins.
+For optional activity-driven idle suspension and automatic wake-up, see [Activity](activity.md).
+Automatic wake-up keeps the accepted revision and does not replace execution.
+
+Sandbox-owned workspace PVCs are removed with execution; externally supplied Secrets and
+externally managed workspace PVCs remain.
+`Retain` preserves the AgentInstance and diagnostics; it does not retain Sandbox-owned
+private PVCs.
+
 To run an expired retained instance again with a replacement execution, change
 `restartToken` and move any elapsed `shutdownTime` into the future or remove it.
+
 Omit lifecycle for no configured expiry.
 
 ## Pool allocation
 
-All instances use SandboxWarmPool and SandboxClaim. Arally selects or creates a
-matching pool; Extensions allocates an instance and refills capacity. New managed
-pools default to zero spares. Configure `AgentGroup.spec.prewarming` for declarative
-spares and idle retention; omit it to preserve manual scaling. See
-[pool policy](agent-templates.md#allocation-and-policy).
+All instances use SandboxWarmPool and SandboxClaim.
+Arally selects or creates a matching pool; Extensions allocates an instance and refills
+capacity.
+New managed pools default to zero spares.
+
+Configure `AgentGroup.spec.prewarming` for declarative spares and idle retention; omit
+it to preserve manual scaling.
+See [pool policy](agent-templates.md#allocation-and-policy).
 
 The optional provisioning block selects a pool or changes the allocation budget:
 
@@ -374,13 +464,18 @@ provisioning:
   #   name: tool-environment
 ```
 
-The default 60-second budget starts at persisted `status.provisioning.startedAt`
-and covers capacity/instance creation until an owned, matching Sandbox is observed.
-`completedAt` ends that budget independently of Core/Pod readiness. Startup failures
-or delays are reported without deleting the allocated execution; use
-`lifecycle.shutdownTime` for an overall cleanup deadline. A timeout while still
-waiting for valid allocation removes the native Claim; change restartToken to retry.
-External pools must reference the matching Arally-generated configuration snapshot;
-the instance continues to select its original source. Arally does not modify the pool.
-Configuration edits do not switch an active allocation. See
-[resource ownership and cleanup](architecture.md#resources-and-ownership).
+The default 60-second budget starts at persisted `status.provisioning.startedAt` and
+covers capacity/instance creation until an owned, matching Sandbox is observed.
+
+`completedAt` ends that budget independently of Core/Pod readiness.
+Startup failures or delays are reported without deleting the allocated execution; use
+`lifecycle.shutdownTime` for an overall cleanup deadline.
+
+A timeout while still waiting for valid allocation removes the native Claim; change
+restartToken to retry.
+
+External pools must reference the matching Arally-generated configuration snapshot; the
+instance continues to select its original source.
+Arally does not modify the pool.
+Configuration edits do not switch an active allocation.
+See [resource ownership and cleanup](architecture.md#resources-and-ownership).

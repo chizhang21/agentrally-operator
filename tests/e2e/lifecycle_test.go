@@ -14,6 +14,7 @@ import (
 	v1 "arally/operator/api/v1alpha1"
 	"arally/operator/internal/sandbox"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -296,11 +297,14 @@ func verifyWarmWorkspaces(t *testing.T, ctx context.Context, kube client.Client,
 	namespace := group.Status.Namespace
 	t.Log("Warm allocation transfers independent pre-provisioned PVCs")
 	spec.Lifecycle, spec.Provisioning, spec.RestartToken = nil, nil, ""
+	observed := map[string][]time.Duration{}
 	ready := func(claim *v1.AgentInstance) {
 		await(t, claim.Name+" readiness", func() (bool, error) {
 			err := kube.Get(ctx, client.ObjectKeyFromObject(claim), claim)
 			return conditionTrue(claim.Status.Conditions, "Ready", claim.Generation), err
 		})
+		launch := claim.Status.Provisioning.LaunchType
+		observed[launch] = append(observed[launch], time.Since(claim.CreationTimestamp.Time))
 	}
 	seed := &v1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: "warm-seed", Namespace: namespace}, Spec: *spec.DeepCopy()}
 	create(t, ctx, kube, seed)
@@ -377,6 +381,9 @@ func verifyWarmWorkspaces(t *testing.T, ctx context.Context, kube client.Client,
 	if !preexisting {
 		t.Fatal("allocation did not adopt any of the pre-provisioned instances")
 	}
+	for _, launch := range []string{"cold", "warm"} {
+		logLatencySamples(t, launch+"-create-to-ready-observed", observed[launch])
+	}
 	execPod(t, kubeconfig, namespace, agents[0].Status.PodName, "sh", "-c", "printf private > /workspace/private")
 	if out := execPod(t, kubeconfig, namespace, agents[1].Status.PodName, "sh", "-c", "test ! -e /workspace/private && echo isolated"); out != "isolated" {
 		t.Fatal("workspace contents leaked between allocated agents", out)
@@ -439,7 +446,7 @@ func e2eClient(t *testing.T) (client.Client, string) {
 	}
 	cfg.Timeout = 30 * time.Second
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, coordinationv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}

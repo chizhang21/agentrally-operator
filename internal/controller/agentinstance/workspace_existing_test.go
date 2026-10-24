@@ -22,7 +22,7 @@ func TestExistingWorkspaceSurvivesExecutionReplacement(t *testing.T) {
 	definition.Spec.TemplateRef = nil
 	definition.Spec.Template = "assistant"
 	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example/assistant:v1"}
-	instance.Spec.Workspace = &v1.WorkspaceMount{ExistingClaimRef: &v1.PersistentVolumeClaimReference{Name: "state"}, MountPath: "/workspace"}
+	instance.Spec.Workspace = &v1.WorkspaceMount{ExistingClaimRef: &v1.PersistentVolumeClaimReference{Name: "state"}, Exclusive: true, MountPath: "/workspace"}
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "state", Namespace: ns.Name, UID: "state-uid"}, Spec: workspaceVolumeSpec(), Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound}}
 	c, scheme := testutil.Client(t, definition, group, ns, instance, pvc)
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}

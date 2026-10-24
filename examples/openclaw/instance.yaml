@@ -9,6 +9,7 @@ spec:
   definitionRef:
     name: openclaw
   workspace:
+    exclusive: true
     existingClaimRef:
       name: alice-state
     mountPath: /workspace

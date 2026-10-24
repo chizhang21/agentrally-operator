@@ -59,6 +59,13 @@ func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID
 		name, _ := sandbox.ClaimPoolName(&claim)
 		used[name] = true
 	}
+	if definitionUID == "" {
+		// Keep the Group as the sole writer of the shared budget. Definition
+		// retirement only drains its own resources, without scaling siblings.
+		if err := m.reconcileSpareBudget(ctx, group, pools.Items); err != nil {
+			return false, err
+		}
+	}
 	pending := false
 	for i := range pools.Items {
 		pool := &pools.Items[i]

@@ -184,7 +184,7 @@ func (m *Manager) Ensure(ctx context.Context, selection *Selection, config Confi
 		}
 		return m.reconcilePoolPolicy(ctx, selection.pool, group, true)
 	}
-	if group.Spec.Prewarming != nil && config.Workspace == nil {
+	if group.Spec.Prewarming != nil && group.Spec.Prewarming.MaxTotalReplicas == nil && config.Workspace == nil {
 		pool.Object["spec"].(map[string]interface{})["replicas"] = int64(group.Spec.Prewarming.Replicas)
 	}
 	return m.createAllocationResource(ctx, pool, group, selection.allocationToken)

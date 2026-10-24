@@ -10,6 +10,7 @@ import (
 	"arally/operator/internal/diagnostics"
 	"arally/operator/internal/sandbox"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -135,6 +136,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).For(&v1.AgentInstance{}).
 		Watches(sandbox.Object(), handler.EnqueueRequestsFromMapFunc(r.mapClaimSandbox)).
 		Owns(&corev1.Service{}).
+		Owns(&coordinationv1.Lease{}).
 		Watches(sandbox.ExtensionObject("SandboxTemplate"), handler.EnqueueRequestsFromMapFunc(r.mapDependency)).
 		Watches(&v1.AgentDefinition{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).
 		Watches(&v1.AgentGroup{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).

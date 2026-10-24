@@ -992,6 +992,11 @@ spec:
                   Workspace provides a private PVC-template default. Existing user PVCs are
                   bound separately on each AgentInstance.
                 properties:
+                  exclusive:
+                    description: |-
+                      Exclusive reserves the external PVC for this Instance UID until instance deletion.
+                      Suspension, expiry and explicit execution replacement retain the reservation.
+                    type: boolean
                   existingClaimRef:
                     description: |-
                       ExistingClaimRef mounts an externally managed PVC in the instance namespace.
@@ -1216,6 +1221,8 @@ spec:
                   rule: '!has(self.existingClaimRef)'
                 - message: select exactly one of volumeClaimTemplate or existingClaimRef
                   rule: has(self.volumeClaimTemplate) != has(self.existingClaimRef)
+                - message: exclusive requires existingClaimRef
+                  rule: '!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)'
             required:
             - agentGroupRef
             type: object

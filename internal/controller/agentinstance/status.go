@@ -77,6 +77,7 @@ func (r *Reconciler) status(
 	mirrorCoreConditions(workload, current, generation, pod, podErr)
 	workload.Status.ObservedGeneration = workload.Generation
 	workload.Status.SandboxName, workload.Status.ServiceName, workload.Status.ServiceFQDN = current.Metadata.Name, current.Status.Service, current.Status.ServiceFQDN
+	workload.Status.SandboxUID = current.Metadata.UID
 	workload.Status.VolumeClaims = sandbox.VolumeClaimNames(current.Metadata.Name, current.Spec.VolumeClaimTemplates)
 	if config.Workspace != nil {
 		if workload.Status.VolumeClaims == nil {
@@ -112,7 +113,7 @@ func mirrorCoreConditions(workload *v1.AgentInstance, current *sandbox.Sandbox, 
 				condition = observed
 			}
 		case controller.ConditionSuspended:
-			if workload.Spec.OperatingMode != sandbox.Suspended {
+			if executionMode(workload) != sandbox.Suspended {
 				condition = nil
 			} else if podErr != nil {
 				condition = &metav1.Condition{

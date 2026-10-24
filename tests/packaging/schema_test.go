@@ -278,6 +278,12 @@ func TestExecutionPolicyAdmission(t *testing.T) {
 		valid                   bool
 	}{
 		{"zero-ttl", map[string]interface{}{"ttlSecondsAfterFinished": int64(0), "shutdownPolicy": "Retain"}, nil, nil, true},
+		{"maximum-lifetime", map[string]interface{}{"maxLifetimeSeconds": int64(60)}, nil, nil, true},
+		{"zero-maximum-lifetime", map[string]interface{}{"maxLifetimeSeconds": int64(0)}, nil, nil, false},
+		{"idle-without-signal", map[string]interface{}{"idleTimeoutSeconds": int64(60)}, nil, nil, false},
+		{"signal-without-idle", map[string]interface{}{"activityLeaseRef": map[string]interface{}{"name": "activity"}}, nil, nil, false},
+		{"idle-with-signal", map[string]interface{}{"idleTimeoutSeconds": int64(60), "activityLeaseRef": map[string]interface{}{"name": "activity"}}, nil, nil, true},
+		{"invalid-activity-name", map[string]interface{}{"idleTimeoutSeconds": int64(60), "activityLeaseRef": map[string]interface{}{"name": "other/activity"}}, nil, nil, false},
 		{"negative-ttl", map[string]interface{}{"ttlSecondsAfterFinished": int64(-1)}, nil, nil, false},
 		{"unknown-shutdown-policy", map[string]interface{}{"shutdownPolicy": "Pause"}, nil, nil, false},
 		{"pool", nil, pool("agents", 60), nil, true},
@@ -365,6 +371,27 @@ func admissionChecker(t *testing.T, plural string) func(map[string]interface{}) 
 			errs = append(errs, celErrs...)
 		}
 		return len(errs) == 0
+	}
+}
+
+func TestGroupRuntimePolicyAdmission(t *testing.T) {
+	accepts := admissionChecker(t, "agentgroups")
+	for _, tc := range []struct {
+		name  string
+		value map[string]interface{}
+		valid bool
+	}{
+		{"allowed-runtime", map[string]interface{}{"executionPolicy": map[string]interface{}{"allowedRuntimeClasses": []interface{}{"kata-qemu"}, "requireImageDigest": true}}, true},
+		{"invalid-runtime", map[string]interface{}{"executionPolicy": map[string]interface{}{"allowedRuntimeClasses": []interface{}{"other/kata"}}}, false},
+		{"empty-runtime-list", map[string]interface{}{"executionPolicy": map[string]interface{}{"allowedRuntimeClasses": []interface{}{}}}, false},
+		{"zero-spare-budget", map[string]interface{}{"prewarming": map[string]interface{}{"replicas": int64(2), "maxTotalReplicas": int64(0)}}, true},
+		{"negative-spare-budget", map[string]interface{}{"prewarming": map[string]interface{}{"replicas": int64(2), "maxTotalReplicas": int64(-1)}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if accepts(tc.value) != tc.valid {
+				t.Fatalf("unexpected admission for %#v", tc.value)
+			}
+		})
 	}
 }
 

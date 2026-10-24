@@ -7,6 +7,7 @@ import (
 )
 
 // +kubebuilder:validation:XValidation:rule="has(self.volumeClaimTemplate) != has(self.existingClaimRef)",message="select exactly one of volumeClaimTemplate or existingClaimRef"
+// +kubebuilder:validation:XValidation:rule="!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)",message="exclusive requires existingClaimRef"
 type WorkspaceMount struct {
 	// VolumeClaimTemplate provisions a private PVC for each Sandbox, including
 	// warm instances. Core owns the PVC for the lifetime of that Sandbox.
@@ -16,6 +17,10 @@ type WorkspaceMount struct {
 	// The Operator pins its UID, never adopts or deletes it, and disables spares.
 	// +optional
 	ExistingClaimRef *PersistentVolumeClaimReference `json:"existingClaimRef,omitempty"`
+	// Exclusive reserves the external PVC for this Instance UID until instance deletion.
+	// Suspension, expiry and explicit execution replacement retain the reservation.
+	// +optional
+	Exclusive bool `json:"exclusive,omitempty"`
 	// +kubebuilder:validation:MinLength=1
 	MountPath string `json:"mountPath"`
 	// +optional
@@ -102,8 +107,33 @@ type InteractionEndpointStatus struct {
 	GatewayRef *GatewayReference `json:"gatewayRef,omitempty"`
 }
 
+type ActivityLeaseReference struct {
+	// Name identifies a caller-managed activity Lease in the instance namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	Name string `json:"name"`
+}
+
 // AgentInstanceLifecycle controls execution cleanup, including Sandbox-owned PVCs.
+// +kubebuilder:validation:XValidation:rule="has(self.idleTimeoutSeconds) == has(self.activityLeaseRef)",message="idleTimeoutSeconds and activityLeaseRef must be configured together"
 type AgentInstanceLifecycle struct {
+	// MaxLifetimeSeconds bounds wall-clock execution lifetime from validated
+	// allocation, including suspension. Activity and Pod recreation do not reset it.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=2147483647
+	// +optional
+	MaxLifetimeSeconds *int32 `json:"maxLifetimeSeconds,omitempty"`
+	// IdleTimeoutSeconds suspends execution after trusted idle activity.
+	// Missing, stale or invalid signals do not cause automatic suspension.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=2147483647
+	// +optional
+	IdleTimeoutSeconds *int32 `json:"idleTimeoutSeconds,omitempty"`
+	// ActivityLeaseRef supplies the optional activity signal, fenced to this
+	// Instance UID and its current Sandbox UID.
+	// +optional
+	ActivityLeaseRef *ActivityLeaseReference `json:"activityLeaseRef,omitempty"`
 	// ShutdownTime is an absolute deadline, including time spent waiting for dependencies.
 	// +optional
 	ShutdownTime *metav1.Time `json:"shutdownTime,omitempty"`
@@ -241,6 +271,12 @@ type AgentInstanceStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
 	SandboxName string `json:"sandboxName,omitempty"`
+	// SandboxUID identifies the current execution for fencing caller activity.
+	// +optional
+	SandboxUID types.UID `json:"sandboxUID,omitempty"`
+	// Activity observes the optional caller-provided activity contract.
+	// +optional
+	Activity *AgentInstanceActivityStatus `json:"activity,omitempty"`
 	// VolumeClaims maps logical volumes to the current execution's PVCs, including
 	// an externally managed workspace when configured.
 	// +optional
@@ -278,6 +314,19 @@ type AgentInstanceStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+type AgentInstanceActivityStatus struct {
+	// +optional
+	LastActivityAt *metav1.MicroTime `json:"lastActivityAt,omitempty"`
+	// ValidUntil is the activity heartbeat's freshness deadline.
+	// +optional
+	ValidUntil *metav1.MicroTime `json:"validUntil,omitempty"`
+	// +optional
+	IdleDeadline *metav1.MicroTime `json:"idleDeadline,omitempty"`
+	// Suspended records automatic idle suspension; explicit operatingMode still wins.
+	// +optional
+	Suspended bool `json:"suspended,omitempty"`
 }
 
 type AgentInstanceTimings struct {

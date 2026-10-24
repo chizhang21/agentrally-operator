@@ -12,6 +12,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -42,10 +43,21 @@ func TestRetainedWorkspaceUpgrade(t *testing.T) {
 	definition.Spec.Template = "assistant"
 	definition.Spec.Security.RunAsUser = ptr.To(int64(2345))
 	definition.Spec.Container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}}
-	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", ExistingClaimRef: &v1.PersistentVolumeClaimReference{Name: pvc.Name}}
+	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", ExistingClaimRef: &v1.PersistentVolumeClaimReference{Name: pvc.Name}, Exclusive: true}
 	create(t, ctx, kube, definition)
 	create(t, ctx, kube, instance)
 	readyAgent(t, ctx, kube, instance)
+	competitor := &v1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: "competing-assistant", Namespace: instance.Namespace}, Spec: *instance.Spec.DeepCopy()}
+	create(t, ctx, kube, competitor)
+	await(t, "exclusive workspace rejection", func() (bool, error) {
+		err := kube.Get(ctx, client.ObjectKeyFromObject(competitor), competitor)
+		condition := meta.FindStatusCondition(competitor.Status.Conditions, "Ready")
+		return condition != nil && condition.ObservedGeneration == competitor.Generation && condition.Reason == "WorkspaceInUse" && competitor.Status.Provisioning == nil, err
+	})
+	if err := kube.Delete(ctx, competitor); err != nil {
+		t.Fatal(err)
+	}
+	awaitDeleted(t, ctx, kube, competitor)
 	pod := &corev1.Pod{}
 	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, pod); err != nil {
 		t.Fatal(err)

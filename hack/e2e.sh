@@ -10,6 +10,19 @@ done
 export E2E_CNI=${E2E_CNI:-kindnet}
 export E2E_SNAPSHOTS=${E2E_SNAPSHOTS:-false}
 export E2E_OPENCLAW=${E2E_OPENCLAW:-false}
+export E2E_RUNTIME_CLASS=${E2E_RUNTIME_CLASS:-}
+if [[ -n ${E2E_RUNTIME_MANIFEST:-} && ! -f "$E2E_RUNTIME_MANIFEST" ]]; then
+  echo 'E2E_RUNTIME_MANIFEST must name a local runtime installation manifest.' >&2
+  exit 1
+fi
+if [[ -n ${E2E_KIND_CONFIG:-} && ! -f "$E2E_KIND_CONFIG" ]]; then
+  echo 'E2E_KIND_CONFIG must name a local kind configuration.' >&2
+  exit 1
+fi
+if [[ -n ${E2E_KIND_CONFIG:-} && "$E2E_CNI" == cilium ]]; then
+  echo 'Custom kind configuration currently requires E2E_CNI=kindnet.' >&2
+  exit 1
+fi
 case "$E2E_CNI" in kindnet|cilium) ;; *) echo 'E2E_CNI must be kindnet or cilium.' >&2; exit 1 ;; esac
 case "$E2E_SNAPSHOTS" in true|false) ;; *) echo 'E2E_SNAPSHOTS must be true or false.' >&2; exit 1 ;; esac
 case "$E2E_OPENCLAW" in true|false) ;; *) echo 'E2E_OPENCLAW must be true or false.' >&2; exit 1 ;; esac
@@ -26,7 +39,8 @@ finish() {
   trap - EXIT
   if [[ "$created" == true ]]; then
     if (( result != 0 )); then
-      kubectl get pods,events,agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/resources.yaml" 2>&1 || true
+      kubectl get pods,events -A -o yaml > "$logs/resources.yaml" 2>&1 || true
+      kubectl get agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/arally-resources.yaml" 2>&1 || true
       kubectl -n arally-system logs deployment/arally-operator --all-containers > "$logs/operator.log" 2>&1 || true
       kubectl -n agent-sandbox-system logs deployment/agent-sandbox-controller --all-containers > "$logs/upstream.log" 2>&1 || true
       "$KIND" export logs "$logs/kind" --name "$cluster" || true
@@ -71,14 +85,15 @@ YAML
     --set kubeProxyReplacement=false --set socketLB.enabled=false --wait --timeout=360s
   kubectl -n kube-system rollout status daemonset/cilium --timeout=240s
 else
-  "$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --wait 180s
+  kind_options=()
+  if [[ -n ${E2E_KIND_CONFIG:-} ]]; then kind_options+=(--config "$E2E_KIND_CONFIG"); fi
+  "$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --wait 180s "${kind_options[@]}"
 fi
-if [[ "$E2E_SNAPSHOTS" == true ]]; then
-  # Pinned upstream CSI fixtures are installed only inside this new kind cluster.
-  source hack/e2e-snapshots.sh
-  install_snapshot_fixtures "$temporary"
+if [[ -n ${E2E_RUNTIME_MANIFEST:-} ]]; then
+  kubectl apply --server-side -f "$E2E_RUNTIME_MANIFEST"
+  kubectl wait --for=condition=Ready pod --all -A --timeout=360s
 fi
-
+if [[ -n "$E2E_RUNTIME_CLASS" ]]; then kubectl get runtimeclass "$E2E_RUNTIME_CLASS"; fi
 # Docker's containerd image store can retain a multi-platform index without all
 # its children. Export only the running platform so kind imports complete content.
 platform="linux/$(go env GOARCH)"
@@ -86,8 +101,15 @@ load_image() {
   docker image save --platform="$platform" -o "$temporary/image.tar" "$1"
   "$KIND" load image-archive "$temporary/image.tar" --name "$cluster"
 }
+if [[ "$E2E_SNAPSHOTS" == true ]]; then
+  # Preload pinned fixture images through Docker before starting their Pods.
+  source hack/e2e-snapshots.sh
+  install_snapshot_fixtures "$temporary"
+fi
 load_image "$image"
 docker pull --platform="$platform" docker.io/library/busybox:1.37.0
+export E2E_DIGEST_IMAGE
+E2E_DIGEST_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/library/busybox:1.37.0)
 load_image docker.io/library/busybox:1.37.0
 if [[ "$E2E_OPENCLAW" == true ]]; then
   openclaw_image=$(awk '$1 == "image:" { print $2; exit }' examples/openclaw/definition.yaml)
@@ -110,4 +132,4 @@ helm install arally-operator chart -n arally-system --create-namespace \
   --set-string image.repository="$repository" --set-string image.tag="$tag" \
   --set image.pullPolicy=IfNotPresent --wait --timeout=240s
 ARALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
-  go test -tags=e2e ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=25m -v 2>&1 | tee "$logs/lifecycle.log"
+  go test -tags=e2e ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v 2>&1 | tee "$logs/lifecycle.log"

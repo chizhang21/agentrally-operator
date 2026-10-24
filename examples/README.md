@@ -1,12 +1,14 @@
 # Examples
 
-Install [Core, Extensions and Arally](../docs/installation.md) first. Replace image
-names and other placeholders before applying a file.
+Install [Core, Extensions and Arally](../docs/installation.md) first.
+Replace image names and other placeholders before applying a file.
 
-Follow the [minimal deployment sequence](../docs/usage.md) to create a Group and
-wait for its namespace, publish its AgentDefinition, then create AgentInstances.
-Each standalone instance example has a corresponding `*-definition.yaml`; the base
-uses [base/definition.yaml](base/definition.yaml). Apply that file before the instance.
+Follow the [minimal deployment sequence](../docs/usage.md) to create a Group and wait
+for its namespace, publish its AgentDefinition, then create AgentInstances.
+
+Each standalone instance example has a corresponding `*-definition.yaml`; the base uses
+[base/definition.yaml](base/definition.yaml).
+Apply that file before the instance.
 
 | File | Use | Prerequisites |
 | --- | --- | --- |
@@ -24,14 +26,18 @@ uses [base/definition.yaml](base/definition.yaml). Apply that file before the in
 | [codex-mobile/](codex-mobile/README.md) | Build a Codex Mobile image locally or through a manual workflow | Docker, or a GitHub fork with Actions enabled |
 | [rbac/editor.yaml](rbac/editor.yaml) | Namespace-scoped deployer access | Administrator applies the [RoleBinding](rbac/README.md) |
 
-Apply one instance example at a time. The base and HTTPRoute examples use the same
-name; do not apply the directory recursively. `full.yaml` is a field reference,
-not a ready-to-run deployment.
+Apply one instance example at a time.
+The base and HTTPRoute examples use the same name; do not apply the directory
+recursively.
+
+`full.yaml` is a field reference, not a ready-to-run deployment.
 
 Select assistant or coding on AgentDefinition with `spec.template`; see
-[environment settings](../docs/agent-templates.md). Arally creates pools automatically.
-It also creates `ClusterCapabilities/cluster`; use the optional report example
-only to declare administrator mappings.
+[environment settings](../docs/agent-templates.md).
+Arally creates pools automatically.
+
+It also creates `ClusterCapabilities/cluster`; use the optional report example only to
+declare administrator mappings.
 Read it with `kubectl get clustercapabilities cluster -o yaml`.
 
 For an endpoint, declare the Agent's HTTP port and set `interaction.type`.

@@ -51,3 +51,4 @@ values.*.local.yaml
 /.kube/
 /.aws/
 /.ssh/
+/AGENT.md

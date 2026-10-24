@@ -27,7 +27,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -52,40 +54,48 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 		return r.finalize(ctx, group)
 	}
 	if problems := validation.IsDNS1123Label(group.NamespaceName()); len(problems) != 0 || !strings.HasPrefix(group.NamespaceName(), "arally-") {
-		return ctrl.Result{}, r.status(ctx, group, false, "InvalidConfiguration", "namespace must be a DNS label starting with arally-")
+		return ctrl.Result{}, r.status(ctx, group, false, "InvalidConfiguration", "namespace must be a DNS label starting with arally-", nil)
 	}
 	if group.Spec.PodSecurity != "" && group.Spec.PodSecurity != "Restricted" && group.Spec.PodSecurity != "Baseline" {
-		return ctrl.Result{}, r.status(ctx, group, false, "InvalidConfiguration", "podSecurity must be Restricted or Baseline")
+		return ctrl.Result{}, r.status(ctx, group, false, "InvalidConfiguration", "podSecurity must be Restricted or Baseline", nil)
 	}
 	if err := controller.AddFinalizer(ctx, r.Client, group, GroupFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
 	ready, reason, message, err := r.prepare(ctx, group)
 	if err != nil {
-		if statusErr := r.status(ctx, group, false, "ReconcileError", diagnostics.SafeError(err).Error()); statusErr != nil {
+		if statusErr := r.status(ctx, group, false, "ReconcileError", diagnostics.SafeError(err).Error(), nil); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
 		return ctrl.Result{}, err
 	}
-	if err := r.status(ctx, group, ready, reason, message); err != nil {
-		return ctrl.Result{}, err
-	}
+	var capacityErr error
 	if ready {
 		pools := allocation.Manager{Client: r.Client, Reader: r.Reader, Scheme: r.Scheme}
-		if _, err := pools.Prune(ctx, group); err != nil {
-			return ctrl.Result{}, err
-		}
+		_, capacityErr = pools.Prune(ctx, group)
+	}
+	if err := r.status(ctx, group, ready, reason, message, capacityErr); err != nil {
+		return ctrl.Result{}, err
+	}
+	if capacityErr != nil {
+		return ctrl.Result{}, capacityErr
 	}
 	return ctrl.Result{RequeueAfter: controller.DependencyRetry}, nil
 }
 
-func (r *Reconciler) status(ctx context.Context, group *v1.AgentGroup, ready bool, reason, message string) error {
+func (r *Reconciler) status(ctx context.Context, group *v1.AgentGroup, ready bool, reason, message string, capacityErr error) error {
 	base := group.DeepCopy()
-	summary, err := r.summary(ctx, group)
+	summary, capacity, err := r.observe(ctx, group)
 	if err != nil {
 		return err
 	}
 	group.Status.Summary = summary
+	if !ready {
+		capacity.Status, capacity.Reason, capacity.Message = metav1.ConditionUnknown, "GroupNotReady", "Waiting for the Group namespace and policy"
+	} else if capacityErr != nil {
+		capacity.Status, capacity.Reason, capacity.Message = metav1.ConditionFalse, "CapacityReconcileFailed", diagnostics.SafeError(capacityErr).Error()
+	}
+	meta.SetStatusCondition(&group.Status.Conditions, capacity)
 	if group.Spec.NetworkPolicy != nil && group.DeletionTimestamp == nil {
 		reader := r.Reader
 		if reader == nil {
@@ -120,7 +130,11 @@ func (r *Reconciler) finalize(ctx context.Context, group *v1.AgentGroup) (ctrl.R
 		return ctrl.Result{}, nil
 	}
 	ns := &corev1.Namespace{}
-	err := r.Get(ctx, client.ObjectKey{Name: group.NamespaceName()}, ns)
+	reader := r.Reader
+	if reader == nil {
+		reader = r.Client
+	}
+	err := reader.Get(ctx, client.ObjectKey{Name: group.NamespaceName()}, ns)
 	if apierrors.IsNotFound(err) {
 		return ctrl.Result{}, controller.RemoveFinalizer(ctx, r.Client, group, GroupFinalizer)
 	}
@@ -134,28 +148,29 @@ func (r *Reconciler) finalize(ctx context.Context, group *v1.AgentGroup) (ctrl.R
 	if pending, err := pools.Prune(ctx, group); err != nil {
 		return ctrl.Result{}, err
 	} else if pending {
-		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "PoolsDeleting", "Waiting for unused managed pools and templates to finish cleanup")
+		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "PoolsDeleting", "Waiting for unused managed pools and templates to finish cleanup", nil)
 	}
 	workloads := &v1.AgentInstanceList{}
 	definitions := &v1.AgentDefinitionList{}
 	claims := &corev1.PersistentVolumeClaimList{}
+	allocations := sandbox.ExtensionList("SandboxClaim")
 	sandboxes := &unstructured.UnstructuredList{}
 	sandboxes.SetGroupVersionKind(sandbox.GroupVersion.WithKind("SandboxList"))
-	for _, list := range []client.ObjectList{workloads, definitions, claims, sandboxes} {
-		if err := r.List(ctx, list, client.InNamespace(ns.Name)); err != nil {
+	for _, list := range []client.ObjectList{workloads, definitions, claims, sandboxes, allocations} {
+		if err := reader.List(ctx, list, client.InNamespace(ns.Name)); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
-	if len(workloads.Items)+len(definitions.Items)+len(claims.Items)+len(sandboxes.Items) != 0 {
-		message := fmt.Sprintf("Remove definitions, instances, Sandboxes and PVCs from %s before deleting the group", ns.Name)
-		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "GroupInUse", message)
+	if len(workloads.Items)+len(definitions.Items)+len(claims.Items)+len(sandboxes.Items)+len(allocations.Items) != 0 {
+		message := fmt.Sprintf("Remove definitions, instances, allocation Claims, Sandboxes and PVCs from %s before deleting the group", ns.Name)
+		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "GroupInUse", message, nil)
 	}
 	done, err := controller.DeleteOwned(ctx, r.Client, ns, group)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	if !done {
-		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "Deleting", "Waiting for namespace deletion")
+		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "Deleting", "Waiting for namespace deletion", nil)
 	}
 	return ctrl.Result{}, controller.RemoveFinalizer(ctx, r.Client, group, GroupFinalizer)
 }
@@ -184,7 +199,25 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Recorder = mgr.GetEventRecorderFor("arally-agentgroup")
 	return ctrl.NewControllerManagedBy(mgr).For(&v1.AgentGroup{}).
 		Owns(&corev1.Namespace{}).Owns(&corev1.ResourceQuota{}).Owns(&corev1.LimitRange{}).Owns(&networkingv1.NetworkPolicy{}).
-		Watches(&v1.AgentInstance{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember)).
-		Watches(&v1.AgentDefinition{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember)).
+		Watches(&v1.AgentInstance{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember), builder.WithPredicates(groupMemberChanges())).
+		Watches(&v1.AgentDefinition{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember), builder.WithPredicates(groupMemberChanges())).
 		Watches(&v1.ClusterCapabilities{}, handler.EnqueueRequestsFromMapFunc(r.mapCapabilities), builder.WithPredicates(controller.CapabilityChanges())).Complete(r)
+}
+
+// Heartbeats and Pod timing observations do not change Group summaries or pool
+// references. Keep allocation selection and lifecycle events visible to pruning.
+func groupMemberChanges() predicate.Predicate {
+	return predicate.Funcs{UpdateFunc: func(update event.UpdateEvent) bool {
+		old, next := update.ObjectOld, update.ObjectNew
+		if old == nil || next == nil || old.GetGeneration() != next.GetGeneration() || old.GetUID() != next.GetUID() || !equality.Semantic.DeepEqual(old.GetDeletionTimestamp(), next.GetDeletionTimestamp()) {
+			return true
+		}
+		before, oldInstance := old.(*v1.AgentInstance)
+		after, newInstance := next.(*v1.AgentInstance)
+		if !oldInstance || !newInstance {
+			return false
+		}
+		return !equality.Semantic.DeepEqual(before.Status.Provisioning, after.Status.Provisioning) ||
+			controller.SummarizeInstances([]v1.AgentInstance{*before}) != controller.SummarizeInstances([]v1.AgentInstance{*after})
+	}}
 }

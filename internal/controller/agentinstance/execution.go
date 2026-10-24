@@ -9,6 +9,7 @@ import (
 	v1 "arally/operator/api/v1alpha1"
 	"arally/operator/internal/allocation"
 	"arally/operator/internal/controller"
+	"arally/operator/internal/diagnostics"
 	"arally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
@@ -78,6 +79,8 @@ func (r *Reconciler) reconcileRestart(ctx context.Context, w *v1.AgentInstance) 
 		w.Status.Definition.Revision, w.Status.Definition.TemplateName = "", ""
 	}
 	w.Status.SandboxName = ""
+	w.Status.SandboxUID = ""
+	w.Status.Activity = nil
 	w.Status.VolumeClaims = nil
 	w.Status.ServiceName = ""
 	w.Status.ServiceFQDN = ""
@@ -89,6 +92,8 @@ func (r *Reconciler) reconcileRestart(ctx context.Context, w *v1.AgentInstance) 
 		controller.ConditionReady, controller.ConditionAvailable, controller.ConditionConfigurationAccepted, controller.ConditionConfigurationApplied,
 		controller.ConditionProvisioningReady, controller.ConditionPodScheduled, controller.ConditionFinished,
 		controller.ConditionSuspended, controller.ConditionExpired, controller.ConditionInteractionReady,
+		controller.ConditionCleanupReady,
+		controller.ConditionActivityReady,
 	} {
 		meta.RemoveStatusCondition(&w.Status.Conditions, kind)
 	}
@@ -118,13 +123,40 @@ func (r *Reconciler) cleanupExecution(ctx context.Context, w *v1.AgentInstance) 
 		interactionDone, interactionErr := r.cleanupInteraction(ctx, w, "")
 		done, err = done && interactionDone, errors.Join(err, interactionErr)
 	}
+	base := w.DeepCopy()
+	condition := metav1.ConditionFalse
+	var reason, message string
+	if err != nil {
+		reason, message = "CleanupFailed", diagnostics.SafeError(err).Error()
+	} else if done {
+		condition, reason, message = metav1.ConditionTrue, "CleanupCompleted", "Owned execution and access resources have been removed"
+	} else {
+		reason, message = r.cleanupDiagnostic(ctx, w)
+	}
+	setInstanceCondition(w, controller.ConditionCleanupReady, condition, reason, message)
 	if done && err == nil && w.Status.Timings != nil && w.Status.Timings.CleanupStartedAt != nil && w.Status.Timings.CleanupCompletedAt == nil {
-		base := w.DeepCopy()
 		now := metav1.NewTime(r.now())
 		w.Status.Timings.CleanupCompletedAt = &now
-		err = r.patchStatus(ctx, w, base)
 	}
-	return done, err
+	return done, errors.Join(err, r.patchStatus(ctx, w, base))
+}
+
+func (r *Reconciler) cleanupDiagnostic(ctx context.Context, w *v1.AgentInstance) (string, string) {
+	object, err := r.existingExecution(ctx, w)
+	if err == nil {
+		pod, podErr := r.executionPod(ctx, object)
+		if podErr != nil {
+			return "CleanupObservationBlocked", "Cannot verify execution Pod cleanup; inspect ownership and read permissions"
+		}
+		if pod != nil && pod.DeletionTimestamp != nil {
+			diagnostic := terminationDiagnostic(pod, r.now())
+			return diagnostic.Reason, diagnostic.Message
+		}
+	}
+	if timings := w.Status.Timings; timings != nil && timings.CleanupStartedAt != nil && r.now().Sub(timings.CleanupStartedAt.Time) >= executionStallThreshold {
+		return "ExecutionCleanupStalled", "Foreground cleanup has not completed for at least 5 minutes; inspect upstream controllers, dependents and finalizers"
+	}
+	return "CleanupPending", "Waiting for owned execution and access resources to finish foreground cleanup"
 }
 
 func (r *Reconciler) reconcileExpiry(ctx context.Context, w *v1.AgentInstance) (bool, ctrl.Result, error) {
@@ -137,6 +169,9 @@ func (r *Reconciler) reconcileExpiry(ctx context.Context, w *v1.AgentInstance) (
 	absoluteExpired := false
 	if policy := w.Spec.Lifecycle; policy != nil && policy.ShutdownTime != nil && !policy.ShutdownTime.IsZero() {
 		absoluteExpired = !now.Before(retentionDeadline(policy.ShutdownTime.Time, 0))
+	}
+	if decision.Status != nil && decision.Expired && decision.Status.Reason == "MaxLifetimeReached" {
+		absoluteExpired = true
 	}
 	if err == nil && !absoluteExpired && (unconfirmed || completionExpired) && (w.Status.Lifecycle == nil || w.Status.Lifecycle.ExpiredAt == nil) {
 		// Observe completion even when configuration is blocked, and recheck

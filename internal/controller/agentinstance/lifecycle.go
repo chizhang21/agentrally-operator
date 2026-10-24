@@ -20,7 +20,7 @@ type lifecycleDecision struct {
 // Only the current owned terminal Pod can establish a completion. Core can
 // briefly retain the old Pod's condition while suspension or resume progresses.
 func executionFinishedCondition(w *v1.AgentInstance, pod *corev1.Pod, finished *metav1.Condition) *metav1.Condition {
-	if w.Spec.OperatingMode == sandbox.Suspended || pod == nil {
+	if executionMode(w) == sandbox.Suspended || pod == nil {
 		return nil
 	}
 	if pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
@@ -38,7 +38,11 @@ func evaluateExecutionLifecycle(w *v1.AgentInstance, pod *corev1.Pod, now time.T
 		prior = nil
 	}
 	finished := executionFinishedCondition(w, pod, meta.FindStatusCondition(w.Status.Conditions, "Finished"))
-	return evaluateLifecycle(w.Spec.Lifecycle, prior, finished, now)
+	var allocatedAt *metav1.Time
+	if w.Status.Provisioning != nil {
+		allocatedAt = w.Status.Provisioning.CompletedAt
+	}
+	return evaluateLifecycle(w.Spec.Lifecycle, prior, allocatedAt, finished, now)
 }
 
 // retentionDeadline normalizes lifecycle timestamps to UTC second precision.
@@ -52,7 +56,7 @@ func retentionDeadline(anchor time.Time, retention time.Duration) time.Time {
 
 // evaluateLifecycle plans cleanup without changing resources or input status.
 // The caller must supply a Finished condition from the current execution.
-func evaluateLifecycle(policy *v1.AgentInstanceLifecycle, prior *v1.AgentInstanceLifecycleStatus, finished *metav1.Condition, now time.Time) (lifecycleDecision, error) {
+func evaluateLifecycle(policy *v1.AgentInstanceLifecycle, prior *v1.AgentInstanceLifecycleStatus, allocatedAt *metav1.Time, finished *metav1.Condition, now time.Time) (lifecycleDecision, error) {
 	status := prior.DeepCopy()
 	if status == nil {
 		status = &v1.AgentInstanceLifecycleStatus{}
@@ -79,6 +83,17 @@ func evaluateLifecycle(policy *v1.AgentInstanceLifecycle, prior *v1.AgentInstanc
 		if policy.ShutdownTime != nil && !policy.ShutdownTime.IsZero() {
 			deadline := metav1.NewTime(retentionDeadline(policy.ShutdownTime.Time, 0))
 			status.ExpiresAt, status.Reason = &deadline, "ShutdownTimeReached"
+		}
+		if policy.MaxLifetimeSeconds != nil {
+			if *policy.MaxLifetimeSeconds <= 0 {
+				return lifecycleDecision{}, fmt.Errorf("lifecycle maxLifetimeSeconds must be positive")
+			}
+			if allocatedAt != nil {
+				deadline := metav1.NewTime(retentionDeadline(allocatedAt.Time, time.Duration(*policy.MaxLifetimeSeconds)*time.Second))
+				if status.ExpiresAt == nil || deadline.Before(status.ExpiresAt) {
+					status.ExpiresAt, status.Reason = &deadline, "MaxLifetimeReached"
+				}
+			}
 		}
 		retainFailed := policy.RetainFailed == nil || *policy.RetainFailed
 		if policy.TTLSecondsAfterFinished != nil && status.FinishedAt != nil && !(retainFailed && status.FinishedReason == "PodFailed") {

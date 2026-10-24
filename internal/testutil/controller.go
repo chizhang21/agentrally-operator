@@ -9,6 +9,7 @@ import (
 	"arally/operator/internal/diagnostics"
 	"arally/operator/internal/sandbox"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -31,7 +32,7 @@ func Client(t *testing.T, objects ...client.Object) (client.WithWatch, *runtime.
 func ClientBuilder(t *testing.T) (*Builder, *runtime.Scheme) {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, networkingv1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, coordinationv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, networkingv1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}

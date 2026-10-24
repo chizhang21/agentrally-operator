@@ -21,13 +21,13 @@ func instanceTimings(w *v1.AgentInstance) *v1.AgentInstanceTimings {
 
 func (r *Reconciler) suspensionRequest(ctx context.Context, w *v1.AgentInstance, hasExecution bool) error {
 	base := w.DeepCopy()
-	if w.Spec.OperatingMode == sandbox.Suspended && hasExecution {
+	if executionMode(w) == sandbox.Suspended && hasExecution {
 		timings := instanceTimings(w)
 		if timings.SuspensionStartedAt == nil {
 			now := metav1.NewTime(r.now())
 			timings.SuspensionStartedAt = &now
 		}
-	} else if w.Spec.OperatingMode != sandbox.Suspended && w.Status.Timings != nil {
+	} else if executionMode(w) != sandbox.Suspended && w.Status.Timings != nil {
 		w.Status.Timings.SuspensionStartedAt, w.Status.Timings.SuspendedAt = nil, nil
 	}
 	return r.patchStatus(ctx, w, base)
@@ -47,7 +47,7 @@ func (r *Reconciler) observeTimings(w *v1.AgentInstance, previousPodUID string, 
 			timings.PodReadyAt = &now
 		}
 	}
-	if w.Spec.OperatingMode == sandbox.Suspended && meta.IsStatusConditionTrue(w.Status.Conditions, controller.ConditionSuspended) {
+	if executionMode(w) == sandbox.Suspended && meta.IsStatusConditionTrue(w.Status.Conditions, controller.ConditionSuspended) {
 		timings := instanceTimings(w)
 		if timings.SuspensionStartedAt != nil && timings.SuspendedAt == nil {
 			now := metav1.NewTime(r.now())

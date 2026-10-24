@@ -292,7 +292,7 @@ func observeInteraction(w *v1.AgentInstance, core *sandbox.Sandbox, generation i
 		}
 		return state
 	}
-	if w.Spec.OperatingMode == sandbox.Suspended {
+	if executionMode(w) == sandbox.Suspended {
 		state.pending(w, "Suspended", "Route is retained while the Agent is suspended")
 		return state
 	}

@@ -62,7 +62,7 @@ func TestAgentInstanceLifecyclePolicy(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			before := tc.prior.DeepCopy()
-			decision, err := evaluateLifecycle(tc.policy, tc.prior, tc.finished, tc.now)
+			decision, err := evaluateLifecycle(tc.policy, tc.prior, nil, tc.finished, tc.now)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("error = %v, want error %v", err, tc.wantErr)
 			}
@@ -95,7 +95,7 @@ func TestAgentInstanceLifecycleCompletionDoesNotReset(t *testing.T) {
 	first := metav1.NewTime(now.Add(-time.Minute))
 	prior := &v1.AgentInstanceLifecycleStatus{FinishedAt: &first, FinishedReason: "PodFailed"}
 	newer := &metav1.Condition{Type: "Finished", Status: metav1.ConditionTrue, Reason: "PodSucceeded", LastTransitionTime: metav1.NewTime(now)}
-	decision, err := evaluateLifecycle(nil, prior, newer, now)
+	decision, err := evaluateLifecycle(nil, prior, nil, newer, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestAgentInstanceLifecycleCompletionDoesNotReset(t *testing.T) {
 		t.Fatalf("completion reset: %#v", decision.Status)
 	}
 	deadline := metav1.NewTime(now.Add(-time.Second))
-	decision, err = evaluateLifecycle(&v1.AgentInstanceLifecycle{ShutdownTime: &deadline}, prior, nil, now)
+	decision, err = evaluateLifecycle(&v1.AgentInstanceLifecycle{ShutdownTime: &deadline}, prior, nil, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}

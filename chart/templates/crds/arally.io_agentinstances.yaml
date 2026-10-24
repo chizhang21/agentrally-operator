@@ -151,6 +151,37 @@ spec:
                 description: AgentInstanceLifecycle controls execution cleanup, including
                   Sandbox-owned PVCs.
                 properties:
+                  activityLeaseRef:
+                    description: |-
+                      ActivityLeaseRef supplies the optional activity signal, fenced to this
+                      Instance UID and its current Sandbox UID.
+                    properties:
+                      name:
+                        description: Name identifies a caller-managed activity Lease
+                          in the instance namespace.
+                        maxLength: 253
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  idleTimeoutSeconds:
+                    description: |-
+                      IdleTimeoutSeconds suspends execution after trusted idle activity.
+                      Missing, stale or invalid signals do not cause automatic suspension.
+                    format: int32
+                    maximum: 2147483647
+                    minimum: 1
+                    type: integer
+                  maxLifetimeSeconds:
+                    description: |-
+                      MaxLifetimeSeconds bounds wall-clock execution lifetime from validated
+                      allocation, including suspension. Activity and Pod recreation do not reset it.
+                    format: int32
+                    maximum: 2147483647
+                    minimum: 1
+                    type: integer
                   retainFailed:
                     default: true
                     description: RetainFailed skips completion TTL for failures; an
@@ -178,6 +209,10 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+                x-kubernetes-validations:
+                - message: idleTimeoutSeconds and activityLeaseRef must be configured
+                    together
+                  rule: has(self.idleTimeoutSeconds) == has(self.activityLeaseRef)
               operatingMode:
                 default: Running
                 enum:
@@ -230,6 +265,11 @@ spec:
                 type: string
               workspace:
                 properties:
+                  exclusive:
+                    description: |-
+                      Exclusive reserves the external PVC for this Instance UID until instance deletion.
+                      Suspension, expiry and explicit execution replacement retain the reservation.
+                    type: boolean
                   existingClaimRef:
                     description: |-
                       ExistingClaimRef mounts an externally managed PVC in the instance namespace.
@@ -451,6 +491,8 @@ spec:
                 x-kubernetes-validations:
                 - message: select exactly one of volumeClaimTemplate or existingClaimRef
                   rule: has(self.volumeClaimTemplate) != has(self.existingClaimRef)
+                - message: exclusive requires existingClaimRef
+                  rule: '!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)'
             required:
             - agentGroupRef
             - definitionRef
@@ -461,6 +503,26 @@ spec:
                 == (has(oldSelf.provisioning) && has(oldSelf.provisioning.warmPoolRef))
           status:
             properties:
+              activity:
+                description: Activity observes the optional caller-provided activity
+                  contract.
+                properties:
+                  idleDeadline:
+                    format: date-time
+                    type: string
+                  lastActivityAt:
+                    format: date-time
+                    type: string
+                  suspended:
+                    description: Suspended records automatic idle suspension; explicit
+                      operatingMode still wins.
+                    type: boolean
+                  validUntil:
+                    description: ValidUntil is the activity heartbeat's freshness
+                      deadline.
+                    format: date-time
+                    type: string
+                type: object
               appliedRevision:
                 description: AppliedRevision is populated only after observing the
                   owned execution Pod.
@@ -667,6 +729,10 @@ spec:
                     type: string
                 type: object
               sandboxName:
+                type: string
+              sandboxUID:
+                description: SandboxUID identifies the current execution for fencing
+                  caller activity.
                 type: string
               serviceFQDN:
                 type: string

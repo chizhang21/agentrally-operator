@@ -58,7 +58,7 @@ AgentGroup creates `arally-<group-name>`; read `status.namespace` for the resolv
 An explicit `spec.namespace` must start with `arally-` and cannot change.
 Definitions, instances, Secrets, ConfigMaps, PVCs and source templates belong in that
 namespace.
-Arally does not adopt an unrelated existing namespace.
+AgentRally does not adopt an unrelated existing namespace.
 
 Separate namespaces do not block traffic.
 For same-Group ingress only, add to `AgentGroup.spec`:
@@ -83,14 +83,14 @@ Use `spec.executionPolicy.requireImageDigest: true` to require digest-pinned reg
 Both constraints apply to the final resolved Pod, including custom templates.
 An omitted policy preserves existing behavior.
 RuntimeClass selection is configuration evidence; it does not attest the node runtime.
-Policy checks gate new Arally allocations and resumes.
+Policy checks gate new AgentRally allocations and resumes.
 Already submitted allocations and running executions may continue after a policy change.
 Existing native pool snapshots are not rewritten by this policy.
 Use Kubernetes admission controls when independently submitted native workloads must obey the same constraints.
 
 `spec.limitRange` accepts a native LimitRange spec for container/Pod/PVC defaults and
 limits.
-Arally owns `arally-limits` in the Group namespace.
+AgentRally owns `arally-limits` in the Group namespace.
 Removing the field removes that policy; changes apply to newly admitted resources.
 
 Admission-added resource defaults do not cause `RestartRequired`; explicit requested
@@ -149,9 +149,9 @@ interactionDefaults:
 ```
 
 The Gateway must allow HTTPRoutes from the Group namespace.
-Configure DNS and TLS for the domain; Arally creates neither.
+Configure DNS and TLS for the domain; AgentRally creates neither.
 
-If omitted, Arally discovers an eligible Gateway/listener and uses its wildcard
+If omitted, AgentRally discovers an eligible Gateway/listener and uses its wildcard
 hostname.
 A unique eligible default Gateway takes precedence; multiple eligible Gateways/listeners
 require an explicit choice.
@@ -196,7 +196,7 @@ env:
 
 Custom templates use the native container's env fields.
 `envFrom` is also supported.
-Arally checks references without publishing values and reads Secrets without listing,
+AgentRally checks references without publishing values and reads Secrets without listing,
 watching or caching them.
 Periodic reconciliation detects version changes; use a new restart token to apply them
 to the process.
@@ -227,7 +227,7 @@ workspace:
 
 This also sets `ARALLY_WORKSPACE_PATH`.
 Omit `storageClassName` to use the cluster default.
-Arally carries the spec through the pool template; Core creates and owns the PVC.
+AgentRally carries the spec through the pool template; Core creates and owns the PVC.
 
 `status.volumeClaims` maps logical volume names to their allocated PVCs.
 Pending WaitForFirstConsumer claims can bind after Core creates the Pod.
@@ -252,7 +252,7 @@ See [OpenClaw](../examples/openclaw/README.md) for paths, probes and upgrades.
 Set the native PVC `dataSource` (or local `dataSourceRef`) to a ready
 `snapshot.storage.k8s.io/VolumeSnapshot` in the instance namespace.
 See [snapshot-workspace.yaml](../examples/snapshot-workspace.yaml).
-Arally checks that the snapshot exists, is not terminating, reports `readyToUse: true`,
+AgentRally checks that the snapshot exists, is not terminating, reports `readyToUse: true`,
 and fits within the requested storage capacity when `restoreSize` is reported.
 New allocations include the source UID in configuration identity, so an old warmed
 workspace cannot be reused for a recreated source.
@@ -264,7 +264,7 @@ A replacement execution needs a ready source again.
 The snapshot CRDs, snapshot controller and a compatible CSI driver must already exist.
 The PVC StorageClass must use a driver that can restore that snapshot.
 Preflight is read-only; CSI performs restoration.
-Arally does not create snapshots, copy live workspace data or verify application
+AgentRally does not create snapshots, copy live workspace data or verify application
 consistency.
 Cross-namespace snapshot sources are unsupported.
 
@@ -337,7 +337,7 @@ Enable `metrics.serviceMonitor.enabled` when Prometheus Operator is installed.
 | --- | --- |
 | `RestartRequired` | Desired configuration has changed; set a new restart token when replacement is appropriate. The old instance may remain Available. |
 | `AllocationPaused` | The Group has paused new allocations. Unpause it to begin a new request. |
-| `PoolConfigurationUnverified` | An external pool must reference the matching Group-owned Arally snapshot. |
+| `PoolConfigurationUnverified` | An external pool must reference the matching Group-owned AgentRally snapshot. |
 | `SnapshotAPIUnavailable`, `SnapshotNotFound`, `SnapshotNotReady`, `SnapshotCapacityInsufficient` | Snapshot API/CSI prerequisites, source readiness and PVC restore capacity. |
 | `Unschedulable` | CPU/memory requests, node availability, taints, affinity and PVC binding. Recognized scheduler messages identify CPU, memory or taint constraints. |
 | `ErrImagePull`, `ImagePullBackOff`, `InvalidImageName` | Image reference, registry access and imagePullSecrets. |
@@ -352,7 +352,7 @@ Enable `metrics.serviceMonitor.enabled` when Prometheus Operator is installed.
 | `PodObservationBlocked` | Pod ownership or the Operator's Pod read permission. |
 
 Five-minute stalls add diagnostics without forcing deletion or restart.
-Inspect the named Pod and its events for original errors; Arally does not publish raw
+Inspect the named Pod and its events for original errors; AgentRally does not publish raw
 container/Event messages or Secret values.
 More detail is in
 [reconciliation and status](architecture.md#reconciliation-and-status).
@@ -393,11 +393,11 @@ RestartRequired until restart.
 ConfigurationApplied checks the owned Pod's creation revision; it does not prove
 application hot reload.
 
-Secret volumes retain Kubernetes update behavior; Arally does not freeze or copy Secret
+Secret volumes retain Kubernetes update behavior; AgentRally does not freeze or copy Secret
 contents.
 The pending-update condition describes creation evidence.
 
-Arally replaces execution through its owning SandboxClaim.
+AgentRally replaces execution through its owning SandboxClaim.
 **Private workspaces are replaced:** upstream garbage collection removes the old Sandbox
 and its PVCs.
 An external `existingClaimRef` workspace retains its files across replacement.
@@ -447,7 +447,7 @@ Omit lifecycle for no configured expiry.
 ## Pool allocation
 
 All instances use SandboxWarmPool and SandboxClaim.
-Arally selects or creates a matching pool; Extensions allocates an instance and refills
+AgentRally selects or creates a matching pool; Extensions allocates an instance and refills
 capacity.
 New managed pools default to zero spares.
 
@@ -474,8 +474,8 @@ Startup failures or delays are reported without deleting the allocated execution
 A timeout while still waiting for valid allocation removes the native Claim; change
 restartToken to retry.
 
-External pools must reference the matching Arally-generated configuration snapshot; the
+External pools must reference the matching AgentRally-generated configuration snapshot; the
 instance continues to select its original source.
-Arally does not modify the pool.
+AgentRally does not modify the pool.
 Configuration edits do not switch an active allocation.
 See [resource ownership and cleanup](architecture.md#resources-and-ownership).

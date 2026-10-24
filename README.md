@@ -1,8 +1,8 @@
-# AgentRally Operator
+# AgentRally
 
 English | [简体中文](README.zh-CN.md)
 
-**Deploy and manage isolated AI agent runtimes on Kubernetes.**
+**AgentRally is a Kubernetes operator for isolated AI agent runtimes.**
 
 Run your own agent images and manage their configuration and lifecycle through `kubectl`
 or GitOps.

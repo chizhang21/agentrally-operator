@@ -91,13 +91,6 @@ func validateInteraction(e *v1.InteractionEndpoint) error {
 	return nil
 }
 
-func (r *Reconciler) interactionClient() client.Client {
-	if r.InteractionClient != nil {
-		return r.InteractionClient
-	}
-	return r.Client
-}
-
 func interactionAPIUnavailable(err error) bool {
 	return meta.IsNoMatchError(err) || apierrors.IsNotFound(err)
 }
@@ -113,7 +106,7 @@ func (r *Reconciler) cleanupInteraction(ctx context.Context, w *v1.AgentInstance
 		u := interactionRoute(kind)
 		u.SetName(interactionName(w))
 		u.SetNamespace(w.Namespace)
-		c := r.interactionClient()
+		c := r.directClient()
 		if err := c.Get(ctx, client.ObjectKeyFromObject(u), u); err != nil {
 			if apierrors.IsNotFound(err) || interactionAPIUnavailable(err) {
 				continue
@@ -249,7 +242,7 @@ func (r *Reconciler) ensureInteractionRoute(ctx context.Context, w *v1.AgentInst
 	route := interactionRoute(e.Type)
 	route.SetName(service.Name)
 	route.SetNamespace(w.Namespace)
-	_, err := controllerutil.CreateOrUpdate(ctx, r.interactionClient(), route, func() error {
+	_, err := controllerutil.CreateOrUpdate(ctx, r.directClient(), route, func() error {
 		if route.GetDeletionTimestamp() != nil {
 			return fmt.Errorf("interaction route is terminating")
 		}

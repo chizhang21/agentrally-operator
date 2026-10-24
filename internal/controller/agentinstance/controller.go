@@ -30,11 +30,19 @@ type Reconciler struct {
 	Reader   client.Reader
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
-	// InteractionClient bypasses the cache for optional routing APIs.
-	InteractionClient client.Client
+	// DirectClient bypasses the cache for allocation, workspace reservations
+	// and optional routing APIs.
+	DirectClient client.Client
 	// Now makes deadline planning deterministic in controller tests.
 	Now     func() time.Time
 	Metrics *metrics.Observer
+}
+
+func (r *Reconciler) directClient() client.Client {
+	if r.DirectClient != nil {
+		return r.DirectClient
+	}
+	return r.Client
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {

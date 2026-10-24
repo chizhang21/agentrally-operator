@@ -26,8 +26,7 @@ func TestDefinitionPublishesImmutableRevisionsWithoutExecution(t *testing.T) {
 	object.Spec.Template = "assistant"
 	object.Spec.Container = &v1.AgentContainerSpec{Image: "example/assistant:v1"}
 	builder, scheme := testutil.ClientBuilder(t)
-	// Run the real controller rather than the instance fixture publisher.
-	c := builder.ClientBuilder.WithObjects(group, ns, object).Build()
+	c := builder.WithObjects(group, ns, object).Build()
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
 	reconcile := func() {
 		t.Helper()
@@ -99,7 +98,7 @@ func TestDefinitionCannotPublishOutsideReadyGroup(t *testing.T) {
 	group, ns, object, _, _ := testutil.Fixture()
 	group.Status.Conditions = []metav1.Condition{}
 	builder, scheme := testutil.ClientBuilder(t)
-	c := builder.ClientBuilder.WithObjects(group, ns, object).Build()
+	c := builder.WithObjects(group, ns, object).Build()
 	r := &Reconciler{Client: c, Scheme: scheme}
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(object)}); err != nil {
 		t.Fatal(err)
@@ -139,7 +138,7 @@ func TestDefinitionDeletionDrainsOnlyItsCapacityAfterNativeClaims(t *testing.T) 
 	other := pool.DeepCopy()
 	other.SetName("another-definition-pool")
 	other.SetLabels(map[string]string{allocation.ManagedLabel: "true", definition.UIDLabel: "another-definition"})
-	c := builder.ClientBuilder.WithObjects(group, ns, object, template, pool, nativeClaim, other).Build()
+	c := builder.WithObjects(group, ns, object, template, pool, nativeClaim, other).Build()
 	r := &Reconciler{Client: c, Scheme: scheme}
 	if err := c.Delete(ctx, object); err != nil {
 		t.Fatal(err)

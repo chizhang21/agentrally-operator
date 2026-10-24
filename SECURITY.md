@@ -22,7 +22,7 @@ upgrade.
 Describe security fixes in release notes.
 Do not publish exploit details before a fix is available.
 
-Arally validates references and configuration.
+AgentRally validates references and configuration.
 Cluster RBAC, namespace trust, agent-sandbox controllers, container images, CNI and CSI
 remain separate security boundaries.
 

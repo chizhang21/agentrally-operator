@@ -3,7 +3,7 @@
 A generic agent serving HTTP on port 8000, with model credentials, an external tool API
 key and an API authentication token supplied through a Secret.
 
-Install [Arally and its dependencies](../../docs/installation.md) first.
+Install [AgentRally and its dependencies](../../docs/installation.md) first.
 Supply your agent image and replace the model settings and Secret placeholders.
 Match the environment variable names, port and data path to your application.
 

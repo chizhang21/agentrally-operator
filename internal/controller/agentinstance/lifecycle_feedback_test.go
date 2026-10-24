@@ -17,7 +17,7 @@ import (
 
 func TestCoreLifecycleFeedbackRetainsFailedInstanceAndClearsStaleState(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	pod := ownedExecutionPod(t, c, w)
@@ -80,7 +80,7 @@ func TestCoreLifecycleFeedbackRetainsFailedInstanceAndClearsStaleState(t *testin
 
 func TestReconcileEventsAreNotRepeated(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w)
 	recorder := events.NewFakeRecorder(20)
 	r := &Reconciler{Client: c, Scheme: scheme, Recorder: recorder}
 	reconcileWithUpstreamSimulation(t, r, w)

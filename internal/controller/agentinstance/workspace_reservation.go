@@ -63,7 +63,7 @@ func (r *Reconciler) reserveWorkspace(ctx context.Context, instance *v1.AgentIns
 		if err := ctrl.SetControllerReference(instance, lease, r.Scheme); err != nil {
 			return err
 		}
-		if err := r.interactionClient().Create(ctx, lease); apierrors.IsAlreadyExists(err) {
+		if err := r.directClient().Create(ctx, lease); apierrors.IsAlreadyExists(err) {
 			return diagnostics.New("WorkspaceReservationChanged", "The reservation changed during acquisition; retry before using the workspace", nil)
 		} else if err != nil {
 			return err
@@ -83,7 +83,7 @@ func (r *Reconciler) reserveWorkspace(ctx context.Context, instance *v1.AgentIns
 		}
 	}
 	if err != nil {
-		if _, deleteErr := controller.DeleteOwned(ctx, r.interactionClient(), lease, instance); deleteErr != nil {
+		if _, deleteErr := controller.DeleteOwned(ctx, r.directClient(), lease, instance); deleteErr != nil {
 			return errors.Join(err, deleteErr)
 		}
 		return err
@@ -95,7 +95,7 @@ func (r *Reconciler) reserveWorkspace(ctx context.Context, instance *v1.AgentIns
 		lease.Annotations = map[string]string{}
 	}
 	lease.Annotations[workspaceReservationReady] = "true"
-	return r.interactionClient().Patch(ctx, lease, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+	return r.directClient().Patch(ctx, lease, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 func (r *Reconciler) releaseWorkspace(ctx context.Context, instance *v1.AgentInstance) error {
@@ -108,7 +108,7 @@ func (r *Reconciler) releaseWorkspace(ctx context.Context, instance *v1.AgentIns
 		if controller.CheckOwner(lease, instance) != nil {
 			continue
 		}
-		if _, err := controller.DeleteOwned(ctx, r.interactionClient(), lease, instance); err != nil {
+		if _, err := controller.DeleteOwned(ctx, r.directClient(), lease, instance); err != nil {
 			return err
 		}
 	}

@@ -28,6 +28,7 @@ func TestDependencyEventsUsePinnedTemplatesAndIndexes(t *testing.T) {
 	source.Spec.Containers[0].Env = []corev1.EnvVar{configReference("settings", "mode", false)}
 	source.Spec.Volumes = []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"}}}}
 	c, scheme := indexedClient(t, definition, instance, nativeTemplate(definition, source))
+	testutil.PublishDefinitions(t, c, scheme)
 	resolved, err := resolveSandboxTemplate(ctx, c, instance)
 	if err != nil {
 		t.Fatal(err)

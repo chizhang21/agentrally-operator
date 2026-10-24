@@ -43,7 +43,7 @@ func capabilityReport(network string) *v1.ClusterCapabilities {
 func TestCapabilitiesBlockMissingRuntimeAndRecover(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
 	source.Spec.RuntimeClassName = ptr.To("kata")
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w, capabilityReport("Supported"))
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w, capabilityReport("Supported"))
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	testutil.Condition(t, getAgentInstance(t, c, w).Status.Conditions, "CapabilityValidated", metav1.ConditionFalse)
@@ -70,7 +70,7 @@ func TestCapabilitiesRejectRawBlockWorkspaceWithoutWaitingForBinding(t *testing.
 			w.Spec.Workspace.VolumeClaimTemplate.VolumeMode = &mode
 			w.Spec.Workspace.VolumeClaimTemplate.StorageClassName = ptr.To("nfs")
 			sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs"}, Provisioner: "nfs.csi.k8s.io", VolumeBindingMode: ptr.To(storagev1.VolumeBindingWaitForFirstConsumer)}
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w, sc, capabilityReport("Supported"))
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w, sc, capabilityReport("Supported"))
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileWithUpstreamSimulation(t, r, w)
 			err := c.Get(ctx, client.ObjectKeyFromObject(w), sandbox.Object())
@@ -119,7 +119,7 @@ func TestNetworkEvidenceBlocksOnlyConfirmedUnsupportedNewSandbox(t *testing.T) {
 				meta.FindStatusCondition(report.Status.Conditions, "NetworkPolicyDiscoveryReady").Status = metav1.ConditionFalse
 				report.Status.NetworkPolicy.Status = "Unsupported"
 			}
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w, report)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w, report)
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileWithUpstreamSimulation(t, r, w)
 			want := metav1.ConditionUnknown
@@ -161,7 +161,7 @@ func TestRuntimeValidationDefersSchedulingToKubernetes(t *testing.T) {
 				report.Status.Runtimes[0].Handler = "custom"
 				report.Status.Runtimes[0].Family = "unknown"
 			}
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w, rc, report)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w, rc, report)
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileWithUpstreamSimulation(t, r, w)
 			want := metav1.ConditionTrue
@@ -189,7 +189,7 @@ func TestCapabilityChangesPreserveRunningSandboxAndPermitSuspension(t *testing.T
 	report := capabilityReport("Supported")
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-key", Namespace: w.Namespace}, Data: map[string][]byte{"key": []byte("test-key")}}
 	definition.Spec.ModelProvider = &v1.ModelProvider{BaseURL: "https://models.example/v1", Model: "test", APIKeySecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "key"}}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w, report, secret)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w, report, secret)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	before := getSandbox(t, c, w)
@@ -294,7 +294,7 @@ func TestNativeVolumeModesAndBoundPVCWithRemovedClass(t *testing.T) {
 			if scenario != "bound-removed-class" && scenario != "unbound-static-class" {
 				objects = append(objects, sc)
 			}
-			c, scheme := testutil.Client(t, append(objects, definition, nativeTemplate(definition, source))...)
+			c, scheme := clientWithPublishedDefinitions(t, append(objects, definition, nativeTemplate(definition, source))...)
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileWithUpstreamSimulation(t, r, w)
 			testutil.Condition(t, getAgentInstance(t, c, w).Status.Conditions, "CapabilityValidated", want)
@@ -311,7 +311,7 @@ func TestNativeVolumeModesAndBoundPVCWithRemovedClass(t *testing.T) {
 
 func TestSandboxSchedulingFeedbackIsCurrentAndIndependentOfReady(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	object := getSandbox(t, c, w)
@@ -368,7 +368,7 @@ func TestGroupNetworkSupportDoesNotConflateResourceReadiness(t *testing.T) {
 		t.Run(tc.network, func(t *testing.T) {
 			g, ns, definition, _, _ := testutil.Fixture()
 			g.Spec.NetworkPolicy = &networkingv1.NetworkPolicySpec{}
-			c, scheme := testutil.Client(t, definition, g, ns, capabilityReport(tc.network))
+			c, scheme := clientWithPublishedDefinitions(t, definition, g, ns, capabilityReport(tc.network))
 			r := &agentgroup.Reconciler{Client: c, Scheme: scheme}
 			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(g)})
 			if err != nil {
@@ -402,7 +402,7 @@ func TestGroupNetworkSupportDoesNotConflateResourceReadiness(t *testing.T) {
 func TestNativeReadFailureRemainsUnknown(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
 	source.Spec.RuntimeClassName = ptr.To("kata")
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w, capabilityReport("Supported"))
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w, capabilityReport("Supported"))
 	reader := interceptor.NewClient(c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
 		if reflect.TypeOf(object) == reflect.TypeOf(&nodev1.RuntimeClass{}) {
 			return errors.New("permission denied")

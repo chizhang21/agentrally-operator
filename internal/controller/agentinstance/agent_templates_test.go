@@ -31,7 +31,7 @@ func TestNativeTemplateIsSingleExecutionSource(t *testing.T) {
 		object.SetLabels(map[string]string{"arally.io/category": "assistant"})
 		_ = unstructured.SetNestedField(object.Object, service, "spec", "service")
 		before := object.DeepCopy()
-		c, scheme := testutil.Client(t, definition, object, g, ns, w)
+		c, scheme := clientWithPublishedDefinitions(t, definition, object, g, ns, w)
 		if err := c.Get(ctx, client.ObjectKeyFromObject(object), before); err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +98,7 @@ func TestNativeTemplateResolutionFailures(t *testing.T) {
 			_, _, definition, w, source := testutil.Fixture()
 			object := nativeTemplate(definition, source)
 			tc.edit(definition, object)
-			c, _ := testutil.Client(t, definition, object)
+			c, _ := clientWithPublishedDefinitions(t, definition, object)
 			_, err := resolveSandboxTemplate(ctx, c, w)
 			if reason, _ := diagnostics.Classify(err); reason != tc.reason {
 				t.Fatalf("want %s got %v", tc.reason, err)
@@ -110,7 +110,7 @@ func TestNativeTemplateResolutionFailures(t *testing.T) {
 func TestTemplateAPIUnavailableBlocksAllocation(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
 	w.Spec.Provisioning = &v1.AgentInstanceProvisioning{WarmPoolRef: &v1.WarmPoolReference{Name: "pool"}}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w)
 	guard := interceptor.NewClient(c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
 		if object.GetObjectKind().GroupVersionKind().Kind == "SandboxTemplate" {
 			return &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: sandbox.ExtensionsGroupVersion.Group, Kind: "SandboxTemplate"}}
@@ -125,7 +125,7 @@ func TestTemplateAPIUnavailableBlocksAllocation(t *testing.T) {
 func TestSuspensionSurvivesMissingTemplateAndPreservesService(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
 	object := nativeTemplate(definition, source)
-	c, scheme := testutil.Client(t, definition, object, g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, object, g, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	if err := c.Delete(ctx, object); err != nil {

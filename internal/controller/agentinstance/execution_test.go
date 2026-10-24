@@ -20,7 +20,7 @@ func TestCleanupStallIsVisibleDuringRestartExpiryAndDeletion(t *testing.T) {
 	for _, operation := range []string{"restart", "expiry", "delete"} {
 		t.Run(operation, func(t *testing.T) {
 			group, ns, definition, w, source := testutil.Fixture()
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 			now := time.Now().UTC().Truncate(time.Second)
 			r := &Reconciler{Client: c, Reader: c, Scheme: scheme, Now: func() time.Time { return now }}
 			reconcileWithUpstreamSimulation(t, r, w)
@@ -65,7 +65,7 @@ func TestCleanupStallIsVisibleDuringRestartExpiryAndDeletion(t *testing.T) {
 
 func TestAgentInstanceExplicitRestartIsPersistedAndIdempotent(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 	creates, deletes := 0, 0
 	guarded := interceptor.NewClient(c, interceptor.Funcs{
 		Create: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.CreateOption) error {

@@ -21,7 +21,7 @@ import (
 // Persist selection before creating shared capacity so Group cleanup can observe
 // in-flight claims and keep their pool and immutable template protected.
 func (r *Reconciler) ensureAllocationPool(ctx context.Context, w *v1.AgentInstance, config executionConfiguration) error {
-	pools := allocation.Manager{Client: r.interactionClient(), Reader: r.referenceReader(), Scheme: r.Scheme}
+	pools := allocation.Manager{Client: r.directClient(), Reader: r.referenceReader(), Scheme: r.Scheme}
 	selection, err := pools.Select(ctx, w, config.Configuration, config.Revision)
 	if err != nil {
 		return err
@@ -61,7 +61,7 @@ func (r *Reconciler) reconcileAllocationDeadline(ctx context.Context, w *v1.Agen
 		return nil
 	}
 	claim := r.allocationClaim(w)
-	err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(claim), claim)
+	err := r.directClient().Get(ctx, client.ObjectKeyFromObject(claim), claim)
 	if err == nil {
 		_, err = r.recordPoolClaim(ctx, w, claim)
 	}
@@ -93,7 +93,7 @@ func (r *Reconciler) completePoolAllocation(ctx context.Context, w *v1.AgentInst
 	}
 	selected := sandbox.ExtensionObject("SandboxTemplate")
 	name := allocation.TemplateName(w)
-	if err := r.interactionClient().Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: name}, selected); err != nil {
+	if err := r.directClient().Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: name}, selected); err != nil {
 		return diagnostics.ReferenceError("SandboxTemplate", w.Namespace, name, err)
 	}
 	pod, found, err := sandbox.TemplatePod(selected)

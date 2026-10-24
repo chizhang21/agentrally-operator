@@ -1,13 +1,13 @@
 # Architecture
 
-Arally manages containerized agent instances on Kubernetes.
+AgentRally manages containerized agent instances on Kubernetes.
 Users declare an image, configuration and lifecycle; the Operator prepares the group's
 namespace and policies, requests execution, and reports the observed state.
 The agent application implements its own conversations, model calls, tools and API.
 
 ## Responsibilities
 
-Arally exposes four resources in `arally.io/v1alpha1`:
+AgentRally exposes four resources in `arally.io/v1alpha1`:
 
 | Resource | Scope | Responsibility |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ Arally exposes four resources in `arally.io/v1alpha1`:
 | ClusterCapabilities | Cluster | Runtime, storage and network configuration evidence used by deployment checks |
 
 AgentInstance execution requires agent-sandbox Core and Extensions.
-Arally manages configuration and allocation requests.
+AgentRally manages configuration and allocation requests.
 agent-sandbox Extensions allocates Sandboxes and refills warm pools.
 agent-sandbox Core manages their Pods, declared PVCs and optional headless Services.
 
@@ -27,14 +27,14 @@ through the Kubernetes API.
 ```mermaid
 flowchart LR
     U["kubectl / GitOps"] -->|"AgentGroup / AgentDefinition / AgentInstance"| K["Kubernetes API"]
-    A["Arally Operator"] <-->|"Configuration and status"| K
+    A["AgentRally Operator"] <-->|"Configuration and status"| K
     E["agent-sandbox Extensions"] <-->|"Allocation"| K
     C["agent-sandbox Core"] <-->|"Pod and storage lifecycle"| K
 ```
 
 The Operator runs independently of a backend.
 Users supply agent images, source SandboxTemplates, Secrets and ServiceAccounts.
-Arally reads these references and resolves configuration without modifying the supplied
+AgentRally reads these references and resolves configuration without modifying the supplied
 resources.
 
 ## Provisioning and prewarming
@@ -46,9 +46,9 @@ execution must start from scratch:
 flowchart LR
     D["AgentDefinition"] --> V["Published revision: no execution"]
     V --> AC["AgentInstance pins revision"]
-    AC --> R["Arally: resolve and validate"]
+    AC --> R["AgentRally: resolve and validate"]
     R --> P["Effective SandboxTemplate and pool"]
-    P --> CL["Arally: create SandboxClaim"]
+    P --> CL["AgentRally: create SandboxClaim"]
     CL -->|"Extensions allocates"| S["Sandbox"]
     S -->|"Core reconciles"| X["Pod and declared PVCs"]
 ```
@@ -99,15 +99,15 @@ An initially suspended instance waits for resume before allocating.
 ## Resources and ownership
 
 Owner references define the hierarchy used for garbage collection.
-Arally also checks ownership before updating managed resources or accepting execution
+AgentRally also checks ownership before updating managed resources or accepting execution
 observations.
 
 | Resource | Reconciled by | Controller owner |
 | --- | --- | --- |
-| Group Namespace, quota, LimitRange and NetworkPolicy | Arally | AgentGroup |
-| Published revision SandboxTemplates | Arally | AgentDefinition |
-| Resolved allocation SandboxTemplates and SandboxWarmPools | Arally | AgentGroup |
-| Allocation SandboxClaim, interaction Service and route | Arally | AgentInstance |
+| Group Namespace, quota, LimitRange and NetworkPolicy | AgentRally | AgentGroup |
+| Published revision SandboxTemplates | AgentRally | AgentDefinition |
+| Resolved allocation SandboxTemplates and SandboxWarmPools | AgentRally | AgentGroup |
+| Allocation SandboxClaim, interaction Service and route | AgentRally | AgentInstance |
 | Unassigned warm Sandbox | Extensions | SandboxWarmPool |
 | Assigned Sandbox | Extensions | Allocation SandboxClaim |
 | Execution Pod, private PVCs and optional headless Service | Core | Sandbox |
@@ -131,7 +131,7 @@ Definition deletion waits for referencing instances and drains unused managed ca
 Group deletion waits for AgentDefinitions, AgentInstances, allocation Claims, Sandboxes and PVCs to be
 removed before deleting the namespace.
 
-Arally patches `operatingMode` on assigned Sandboxes and observes their Pods and PVCs.
+AgentRally patches `operatingMode` on assigned Sandboxes and observes their Pods and PVCs.
 Its RBAC grants Sandbox patch access without field-level restrictions; Pod and PVC
 access is read-only.
 
@@ -169,7 +169,7 @@ The reservation survives execution replacement, and deletion releases it only af
 PVC ownership remains external.
 
 Native snapshot sources initialize private PVCs through CSI.
-Arally checks local VolumeSnapshot readiness and capacity before allocation and includes
+AgentRally checks local VolumeSnapshot readiness and capacity before allocation and includes
 its UID in pool identity.
 Completed executions retain that initialization identity; later source deletion or
 replacement does not affect their workspaces or resume.
@@ -178,7 +178,7 @@ Snapshot APIs are optional; instances without snapshot sources do not depend on 
 
 `Suspended=True` requires current Core confirmation and no remaining execution Pod.
 A Pod still terminating keeps suspension or cleanup pending.
-Arally reports stalls without force-deleting runtime resources.
+AgentRally reports stalls without force-deleting runtime resources.
 
 Expiry with `shutdownPolicy: Retain` keeps the AgentInstance and diagnostics, while
 removing execution and its private workspace.
@@ -200,7 +200,7 @@ flowchart LR
     S --> P["Agent Pod: interaction.port"]
 ```
 
-Arally creates an HTTPRoute to configure that path, plus a ClusterIP Service targeting
+AgentRally creates an HTTPRoute to configure that path, plus a ClusterIP Service targeting
 Core's published Pod selector.
 This Service is separate from Core's optional headless Service.
 
@@ -229,7 +229,7 @@ See [capability checks](cluster-capabilities.md) for the evidence limits.
 
 Shared-capacity cleanup uses direct reference reads and resource-version preconditions.
 Before creating a native Claim, allocation persists its selection and marks reused
-Arally-owned pool/template metadata for that attempt.
+AgentRally-owned pool/template metadata for that attempt.
 This prevents a concurrent pruner's older inventory from deleting newly reused capacity;
 snapshot specs and external pool settings remain unchanged.
 
@@ -311,7 +311,7 @@ For operational interpretation, see
 
 `connector.enabled` starts an outbound Connector worker in the elected Operator process.
 The chart conditionally supplies its credentials and additional CR write permissions.
-It relays requests for the four Arally CRs for future Orchestrator integration.
+It relays requests for the four AgentRally CRs for future Orchestrator integration.
 Protocol details are in [Outbound Connector](outbound-connector.md).
 
 Installation, operating commands and build workflows are covered separately in

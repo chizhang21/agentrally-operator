@@ -38,7 +38,7 @@ func TestBuiltinWorkspaceVolumePermissions(t *testing.T) {
 					w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace", ReadOnly: tc.readOnly}
 				}
 				definition.Spec.Security = &v1.AgentSecurity{RunAsUser: tc.uid}
-				c, _ := testutil.Client(t, definition, g, ns, w)
+				c, _ := clientWithPublishedDefinitions(t, definition, g, ns, w)
 				before := w.DeepCopy()
 				guard := interceptor.NewClient(c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
 					if _, ok := object.(*corev1.Namespace); ok {
@@ -73,7 +73,7 @@ func TestWorkspacePermissionsPreserveNativeTemplates(t *testing.T) {
 		source.Spec.SecurityContext = sc
 		object := nativeTemplate(definition, source)
 		before := object.DeepCopy()
-		c, _ := testutil.Client(t, definition, g, ns, w, object)
+		c, _ := clientWithPublishedDefinitions(t, definition, g, ns, w, object)
 		pod, _, err := desiredExecutionForTest(ctx, c, w)
 		if err != nil || !reflect.DeepEqual(pod.Spec.SecurityContext, sc) {
 			t.Fatalf("native volume permissions changed: %+v %v", pod, err)
@@ -94,7 +94,7 @@ func TestBuiltinWorkspacePermissionsReachAllocation(t *testing.T) {
 	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1"}
 	definition.Spec.Security = &v1.AgentSecurity{RunAsUser: ptr.To(int64(2345))}
 	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
-	c, scheme := testutil.Client(t, definition, g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, g, ns, w)
 	reconcileWithUpstreamSimulation(t, &Reconciler{Client: c, Scheme: scheme}, w)
 	state := getAgentInstance(t, c, w)
 	if state.Status.Provisioning == nil {

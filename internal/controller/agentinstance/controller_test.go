@@ -26,7 +26,7 @@ import (
 func TestAgentInstanceDelegatesLifecycleAndPreservesCoreFields(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: w.Name, Namespace: w.Namespace}, Spec: source.Spec}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w, pod)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w, pod)
 	mutations := 0
 	patches := 0
 	guarded := interceptor.NewClient(c, interceptor.Funcs{
@@ -148,7 +148,7 @@ func TestModelAndWorkspaceReferencesAllowFirstConsumerAndKeepTemplate(t *testing
 	source.Spec.Containers = append(source.Spec.Containers, corev1.Container{Name: "sidecar", Image: "sidecar"})
 	definition.Spec.AgentContainer = "sidecar"
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-key", Namespace: w.Namespace}, Data: map[string][]byte{"token": []byte("do-not-copy")}}
-	c, _ := testutil.Client(t, definition, nativeTemplate(definition, source), secret)
+	c, _ := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), secret)
 	original := w.DeepCopy()
 	resolved, err := desiredExecution(ctx, c, w)
 	if err != nil {
@@ -205,7 +205,7 @@ func TestAgentInstanceDependencyBlockingAndWatchMapping(t *testing.T) {
 			if tc != "missing-group" {
 				objects = append(objects, group)
 			}
-			c, scheme := testutil.Client(t, append(objects, definition, nativeTemplate(definition, source))...)
+			c, scheme := clientWithPublishedDefinitions(t, append(objects, definition, nativeTemplate(definition, source))...)
 			r := &Reconciler{Client: c, Scheme: scheme}
 			result := reconcileWithUpstreamSimulation(t, r, w)
 			if result.RequeueAfter == 0 {
@@ -241,7 +241,7 @@ func TestForeignResourcesAreNeverAdoptedOrDeleted(t *testing.T) {
 	foreign := desiredPoolClaim(w)
 	foreign.SetNamespace(w.Namespace)
 	foreign.SetUID("foreign")
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w, foreign)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w, foreign)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(w)}); err != nil {
 		t.Fatal(err)
@@ -264,7 +264,7 @@ func TestForeignResourcesAreNeverAdoptedOrDeleted(t *testing.T) {
 		t.Fatal("foreign resource changed")
 	}
 	ns.OwnerReferences = nil
-	c, scheme = testutil.Client(t, definition, nativeTemplate(definition, source), group, ns)
+	c, scheme = clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns)
 	gr := &agentgroup.Reconciler{Client: c, Scheme: scheme}
 	if _, err := gr.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(group)}); err == nil {
 		t.Fatal("unrelated namespace adopted")
@@ -274,7 +274,7 @@ func TestForeignResourcesAreNeverAdoptedOrDeleted(t *testing.T) {
 func TestGroupNamespaceOwnershipFailureIsReturned(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	ns.OwnerReferences = nil
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(w)}); err == nil {
 		t.Fatal("namespace ownership failure was treated as pending group readiness")
@@ -292,7 +292,7 @@ func TestGroupNamespaceOwnershipFailureIsReturned(t *testing.T) {
 func TestAgentInstanceForegroundDeletionWaitsAndRetainsPVC(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "workspace", Namespace: w.Namespace}}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w, pvc)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w, pvc)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	sb := getClaim(t, c, w)

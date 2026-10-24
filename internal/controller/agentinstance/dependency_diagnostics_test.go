@@ -241,7 +241,7 @@ func TestNativeReferenceTerminatingDedupAndReaderErrors(t *testing.T) {
 func TestReconciliationErrorsAreSafeAndPreserveCauses(t *testing.T) {
 	original := errors.New("private-server-detail: https://internal.example/admission")
 	g, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, g, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, g, ns, w, nativeTemplate(definition, source))
 	guarded := interceptor.NewClient(c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
 		if _, ok := object.(*corev1.Namespace); ok {
 			return original
@@ -277,7 +277,7 @@ func TestAgentInstanceNativeDependencyDiagnostics(t *testing.T) {
 			group, ns, definition, w, source := testutil.Fixture()
 			source.Spec.Containers[0].Env = append(source.Spec.Containers[0].Env, secretReference("credentials", "missing", optional))
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: w.Namespace}, Data: map[string][]byte{"other": []byte("sensitive-value-never-report")}}
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w, secret)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w, secret)
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileWithUpstreamSimulation(t, r, w)
 			state := getAgentInstance(t, c, w)

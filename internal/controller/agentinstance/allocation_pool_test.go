@@ -50,7 +50,7 @@ func allocationObject(t *testing.T, c client.Client, w *v1.AgentInstance, kind, 
 
 func TestPoolSelectionPersistenceFailureCreatesNoCapacity(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, group, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w)
 	patchErr := apierrors.NewServiceUnavailable("status unavailable")
 	guarded := interceptor.NewClient(c, interceptor.Funcs{
 		SubResourcePatch: func(ctx context.Context, c client.Client, name string, object client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
@@ -85,7 +85,7 @@ func TestPoolSelectionPersistenceFailureCreatesNoCapacity(t *testing.T) {
 func TestGroupPauseOnlyGatesNewAllocations(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	group.Spec.AllocationPaused = true
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileAllocation(t, r, w)
 	state := getAgentInstance(t, c, w)
@@ -133,7 +133,7 @@ func TestGroupPauseOnlyGatesNewAllocations(t *testing.T) {
 func TestManagedPrewarmingPolicySurvivesIdleReconciliationRestart(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 2, IdleTTLSeconds: 60}
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	reconcileAllocation(t, &Reconciler{Client: c, Scheme: scheme}, w)
 	state := getAgentInstance(t, c, w)
 	pool := allocationObject(t, c, w, "SandboxWarmPool", state.Status.Provisioning.PoolName)
@@ -299,7 +299,7 @@ func TestManagedSpareBudgetRedistributesWithoutIncreasingTotal(t *testing.T) {
 func TestNewPoolsStartWithoutSpareBudgetOvershoot(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 3, MaxTotalReplicas: ptr.To(int32(1))}
-	c, scheme := testutil.Client(t, group, ns, definition, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, group, ns, definition, w, nativeTemplate(definition, source))
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
 	reconcileAllocation(t, r, w)
 	state := getAgentInstance(t, c, w)
@@ -386,7 +386,7 @@ func TestExternalPoolRequiresVerifiedSnapshotBeforeAllocation(t *testing.T) {
 
 func TestRevisionPersistenceFailureStopsAllocation(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	patchErr := apierrors.NewServiceUnavailable("status unavailable")
 	patches := 0
 	guarded := interceptor.NewClient(c, interceptor.Funcs{
@@ -422,7 +422,7 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
 	source.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8080}}
 	source.Spec.Containers[0].EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}}}}
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source), secret)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source), secret)
 	var creates []string
 	guarded := interceptor.NewClient(c, interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, object client.Object, opts ...client.CreateOption) error {
 		kind := object.GetObjectKind().GroupVersionKind().Kind
@@ -509,7 +509,7 @@ func TestAutomaticPoolsShareConfigurationButSeparateCredentialsAndWorkspaces(t *
 	secrets := []*corev1.Secret{{ObjectMeta: metav1.ObjectMeta{Name: "one", Namespace: w.Namespace, UID: "s1"}, Data: map[string][]byte{"key": []byte("one")}}, {ObjectMeta: metav1.ObjectMeta{Name: "two", Namespace: w.Namespace, UID: "s2"}, Data: map[string][]byte{"key": []byte("two")}}}
 	definition.Spec.ModelProvider = &v1.ModelProvider{BaseURL: "https://model.example", Model: "test", APIKeySecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "one"}, Key: "key"}}
 	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source), secrets[0], secrets[1])
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source), secrets[0], secrets[1])
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileAllocation(t, r, w)
 	first := getAgentInstance(t, c, w).Status.Provisioning.PoolName
@@ -565,7 +565,7 @@ func TestSharedPoolKeepsEachAllocatedWorkspacePrivate(t *testing.T) {
 	first.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
 	second := first.DeepCopy()
 	second.Name, second.UID = "second", "second-uid"
-	c, scheme := testutil.Client(t, definition, group, ns, first, second)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, first, second)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	poolName := ""
 	var previousPVC string
@@ -622,7 +622,7 @@ func TestNativeVolumeTemplatesSurviveAllocationAndRejectStorageMismatch(t *testi
 	if err := sandbox.SetTemplateVolumeClaims(source, claims); err != nil {
 		t.Fatal(err)
 	}
-	c, scheme := testutil.Client(t, definition, group, ns, w, source)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, source)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	current, err := sandbox.Decode(getSandbox(t, c, w))
@@ -660,7 +660,7 @@ func TestMandatoryPoolHandlesTasksSuspensionAndMissingNamedPool(t *testing.T) {
 			if tc.named {
 				w.Spec.Provisioning = &v1.AgentInstanceProvisioning{WarmPoolRef: &v1.WarmPoolReference{Name: "chosen"}}
 			}
-			c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+			c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileAllocation(t, r, w)
 			state := getAgentInstance(t, c, w)
@@ -684,7 +684,7 @@ func TestMandatoryPoolHandlesTasksSuspensionAndMissingNamedPool(t *testing.T) {
 func TestManagedPoolRetriesAndRejectsSnapshotOwnershipCollision(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	source.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8080}}
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	poolWrites := 0
 	r := &Reconciler{Scheme: scheme, Client: interceptor.NewClient(c, interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.CreateOption) error {
 		if o.GetObjectKind().GroupVersionKind().Kind == "SandboxWarmPool" {
@@ -777,7 +777,7 @@ func TestManagedPoolRetriesAndRejectsSnapshotOwnershipCollision(t *testing.T) {
 func TestAutomaticPoolAllocationTimeoutLatchesWithoutDirectFallback(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	now := time.Now().UTC()
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	r := &Reconciler{Client: c, Scheme: scheme, Now: func() time.Time { return now }}
 	reconcileAllocation(t, r, w)
 	now = now.Add(61 * time.Second)
@@ -820,7 +820,7 @@ func TestAutomaticPoolAllocationTimeoutLatchesWithoutDirectFallback(t *testing.T
 
 func TestGroupPrunesOnlyUnusedManagedCapacityAfterPoolCleanup(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileAllocation(t, r, w)
 	state := getAgentInstance(t, c, w)
@@ -920,7 +920,7 @@ func TestReallocationSurvivesConcurrentPoolPruning(t *testing.T) {
 	}{{"reused-pool", true}, {"reused-template", false}} {
 		t.Run(scenario.name, func(t *testing.T) {
 			group, ns, definition, old, source := testutil.Fixture()
-			c, scheme := testutil.Client(t, definition, group, ns, old, nativeTemplate(definition, source))
+			c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, old, nativeTemplate(definition, source))
 			r := &Reconciler{Client: c, Scheme: scheme}
 			reconcileAllocation(t, r, old)
 			previous := getAgentInstance(t, c, old)
@@ -972,7 +972,7 @@ func TestReallocationSurvivesConcurrentPoolPruning(t *testing.T) {
 
 func TestPendingAllocationDoesNotChangePoolWhenConfigurationChanges(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileAllocation(t, r, w)
 	poolName := getAgentInstance(t, c, w).Status.Provisioning.PoolName

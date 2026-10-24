@@ -253,7 +253,7 @@ func TestAgentInstancePoolSuspensionSurvivesMissingCredentials(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: w.Namespace}, Data: map[string][]byte{"token": []byte("fixture")}}
 	source.Spec.Containers[0].Env = append(source.Spec.Containers[0].Env, secretReference(secret.Name, "token", false))
-	c, scheme := testutil.Client(t, definition, group, ns, w, secret, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, secret, nativeTemplate(definition, source))
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	sb := getSandbox(t, c, w)
@@ -278,7 +278,7 @@ func TestAgentInstancePoolSuspensionSurvivesMissingCredentials(t *testing.T) {
 
 func TestSuspensionSurvivesUnreadyGroup(t *testing.T) {
 	group, ns, definition, w, template := testutil.Fixture()
-	kube, scheme := testutil.Client(t, definition, nativeTemplate(definition, template), group, ns, w)
+	kube, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, template), group, ns, w)
 	r := &Reconciler{Client: kube, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	if err := kube.Get(ctx, client.ObjectKeyFromObject(group), group); err != nil {

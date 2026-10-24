@@ -133,7 +133,7 @@ func TestAgentInstanceCompletionTTLDistinguishesSuspensionFromCompletion(t *test
 		t.Run(tc.name, func(t *testing.T) {
 			group, ns, definition, w, source := testutil.Fixture()
 			w.Spec.Lifecycle = &v1.AgentInstanceLifecycle{TTLSecondsAfterFinished: ptr.To(int32(0))}
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 			r := &Reconciler{Client: c, Scheme: scheme, Now: func() time.Time { return now }}
 			reconcileWithUpstreamSimulation(t, r, w)
 			pod := ownedExecutionPod(t, c, w)
@@ -219,7 +219,7 @@ func TestAgentInstanceLivePodInvalidatesStaleCompletionBeforeExpiry(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			group, ns, definition, w, source := testutil.Fixture()
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 			r := &Reconciler{Client: c, Scheme: scheme, Now: func() time.Time { return now }}
 			reconcileWithUpstreamSimulation(t, r, w)
 			pod := ownedExecutionPod(t, c, w)
@@ -284,7 +284,7 @@ func TestAgentInstanceLivePodInvalidatesStaleCompletionBeforeExpiry(t *testing.T
 
 func TestAgentInstanceExpiryPrecedesBrokenDependencies(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	state := getAgentInstance(t, c, w)
@@ -313,7 +313,7 @@ func TestAgentInstanceDeadlineRequeuesEvenWhenGroupMissing(t *testing.T) {
 	now := time.Now().UTC()
 	deadline := metav1.NewTime(now.Add(5 * time.Second))
 	w.Spec.Lifecycle = &v1.AgentInstanceLifecycle{ShutdownTime: &deadline}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), w)
 	r := &Reconciler{Client: c, Scheme: scheme, Now: func() time.Time { return now }}
 	result := reconcileWithUpstreamSimulation(t, r, w)
 	if result.RequeueAfter > 5*time.Second || result.RequeueAfter <= 0 {
@@ -325,7 +325,7 @@ func TestAgentInstanceCompletionTTLRetainsFailureThenCleansWhenAllowed(t *testin
 	group, ns, definition, w, source := testutil.Fixture()
 	zero := int32(0)
 	w.Spec.Lifecycle = &v1.AgentInstanceLifecycle{TTLSecondsAfterFinished: &zero}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	pod := ownedExecutionPod(t, c, w)
@@ -369,7 +369,7 @@ func TestAgentInstanceExpiryDeleteUsesFinalizer(t *testing.T) {
 	_, _, definition, w, source := testutil.Fixture()
 	deadline := metav1.NewTime(time.Now().Add(-time.Hour))
 	w.Spec.Lifecycle = &v1.AgentInstanceLifecycle{ShutdownTime: &deadline, ShutdownPolicy: "Delete"}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	for i := 0; i < 3; i++ {
 		reconcileWithUpstreamSimulation(t, r, w)

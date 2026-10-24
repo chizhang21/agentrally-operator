@@ -24,12 +24,14 @@ import (
 )
 
 func Client(t *testing.T, objects ...client.Object) (client.WithWatch, *runtime.Scheme) {
+	t.Helper()
 	builder, scheme := ClientBuilder(t)
 	return builder.WithObjects(objects...).Build(), scheme
 }
 
-// ClientBuilder shares scheme/status setup while allowing tests to add indexes.
-func ClientBuilder(t *testing.T) (*Builder, *runtime.Scheme) {
+// ClientBuilder shares scheme/status setup without publishing or reconciling
+// seeded objects. Call PublishDefinitions explicitly for published fixtures.
+func ClientBuilder(t *testing.T) (*fake.ClientBuilder, *runtime.Scheme) {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, coordinationv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, networkingv1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
@@ -38,27 +40,7 @@ func ClientBuilder(t *testing.T) (*Builder, *runtime.Scheme) {
 		}
 	}
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.ClusterCapabilities{}, &v1.AgentGroup{}, &v1.AgentDefinition{}, &v1.AgentInstance{}, &corev1.Namespace{}, &corev1.ResourceQuota{}, sandbox.Object())
-	return &Builder{ClientBuilder: builder, t: t, scheme: scheme}, scheme
-}
-
-type Builder struct {
-	*fake.ClientBuilder
-	t      *testing.T
-	scheme *runtime.Scheme
-}
-
-func (b *Builder) WithObjects(objects ...client.Object) *Builder {
-	b.ClientBuilder = b.ClientBuilder.WithObjects(objects...)
-	return b
-}
-func (b *Builder) WithIndex(object client.Object, field string, extract client.IndexerFunc) *Builder {
-	b.ClientBuilder = b.ClientBuilder.WithIndex(object, field, extract)
-	return b
-}
-func (b *Builder) Build() client.WithWatch {
-	c := b.ClientBuilder.Build()
-	PublishDefinitions(b.t, c, b.scheme)
-	return c
+	return builder, scheme
 }
 
 // PublishDefinitions prepares immutable fixtures through the production publisher.

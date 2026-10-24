@@ -105,7 +105,7 @@ or native container fields in a custom template.
 ## Container runtime
 
 Set `spec.container.runtimeClassName` to an existing RuntimeClass name.
-Arally passes it through; it does not map Kata/gVisor aliases.
+AgentRally passes it through; it does not map Kata/gVisor aliases.
 Omit it for the node default.
 
 An administrator installs the runtime and RuntimeClass.
@@ -123,7 +123,7 @@ spec:
     runtimeClassName: your-runtime-class
 ```
 
-Before allocation, Arally checks the RuntimeClass reference and direct selector
+Before allocation, AgentRally checks the RuntimeClass reference and direct selector
 conflicts.
 Kubernetes evaluates nodes, affinity, tolerations and capacity.
 The setting flows into the snapshot, pool and Pod.
@@ -145,7 +145,7 @@ Built-ins cover resident agents.
 ## Allocation and policy
 
 All instances use SandboxWarmPool and SandboxClaim.
-Arally creates missing pools from a snapshot of the resolved Pod configuration.
+AgentRally creates missing pools from a snapshot of the resolved Pod configuration.
 Instances using the same definition revision and matching resolved settings share
 capacity within a Group; credentials, workspace and security differences select separate
 pools.
@@ -181,7 +181,7 @@ The Group divides the budget evenly in stable pool-name order, reducing old targ
 Terminating pools retain their share until foreground cleanup removes them.
 New pools start at zero when a total budget is configured.
 External pools are excluded, and ResourceQuota remains the hard resource-admission boundary.
-Arally discovers configurations from actual instances: a first unseen configuration has
+AgentRally discovers configurations from actual instances: a first unseen configuration has
 no ready spares.
 The policy owns only generated pool replica counts; an omitted policy preserves native
 manual scaling, except existing-PVC configurations always enforce zero spares.
@@ -202,7 +202,7 @@ instance's storage.
 Do not set `spec.volumeName` to a fixed PV in a claim template.
 
 External pools must match the complete Pod and storage blueprint.
-Arally keeps PVC templates on SandboxTemplate and never sends per-Claim templates, which
+AgentRally keeps PVC templates on SandboxTemplate and never sends per-Claim templates, which
 would force cold allocation upstream.
 
 Custom templates may also reference external PVCs directly.
@@ -223,7 +223,7 @@ Its Pod, service, storage, credentials and Group must match.
 Source or credential changes need a new matching snapshot; the external pool is never
 rewritten automatically.
 
-Arally verifies snapshot ownership, source, revision marker and full blueprint before
+AgentRally verifies snapshot ownership, source, revision marker and full blueprint before
 creating the SandboxClaim.
 Ordinary unmarked user templates cannot prove creation inputs and are rejected as
 `PoolConfigurationUnverified`.

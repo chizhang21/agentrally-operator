@@ -33,7 +33,7 @@ It does not deploy to existing clusters or create GitHub Releases.
 
 Version tags must also pass the [real lifecycle E2E gate](../.github/workflows/e2e.yml)
 before image publication.
-It creates and deletes a temporary kind cluster with Core, Extensions and Arally.
+It creates and deletes a temporary kind cluster with Core, Extensions and AgentRally.
 The same workflow supports manual dispatch; PRs compile its test code but do not run the
 cluster test.
 See [local E2E instructions](development.md#real-lifecycle-release-gate).

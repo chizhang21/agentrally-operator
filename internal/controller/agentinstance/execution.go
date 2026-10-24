@@ -115,7 +115,7 @@ func (r *Reconciler) cleanupExecution(ctx context.Context, w *v1.AgentInstance) 
 	}
 	// Request execution shutdown before waiting for optional route finalizers.
 	claim := r.allocationClaim(w)
-	done, err := controller.DeleteOwned(ctx, r.interactionClient(), claim, w)
+	done, err := controller.DeleteOwned(ctx, r.directClient(), claim, w)
 	if meta.IsNoMatchError(err) && (w.Status.Provisioning == nil || w.Status.Provisioning.ClaimName == "") {
 		done, err = true, nil
 	}
@@ -247,7 +247,7 @@ func (r *Reconciler) allocationClaim(w *v1.AgentInstance) *unstructured.Unstruct
 
 func (r *Reconciler) existingExecution(ctx context.Context, w *v1.AgentInstance) (*unstructured.Unstructured, error) {
 	claim := r.allocationClaim(w)
-	if err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(claim), claim); err != nil {
+	if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(claim), claim); err != nil {
 		return nil, err
 	}
 	if err := controller.CheckOwner(claim, w); err != nil {

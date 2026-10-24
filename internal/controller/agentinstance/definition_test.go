@@ -16,7 +16,7 @@ func TestDefinitionVersionSelectionAndIdentity(t *testing.T) {
 	object.Spec.TemplateRef = nil
 	object.Spec.Template = "generic"
 	object.Spec.Container = &v1.AgentContainerSpec{Image: "example/agent:v1"}
-	c, scheme := testutil.Client(t, group, ns, object, instance)
+	c, scheme := clientWithPublishedDefinitions(t, group, ns, object, instance)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, instance)
 	pinned := getAgentInstance(t, c, instance).Status.Definition.DeepCopy()

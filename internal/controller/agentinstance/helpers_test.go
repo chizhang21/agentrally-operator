@@ -25,6 +25,13 @@ import (
 
 var ctx = context.Background()
 
+func clientWithPublishedDefinitions(t *testing.T, objects ...client.Object) (client.WithWatch, *runtime.Scheme) {
+	t.Helper()
+	c, scheme := testutil.Client(t, objects...)
+	testutil.PublishDefinitions(t, c, scheme)
+	return c, scheme
+}
+
 func workspaceVolumeSpec() corev1.PersistentVolumeClaimSpec {
 	return corev1.PersistentVolumeClaimSpec{
 		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
@@ -94,7 +101,7 @@ func reconcileWithUpstreamSimulation(t *testing.T, r *Reconciler, w *v1.AgentIns
 		state := &v1.AgentInstance{}
 		if err := r.Get(ctx, client.ObjectKeyFromObject(w), state); err == nil && state.DeletionTimestamp == nil && (state.Status.Lifecycle == nil || state.Status.Lifecycle.ExpiredAt == nil) && state.Status.Provisioning != nil && state.Status.Provisioning.ClaimName != "" && state.Status.Provisioning.TimedOutAt == nil {
 			claim := desiredPoolClaim(state)
-			if err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(claim), claim); err == nil {
+			if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(claim), claim); err == nil {
 				name, _, _ := unstructured.NestedString(claim.Object, "status", "sandbox", "name")
 				if name == "" {
 					simulateUpstreamAllocation(t, r, state, claim)
@@ -115,12 +122,12 @@ func simulateUpstreamAllocation(t *testing.T, r *Reconciler, w *v1.AgentInstance
 		claim.SetUID(types.UID("claim-" + string(w.UID)))
 	}
 	pool := sandbox.ExtensionObject("SandboxWarmPool")
-	if err := r.interactionClient().Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: allocation.PoolName(w)}, pool); err != nil {
+	if err := r.directClient().Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: allocation.PoolName(w)}, pool); err != nil {
 		t.Fatal(err)
 	}
 	name, _, _ := unstructured.NestedString(pool.Object, "spec", "sandboxTemplateRef", "name")
 	template := sandbox.ExtensionObject("SandboxTemplate")
-	if err := r.interactionClient().Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: name}, template); err != nil {
+	if err := r.directClient().Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: name}, template); err != nil {
 		t.Fatal(err)
 	}
 	fields, _, _ := unstructured.NestedMap(template.Object, "spec", "podTemplate")
@@ -141,7 +148,7 @@ func simulateUpstreamAllocation(t *testing.T, r *Reconciler, w *v1.AgentInstance
 		t.Fatal(err)
 	}
 	claim.Object["status"] = map[string]interface{}{"sandbox": map[string]interface{}{"name": w.Name}}
-	if err := r.interactionClient().Update(ctx, claim); err != nil {
+	if err := r.directClient().Update(ctx, claim); err != nil {
 		t.Fatal(err)
 	}
 	nativeReady(t, r.Client, object)
@@ -152,7 +159,7 @@ func simulateUpstreamAllocation(t *testing.T, r *Reconciler, w *v1.AgentInstance
 func simulateUpstreamGarbageCollection(t *testing.T, r *Reconciler, w *v1.AgentInstance) {
 	t.Helper()
 	claim := desiredPoolClaim(w)
-	if err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(claim), claim); !apierrors.IsNotFound(err) {
+	if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(claim), claim); !apierrors.IsNotFound(err) {
 		return
 	}
 	list := &unstructured.UnstructuredList{}
@@ -239,7 +246,7 @@ func setupPooledAgentInstance(t *testing.T) (*v1.AgentInstance, client.WithWatch
 	group, ns, definition, w, source := testutil.Fixture()
 	w.Spec.Provisioning = &v1.AgentInstanceProvisioning{WarmPoolRef: &v1.WarmPoolReference{Name: "agents"}}
 	definition.Spec.TemplateRef.Name = "agents"
-	c, scheme := testutil.Client(t, definition, group, ns, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, nativeTemplate(definition, source))
 	config, err := desiredExecution(ctx, c, w)
 	if err != nil {
 		t.Fatal(err)

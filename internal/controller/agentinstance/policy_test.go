@@ -50,7 +50,7 @@ func TestGroupExecutionPolicyGatesResolvedTemplates(t *testing.T) {
 				if !builtin {
 					objects = append(objects, nativeTemplate(definition, source))
 				}
-				c, scheme := testutil.Client(t, objects...)
+				c, scheme := clientWithPublishedDefinitions(t, objects...)
 				r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
 				reconcileAllocation(t, r, w)
 				state := getAgentInstance(t, c, w)

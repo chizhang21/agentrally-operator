@@ -11,7 +11,7 @@ It is independent of the Operator image.
 1. Fork this repository and enable Actions in your fork.
    The workflow must exist on its default branch.
    Running a workflow requires repository write access; users run it in their own fork,
-   not in the upstream Arally repository.
+   not in the upstream AgentRally repository.
 2. For a registry other than GHCR, add repository Actions Secrets named
    `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`.
    Use a registry access token as the password if supported.

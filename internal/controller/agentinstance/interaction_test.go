@@ -30,7 +30,7 @@ func interactionFixture(t *testing.T, kind string) (*Reconciler, *v1.AgentInstan
 	if kind == "HTTPRoute" {
 		w.Spec.Interaction.GatewayRef = &v1.GatewayReference{Name: "shared", Namespace: "gateway-system", SectionName: "https"}
 	}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
 	core := &sandbox.Sandbox{Status: sandbox.Status{LabelSelector: "agents.x-k8s.io/sandbox-name-hash=core-identity", Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 7}}}}
 	return &Reconciler{Client: c, Scheme: scheme}, w, core
 }
@@ -226,14 +226,14 @@ func TestInteractionSwitchDisableAndForeignOwnership(t *testing.T) {
 
 func TestInteractionMissingAPIAndEmptySelector(t *testing.T) {
 	r, w, core := interactionFixture(t, "HTTPRoute")
-	r.InteractionClient = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{Get: func(_ctx context.Context, c client.WithWatch, key client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+	r.DirectClient = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{Get: func(_ctx context.Context, c client.WithWatch, key client.ObjectKey, o client.Object, opts ...client.GetOption) error {
 		return &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute"}}
 	}})
 	state, err := r.reconcileInteraction(ctx, w, core, 7)
 	if err != nil || state.condition.Reason != "APIUnavailable" {
 		t.Fatalf("missing optional API: %+v %v", state, err)
 	}
-	r.InteractionClient = nil
+	r.DirectClient = nil
 	core.Status.LabelSelector = ""
 	state, err = r.reconcileInteraction(ctx, w, core, 7)
 	if err != nil || state.condition.Status == metav1.ConditionTrue {

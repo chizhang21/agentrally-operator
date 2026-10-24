@@ -89,7 +89,7 @@ func TestOpenShiftTypeOnlyIgnoresHTTPDefaultsAndGatewayAPI(t *testing.T) {
 	w.Spec.Interaction = &v1.InteractionEndpoint{Type: "OpenShiftRoute"}
 	core.Spec.PodTemplate.Spec.Containers = []corev1.Container{{Name: "agent", Ports: []corev1.ContainerPort{{ContainerPort: 8000}}}}
 	setGroupInteraction(t, r, w, &v1.HTTPRouteDefaults{GatewayRef: &v1.GatewayReference{Name: "missing", Namespace: "missing"}, Domain: "unused.example.com"})
-	r.InteractionClient = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	r.DirectClient = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 		if obj.GetObjectKind().GroupVersionKind().Kind == "Gateway" {
 			t.Fatal("OpenShift consulted HTTPRoute Gateway")
 		}

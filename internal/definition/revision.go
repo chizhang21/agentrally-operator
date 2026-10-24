@@ -50,7 +50,7 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	}
 	template := sandbox.ExtensionObject("SandboxTemplate")
 	if object.Spec.Template != "" {
-		pod, err := templates.Resolve(object.Spec.Template, object.Spec.Container, nil)
+		pod, err := templates.Resolve(object.Spec.Template, object.Spec.Container)
 		if err != nil {
 			return nil, err
 		}
@@ -103,15 +103,10 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	if err != nil {
 		return nil, err
 	}
-	input, err := json.Marshal(struct {
-		Definition json.RawMessage
-		Native     interface{}
-	}{spec, template.Object["spec"]})
+	id, err := revisionID(spec, template.Object["spec"])
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(input)
-	id := hex.EncodeToString(sum[:])
 	result := sandbox.ExtensionObject("SandboxTemplate")
 	result.SetName(Name(object.UID, id))
 	result.SetNamespace(object.Namespace)
@@ -163,16 +158,24 @@ func Read(ctx context.Context, reader client.Reader, object *v1.AgentDefinition,
 	}
 	// Recompute the publication identity so metadata changes cannot redirect a
 	// pinned instance to different inputs under the same revision name.
-	data, err := json.Marshal(struct {
-		Definition json.RawMessage
-		Native     interface{}
-	}{json.RawMessage(template.GetAnnotations()[SpecAnnotation]), template.Object["spec"]})
+	id, err := revisionID(json.RawMessage(template.GetAnnotations()[SpecAnnotation]), template.Object["spec"])
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(data)
-	if hex.EncodeToString(sum[:]) != revision {
+	if id != revision {
 		return nil, diagnostics.New("DefinitionRevisionConflict", "The published revision differs from its configuration identity", nil)
 	}
 	return &Revision{Spec: spec, Template: template, ID: revision, DefinitionUID: object.UID}, nil
+}
+
+func revisionID(spec json.RawMessage, native any) (string, error) {
+	input, err := json.Marshal(struct {
+		Definition json.RawMessage
+		Native     any
+	}{spec, native})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(input)
+	return hex.EncodeToString(sum[:]), nil
 }

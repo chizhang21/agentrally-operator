@@ -100,7 +100,7 @@ func TestActivityRejectsUntrustedAndStaleSignals(t *testing.T) {
 func TestIdleWakePreservesRevisionAndHonorsManualSuspensionAndMaximumLifetime(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	w.Spec.Lifecycle = &v1.AgentInstanceLifecycle{IdleTimeoutSeconds: ptr.To(int32(60)), ActivityLeaseRef: &v1.ActivityLeaseReference{Name: "activity"}}
-	c, scheme := testutil.Client(t, group, ns, definition, w, nativeTemplate(definition, source))
+	c, scheme := clientWithPublishedDefinitions(t, group, ns, definition, w, nativeTemplate(definition, source))
 	now := time.Now().UTC().Truncate(time.Second)
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme, Now: func() time.Time { return now }}
 	reconcileWithUpstreamSimulation(t, r, w)

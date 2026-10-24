@@ -1,6 +1,6 @@
 # Examples
 
-Install [Core, Extensions and Arally](../docs/installation.md) first.
+Install [Core, Extensions and AgentRally](../docs/installation.md) first.
 Replace image names and other placeholders before applying a file.
 
 Follow the [minimal deployment sequence](../docs/usage.md) to create a Group and wait
@@ -34,7 +34,7 @@ recursively.
 
 Select assistant or coding on AgentDefinition with `spec.template`; see
 [environment settings](../docs/agent-templates.md).
-Arally creates pools automatically.
+AgentRally creates pools automatically.
 
 It also creates `ClusterCapabilities/cluster`; use the optional report example only to
 declare administrator mappings.

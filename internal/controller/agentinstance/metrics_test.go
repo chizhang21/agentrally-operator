@@ -20,7 +20,7 @@ import (
 func TestMetricsFollowPersistedTransitionsAndCachedState(t *testing.T) {
 	group, ns, definition, w, _ := testutil.Fixture()
 	group.Status.Summary = &v1.AgentGroupSummary{Pools: v1.AgentPoolSummary{Total: 1, DesiredSpareReplicas: 2, ReadySpareReplicas: 1}}
-	c, scheme := testutil.Client(t, definition, group, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w)
 	readFailure := false
 	reader := interceptor.NewClient(c, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 		if readFailure {

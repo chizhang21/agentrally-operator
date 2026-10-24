@@ -1,4 +1,4 @@
-# Arally Operator chart
+# AgentRally Operator chart
 
 See [Installation](../docs/installation.md) for public and local installation.
 All settings are in [values.yaml](values.yaml).
@@ -57,7 +57,7 @@ for your monitoring namespaces. The CNI must enforce NetworkPolicy.
 ## Upgrades
 
 CRDs are part of the Helm release and update with the Operator. Review API schema
-changes before upgrading. Commands for [public charts](../docs/installation.md#upgrade-arally),
+changes before upgrading. Commands for [public charts](../docs/installation.md#upgrade-agentrally),
 [local dev archives and existing CRD adoption](../docs/installation.md#updating-a-dev-build)
 are in Installation. Those commands preserve explicit values, including private
 image pull Secrets. No separate CRD apply is needed.

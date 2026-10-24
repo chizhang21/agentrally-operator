@@ -196,7 +196,7 @@ claims.
 Pending `WaitForFirstConsumer` claims are accepted.
 Static claims without StorageClass objects, and bound claims whose StorageClass was
 removed, are accepted with Unknown classification.
-Arally does not provision or adopt PVCs.
+AgentRally does not provision or adopt PVCs.
 
 A Group with `spec.networkPolicy` reports `NetworkPolicySupported` separately.
 Its `Ready` condition covers Namespace/quota/policy creation.

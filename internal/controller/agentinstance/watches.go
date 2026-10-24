@@ -129,7 +129,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	var err error
-	r.InteractionClient, err = client.New(mgr.GetConfig(), client.Options{Scheme: r.Scheme, Mapper: mgr.GetRESTMapper()})
+	r.DirectClient, err = client.New(mgr.GetConfig(), client.Options{Scheme: r.Scheme, Mapper: mgr.GetRESTMapper()})
 	if err != nil {
 		return err
 	}

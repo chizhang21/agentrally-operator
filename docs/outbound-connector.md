@@ -2,7 +2,7 @@
 
 Connector is an optional worker inside the Operator process.
 Enable it with `connector.enabled: true` in the chart; it is disabled by default.
-Only the elected Operator replica polls the backend over HTTPS and forwards Arally CR
+Only the elected Operator replica polls the backend over HTTPS and forwards AgentRally CR
 operations to Kubernetes.
 
 The controllers continue reconciling if Connector is disabled or disconnected.

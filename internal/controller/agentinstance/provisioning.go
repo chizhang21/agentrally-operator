@@ -58,7 +58,7 @@ func (r *Reconciler) poolPreflight(ctx context.Context, w *v1.AgentInstance, con
 	pool := sandbox.ExtensionObject("SandboxWarmPool")
 	pool.SetName(allocation.PoolName(w))
 	pool.SetNamespace(w.Namespace)
-	if err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(pool), pool); err != nil {
+	if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(pool), pool); err != nil {
 		return diagnostics.New("PoolUnavailable", "Cannot read the selected warm pool; install Extensions and check the namespaced pool", err)
 	}
 	name, err := sandbox.PoolTemplateName(pool)
@@ -72,7 +72,7 @@ func (r *Reconciler) poolPreflight(ctx context.Context, w *v1.AgentInstance, con
 	nativeTemplate := sandbox.ExtensionObject("SandboxTemplate")
 	nativeTemplate.SetName(name)
 	nativeTemplate.SetNamespace(w.Namespace)
-	if err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(nativeTemplate), nativeTemplate); err != nil {
+	if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(nativeTemplate), nativeTemplate); err != nil {
 		return diagnostics.New("PoolUnavailable", "Cannot read the warm pool's SandboxTemplate; create it in the same namespace", err)
 	}
 	group := &v1.AgentGroup{}
@@ -93,7 +93,7 @@ func (r *Reconciler) provisionFromPool(ctx context.Context, w *v1.AgentInstance,
 		return nil, nil, r.recordPoolFailure(ctx, w, err)
 	}
 	claim := r.allocationClaim(w)
-	err := r.interactionClient().Get(ctx, client.ObjectKeyFromObject(claim), claim)
+	err := r.directClient().Get(ctx, client.ObjectKeyFromObject(claim), claim)
 	if err != nil && !apierrors.IsNotFound(err) {
 		if meta.IsNoMatchError(err) {
 			return nil, nil, r.recordPoolFailure(ctx, w, diagnostics.New("PoolUnavailable", "SIGs Extensions APIs are unavailable; install Extensions", err))
@@ -193,7 +193,7 @@ func (r *Reconciler) createPoolClaim(ctx context.Context, w *v1.AgentInstance, c
 	if err := ctrl.SetControllerReference(w, claim, r.Scheme); err != nil {
 		return nil, err
 	}
-	if err := r.interactionClient().Create(ctx, claim); err != nil {
+	if err := r.directClient().Create(ctx, claim); err != nil {
 		// Recover a creation failure without resetting the budget or claiming success.
 		return nil, diagnostics.New("DependencyReadFailed", "Cannot create the SandboxClaim; check API connectivity and permissions", err)
 	}

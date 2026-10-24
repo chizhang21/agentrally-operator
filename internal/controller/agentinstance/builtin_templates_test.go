@@ -34,7 +34,7 @@ func TestBuiltinRuntimePreservesSecretReferencesAndWorkspace(t *testing.T) {
 	w.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/agent-home"}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: w.Namespace}, Data: map[string][]byte{"token": []byte("never-inline-this")}}
 	pull := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "pull-credentials", Namespace: w.Namespace}}
-	c, _ := testutil.Client(t, definition, g, ns, w, secret, pull)
+	c, _ := clientWithPublishedDefinitions(t, definition, g, ns, w, secret, pull)
 	before := definition.Spec.Container.DeepCopy()
 	resolved, err := desiredExecution(ctx, c, w)
 	if err != nil {
@@ -78,7 +78,7 @@ func TestBuiltinDependencyFailureBlocksCapacity(t *testing.T) {
 	g, ns, definition, w, _ := testutil.Fixture()
 	definition.Spec.TemplateRef, definition.Spec.Template = nil, "generic"
 	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1", Env: []corev1.EnvVar{secretReference("missing-secret", "token", false)}}
-	c, scheme := testutil.Client(t, definition, g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, g, ns, w)
 	reconcileWithUpstreamSimulation(t, &Reconciler{Client: c, Scheme: scheme}, w)
 	state := getAgentInstance(t, c, w)
 	assertReason(t, state, "Ready", "DependencyNotFound")
@@ -97,7 +97,7 @@ func TestBuiltinImagesAndTemplatesIsolatePools(t *testing.T) {
 	g, ns, definition, w, _ := testutil.Fixture()
 	definition.Spec.TemplateRef, definition.Spec.Template = nil, "generic"
 	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example.com/agent:v1"}
-	c, scheme := testutil.Client(t, definition, g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, g, ns, w)
 	m := allocation.Manager{Client: c, Scheme: scheme}
 	selection := func(claim *v1.AgentInstance) string {
 		pod, service, err := desiredExecutionForTest(ctx, c, claim)

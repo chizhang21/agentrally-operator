@@ -49,7 +49,7 @@ func TestExecutionEventsReachAgentInstance(t *testing.T) {
 	} {
 		t.Run(tc.event, func(t *testing.T) {
 			g, ns, definition, w, source := testutil.Fixture()
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w)
 			recorder := events.NewFakeRecorder(100)
 			r := &Reconciler{Client: c, Scheme: scheme, Recorder: recorder}
 			reconcileWithUpstreamSimulation(t, r, w)

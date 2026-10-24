@@ -1,8 +1,8 @@
-# AgentRally Operator
+# AgentRally
 
 [English](README.md) | 简体中文
 
-**在 Kubernetes 上部署、管理隔离的 AI Agent 运行环境。**
+**AgentRally 是用于部署和管理隔离 AI Agent 运行环境的 Kubernetes Operator。**
 
 运行自己的 Agent 镜像，通过 `kubectl` 或 GitOps 管理配置和生命周期。
 选择内置环境或自定义 `SandboxTemplate`，引用已有的 Secret 和 ConfigMap。

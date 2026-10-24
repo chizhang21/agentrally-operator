@@ -1,5 +1,9 @@
 # Development
 
+AgentRally is the product name.
+The project codename is `arally`; repository, module, image, chart and Kubernetes
+identifiers use this name.
+
 Run commands from the repository root.
 
 Installation instructions are in [Installation](installation.md); GitHub workflows and
@@ -118,7 +122,7 @@ available in `KUBEBUILDER_ASSETS`, run:
 go test -tags=integration ./cmd ./tests/packaging -count=1 -timeout=180s
 ```
 
-It checks first installation and upgrades of all four Arally CRDs, retained
+It checks first installation and upgrades of all four AgentRally CRDs, retained
 CRDs/resources on uninstall, adoption of existing CRDs, default report creation, and
 Group LimitRange convergence after native API defaulting and policy edits.
 

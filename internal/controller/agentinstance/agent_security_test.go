@@ -43,7 +43,7 @@ func TestAnyUIDRequiresNamespaceAndDedicatedAccount(t *testing.T) {
 			if !tc.builtin {
 				objects = append(objects, nativeTemplate(definition, source))
 			}
-			c, _ := testutil.Client(t, append(objects, definition)...)
+			c, _ := clientWithPublishedDefinitions(t, append(objects, definition)...)
 			before := w.DeepCopy()
 			template, err := desiredPodTemplate(ctx, c, w)
 			reason, _ := diagnostics.Classify(err)
@@ -82,7 +82,7 @@ func TestAnyUIDRequiresNamespaceAndDedicatedAccount(t *testing.T) {
 func TestRestrictedRejectsRoot(t *testing.T) {
 	_, _, definition, w, source := testutil.Fixture()
 	definition.Spec.Security = &v1.AgentSecurity{Profile: "Restricted", RunAsUser: ptr.To(int64(0))}
-	c, _ := testutil.Client(t, definition, nativeTemplate(definition, source))
+	c, _ := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source))
 	if _, err := desiredPodTemplate(ctx, c, w); err == nil {
 		t.Fatal("root allowed")
 	}

@@ -24,7 +24,7 @@ func TestExistingWorkspaceSurvivesExecutionReplacement(t *testing.T) {
 	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example/assistant:v1"}
 	instance.Spec.Workspace = &v1.WorkspaceMount{ExistingClaimRef: &v1.PersistentVolumeClaimReference{Name: "state"}, Exclusive: true, MountPath: "/workspace"}
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "state", Namespace: ns.Name, UID: "state-uid"}, Spec: workspaceVolumeSpec(), Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound}}
-	c, scheme := testutil.Client(t, definition, group, ns, instance, pvc)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, instance, pvc)
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, instance)
 	state := getAgentInstance(t, c, instance)
@@ -77,7 +77,7 @@ func TestExistingWorkspaceRejectsExecutionOwnedPVC(t *testing.T) {
 	group, ns, definition, instance, pod := testutil.Fixture()
 	instance.Spec.Workspace = &v1.WorkspaceMount{ExistingClaimRef: &v1.PersistentVolumeClaimReference{Name: "private"}, MountPath: "/workspace"}
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: ns.Name, UID: "private-pvc", OwnerReferences: []metav1.OwnerReference{{APIVersion: sandbox.GroupVersion.String(), Kind: "Sandbox", Name: "other", UID: "other-uid", Controller: ptr.To(true)}}}, Spec: workspaceVolumeSpec()}
-	c, scheme := testutil.Client(t, definition, group, ns, instance, nativeTemplate(definition, pod), pvc)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, instance, nativeTemplate(definition, pod), pvc)
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
 	reconcileAllocation(t, r, instance)
 	state := getAgentInstance(t, c, instance)
@@ -112,7 +112,7 @@ func TestExistingWorkspaceBlocksUnavailableVolumes(t *testing.T) {
 			if scenario != "missing" {
 				objects = append(objects, pvc)
 			}
-			c, scheme := testutil.Client(t, objects...)
+			c, scheme := clientWithPublishedDefinitions(t, objects...)
 			reconcileAllocation(t, &Reconciler{Client: c, Scheme: scheme}, instance)
 			state := getAgentInstance(t, c, instance)
 			testutil.Condition(t, state.Status.Conditions, "Ready", metav1.ConditionFalse)

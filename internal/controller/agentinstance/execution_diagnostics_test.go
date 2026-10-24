@@ -34,7 +34,7 @@ func TestExecutionDiagnosticsReachAgentInstance(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			g, ns, definition, w, source := testutil.Fixture()
-			c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
+			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w)
 			recorder := events.NewFakeRecorder(100)
 			r := &Reconciler{Client: c, Scheme: scheme, Recorder: recorder, Now: func() time.Time { return now }}
 			reconcileWithUpstreamSimulation(t, r, w)

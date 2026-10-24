@@ -364,7 +364,7 @@ func TestAgentInstanceAppliedRevisionAndRotation(t *testing.T) {
 	group, ns, definition, w, source := testutil.Fixture()
 	source.Spec.Containers[0].Env = append(source.Spec.Containers[0].Env, secretReference("credentials", "token", false))
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: w.Namespace}, Data: map[string][]byte{"token": []byte("old-value")}}
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), group, ns, w, secret)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w, secret)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	pod := ownedExecutionPod(t, c, w)

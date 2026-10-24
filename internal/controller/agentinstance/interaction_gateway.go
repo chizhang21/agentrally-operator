@@ -89,7 +89,7 @@ func (r *Reconciler) interactionGateways(ctx context.Context, w *v1.AgentInstanc
 		if ns == "" {
 			ns = w.Namespace
 		}
-		err := r.interactionClient().Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, obj)
+		err := r.directClient().Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, obj)
 		if apierrors.IsNotFound(err) {
 			return nil, interactionDiagnostic("GatewayNotFound", "The selected Gateway does not exist")
 		}
@@ -100,7 +100,7 @@ func (r *Reconciler) interactionGateways(ctx context.Context, w *v1.AgentInstanc
 	}
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gatewayGVK.GroupVersion().WithKind("GatewayList"))
-	if err := r.interactionClient().List(ctx, list); err != nil {
+	if err := r.directClient().List(ctx, list); err != nil {
 		return nil, err
 	}
 	return list.Items, nil

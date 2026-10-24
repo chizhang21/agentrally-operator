@@ -17,7 +17,7 @@ import (
 
 func TestExecutionSuspensionShowsTerminatingPodAndStall(t *testing.T) {
 	g, ns, definition, w, source := testutil.Fixture()
-	c, scheme := testutil.Client(t, definition, nativeTemplate(definition, source), g, ns, w)
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	pod := ownedExecutionPod(t, c, w)
@@ -141,7 +141,7 @@ func TestExecutionStallThresholdAndCoreReadiness(t *testing.T) {
 
 func TestMissingExecutionPodClearsStaleCoreReadiness(t *testing.T) {
 	group, ns, definition, w, template := testutil.Fixture()
-	kube, scheme := testutil.Client(t, definition, nativeTemplate(definition, template), group, ns, w)
+	kube, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, template), group, ns, w)
 	r := &Reconciler{Client: kube, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	pod := ownedExecutionPod(t, kube, w)

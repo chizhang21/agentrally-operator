@@ -1,8 +1,8 @@
 # Installation
 
 Use Helm 3.17 or later and an account that can create and update CRDs and cluster RBAC.
-Install one Arally Operator release per cluster.
-The chart installs and upgrades Arally's CRDs as part of that release.
+Install one AgentRally Operator release per cluster.
+The chart installs and upgrades AgentRally's CRDs as part of that release.
 
 CI images and the default chart target Linux amd64 nodes.
 Custom images for other architectures require a matching node selector.
@@ -18,7 +18,7 @@ The OCI commands below require an accessible, published Chart version.
 
 ### Install upstream agent-sandbox
 
-Arally needs agent-sandbox Core and Extensions.
+AgentRally needs agent-sandbox Core and Extensions.
 Install both using the
 [official combined manifest](https://github.com/kubernetes-sigs/agent-sandbox/tree/v1.0.5#installation):
 
@@ -29,7 +29,7 @@ kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controll
 
 This creates the `agent-sandbox-system` namespace, four CRDs, RBAC and one controller
 with Extensions enabled.
-Arally's API adapter uses v1.0.5.
+AgentRally's API adapter uses v1.0.5.
 
 Helm does not install or check these dependencies.
 Missing `Sandbox` or `SandboxTemplate` APIs prevent normal Operator startup;
@@ -37,12 +37,12 @@ installation with `--wait` then times out.
 Missing `SandboxClaim` or `SandboxWarmPool` APIs block allocation with
 `PoolUnavailable`.
 
-If all CRDs exist but the upstream controller is unavailable, Arally can start, but new
+If all CRDs exist but the upstream controller is unavailable, AgentRally can start, but new
 AgentInstances wait for allocation and eventually time out.
 
 The readiness probe does not verify upstream controller health.
 
-### Install Arally
+### Install AgentRally
 
 For an OCI installation, replace `x.y.z` with an accessible, published Chart version.
 See [CI packaging](ci.md) for the current distribution workflow.
@@ -58,7 +58,7 @@ Add `-f myvalues.yaml` for custom values.
 
 If CRDs remain from a previous uninstall, add `--take-ownership` to adopt them, using
 the same release name and namespace.
-Use adoption only for resources belonging to your Arally installation.
+Use adoption only for resources belonging to your AgentRally installation.
 
 `--wait --timeout 5m` waits up to five minutes for the release's workloads and
 dependencies to be ready.
@@ -67,7 +67,7 @@ The Operator creates `ClusterCapabilities/cluster` automatically.
 
 Snapshot-initialized workspaces additionally need the VolumeSnapshot CRDs, snapshot
 controller and a compatible CSI driver.
-Arally reads this API only for instances using snapshot sources; it is not a startup
+AgentRally reads this API only for instances using snapshot sources; it is not a startup
 dependency.
 See [workspace initialization](usage.md#initialize-from-a-volumesnapshot).
 
@@ -75,7 +75,7 @@ See [chart values](../chart/values.yaml) for available settings, and
 [Connector setup](outbound-connector.md#installation) for backend integration.
 Continue with [deploying an agent](usage.md).
 
-### Upgrade Arally
+### Upgrade AgentRally
 
 For an OCI installation, select the published Chart version to install.
 For a local archive, use [Updating a dev build](#updating-a-dev-build).
@@ -91,9 +91,9 @@ This updates the Operator and CRDs together.
 `--reset-then-reuse-values` uses the new chart defaults and preserves previous explicit
 settings, including pull Secrets.
 Pass `-f` or `--set` to change those settings.
-If existing Arally CRDs are outside the release, add `--take-ownership` for the first
+If existing AgentRally CRDs are outside the release, add `--take-ownership` for the first
 upgrade.
-No separate `kubectl apply` of Arally CRDs is needed.
+No separate `kubectl apply` of AgentRally CRDs is needed.
 
 Uninstall retains CRDs and Agent resources.
 Clean up Agents and Groups while the Operator is still running; see
@@ -157,7 +157,7 @@ helm upgrade arally-operator "$CHART_PACKAGE" \
   -n arally-system --reset-then-reuse-values --wait --timeout 5m
 ```
 
-This uses the [same upgrade behavior](#upgrade-arally) as a published chart, preserving
+This uses the [same upgrade behavior](#upgrade-agentrally) as a published chart, preserving
 explicit settings such as `imagePullSecrets`.
 Explicit image overrides also carry over; update them with `--set` if the image
 reference changed.

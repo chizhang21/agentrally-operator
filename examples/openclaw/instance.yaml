@@ -2,7 +2,7 @@ apiVersion: arally.io/v1alpha1
 kind: AgentInstance
 metadata:
   name: alice
-  namespace: arally-openclaw
+  namespace: agentrally-openclaw
 spec:
   agentGroupRef:
     name: openclaw

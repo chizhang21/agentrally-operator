@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/capabilities"
-	"arally/operator/internal/diagnostics"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/capabilities"
+	"agentrally/operator/internal/diagnostics"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"

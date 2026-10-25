@@ -3,8 +3,8 @@ package agentgroup
 import (
 	"context"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -34,9 +34,9 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 	if ns.DeletionTimestamp != nil {
 		return false, "NamespaceTerminating", "Waiting for the dedicated namespace to finish deletion", nil
 	}
-	quota := &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: "arally-quota", Namespace: ns.Name}}
-	limits := &corev1.LimitRange{ObjectMeta: metav1.ObjectMeta{Name: "arally-limits", Namespace: ns.Name}}
-	policy := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "arally-group-policy", Namespace: ns.Name}}
+	quota := &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: "agentrally-quota", Namespace: ns.Name}}
+	limits := &corev1.LimitRange{ObjectMeta: metav1.ObjectMeta{Name: "agentrally-limits", Namespace: ns.Name}}
+	policy := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "agentrally-group-policy", Namespace: ns.Name}}
 	if group.Spec.LimitRange != nil {
 		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, limits, func() error {
 			if err := controller.PrepareOwned(limits, group, r.Scheme); err != nil {

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,7 +43,7 @@ func interactionName(w *v1.AgentInstance) string {
 	}
 	hash := sha256.Sum256([]byte(w.Name))
 	base := strings.ReplaceAll(w.Name, ".", "-")
-	const prefix = "arally-"
+	const prefix = "agentrally-"
 	hashSuffix := fmt.Sprintf("-%x", hash[:8])
 	maxBaseLength := 63 - len(prefix) - len(hashSuffix) - len(suffix)
 	if len(base) > maxBaseLength {

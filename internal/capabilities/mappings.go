@@ -1,6 +1,6 @@
 package capabilities
 
-import v1 "arally/operator/api/v1alpha1"
+import v1 "agentrally/operator/api/v1alpha1"
 
 func applyMappings(status *v1.ClusterCapabilitiesStatus, spec v1.ClusterCapabilitiesSpec, section Section) {
 	if section == Runtime {

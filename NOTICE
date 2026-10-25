@@ -1,5 +1,5 @@
 AgentRally Operator
-Copyright 2026 Arally contributors
+Copyright 2026 AgentRally contributors
 
 Includes Apache-2.0 Operator SDK / Kubebuilder generated scaffolding.
 Linked Kubernetes and controller-runtime dependencies retain their own licenses.

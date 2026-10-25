@@ -1,4 +1,4 @@
-// Package connector transports native Arally CRs without a second domain model.
+// Package connector transports native AgentRally CRs without a second domain model.
 package connector
 
 import (

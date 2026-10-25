@@ -71,11 +71,11 @@ AgentRally 通过 agent-sandbox 将该选择传递到执行 Pod。
 以下命令构建 Linux amd64 镜像，与 Chart 默认节点选择器一致。
 
 ```sh
-git clone https://github.com/chizhang21/arally-operator.git
-cd arally-operator
+git clone https://github.com/chizhang21/agentrally-operator.git
+cd agentrally-operator
 
 make configure VERSION=0.0.0-dev \
-  IMAGE_TAG_BASE=registry.example.com/your-team/arally-operator
+  IMAGE_TAG_BASE=registry.example.com/your-team/agentrally-operator
 DOCKER_DEFAULT_PLATFORM=linux/amd64 make docker-build
 make docker-push
 make chart-package
@@ -87,8 +87,8 @@ make chart-package
 并按说明为以下命令添加 `imagePullSecrets` 参数。
 
 ```sh
-helm install arally-operator ./dist/arally-operator-0.0.0-dev.tgz \
-  -n arally-system --create-namespace --wait --timeout 5m
+helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
+  -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 
 ### 3. 部署 Agent
@@ -102,9 +102,9 @@ helm install arally-operator ./dist/arally-operator-0.0.0-dev.tgz \
 kubectl apply -f examples/base/group.yaml
 kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
 kubectl apply -f examples/base/definition.yaml
-kubectl -n arally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
+kubectl -n agentrally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/base/agent.yaml
-kubectl -n arally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
+kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
 ```
 
 凭据、持久存储和 HTTP 入口配置见[专题示例](examples/README.md)。
@@ -112,7 +112,7 @@ kubectl -n arally-demo wait agentinstance/demo-agent --for=condition=Ready --tim
 如果 Agent 未就绪，先查看它的条件和事件：
 
 ```sh
-kubectl -n arally-demo describe agentinstance demo-agent
+kubectl -n agentrally-demo describe agentinstance demo-agent
 ```
 
 各诊断原因的含义见[诊断说明](docs/usage.md#status-and-diagnostics)。

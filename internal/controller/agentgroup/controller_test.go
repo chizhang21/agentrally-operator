@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -46,7 +46,7 @@ func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
 	}
 	testutil.Condition(t, current.Status.Conditions, "Ready", metav1.ConditionFalse)
 	quota := &corev1.ResourceQuota{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "arally-quota"}, quota); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "agentrally-quota"}, quota); err != nil {
 		t.Fatal(err)
 	}
 	quota.Status.Hard = quota.Spec.Hard.DeepCopy()
@@ -55,7 +55,7 @@ func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := &networkingv1.NetworkPolicy{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "arally-group-policy"}, policy); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "agentrally-group-policy"}, policy); err != nil {
 		t.Fatal(err)
 	}
 	policy.Spec.PolicyTypes = []networkingv1.PolicyType{networkingv1.PolicyTypeEgress}
@@ -70,7 +70,7 @@ func TestGroupReconcilesPolicyQuotaAndProtectsNamespaceDeletion(t *testing.T) {
 	limits := &corev1.LimitRange{}
 	expectedLimits := group.Spec.LimitRange.DeepCopy()
 	expectedLimits.Limits[0].DefaultRequest = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "arally-limits"}, limits); err != nil || !metav1.IsControlledBy(limits, group) || !reflect.DeepEqual(limits.Spec, *expectedLimits) {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "agentrally-limits"}, limits); err != nil || !metav1.IsControlledBy(limits, group) || !reflect.DeepEqual(limits.Spec, *expectedLimits) {
 		t.Fatalf("native LimitRange not prepared: %+v %v", limits, err)
 	}
 	current.Spec.LimitRange = nil

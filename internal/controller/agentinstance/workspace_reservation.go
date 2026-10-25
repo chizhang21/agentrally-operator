@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -24,7 +24,7 @@ const workspaceReservationReady = "arally.io/workspace-reservation-ready"
 func workspaceReservation(instance *v1.AgentInstance, binding *v1.WorkspaceBinding) *coordinationv1.Lease {
 	sum := sha256.Sum256([]byte(binding.UID))
 	return &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{
-		Name: fmt.Sprintf("arally-workspace-%x", sum[:16]), Namespace: instance.Namespace,
+		Name: fmt.Sprintf("agentrally-workspace-%x", sum[:16]), Namespace: instance.Namespace,
 		Labels: map[string]string{workspaceReservationLabel: "true"},
 	}, Spec: coordinationv1.LeaseSpec{HolderIdentity: ptr.To(string(instance.UID))}}
 }

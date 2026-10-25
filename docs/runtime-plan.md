@@ -154,7 +154,7 @@ Validation completed on 2026-10-24.
 | Complete E2E | `E2E_CNI=cilium E2E_SNAPSHOTS=true E2E_OPENCLAW=true make e2e` | 11 passed, 1 Kata-specific skip, in 1569.947 seconds |
 | Real Kata runtime | `TestKataRuntimeLifecycle` on a separately authorized existing cluster | Passed in 348.283 seconds |
 
-Both E2E runs used the matching local image through `E2E_IMAGE=arally-operator:runtime-plan-final`.
+Both E2E runs used the matching local image through `E2E_IMAGE=agentrally-operator:runtime-plan-final`.
 Its image ID was `sha256:02ca5dc4f9380e95368b3253c1999250203130639924dbd80fb12dff8091de69`.
 The 207 runtime, test and Chart source files remained unchanged throughout final acceptance.
 Both disposable clusters were deleted after their runs.

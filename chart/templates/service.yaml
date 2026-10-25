@@ -4,13 +4,13 @@ metadata:
   name: {{ .Release.Name }}-metrics
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/component: manager
-    {{- include "arally-operator.labels" . | nindent 4 }}
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
   ports:
     - name: metrics

@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/sandbox"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"

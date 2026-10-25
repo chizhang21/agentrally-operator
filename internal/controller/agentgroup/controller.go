@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/capabilities"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/capabilities"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -53,8 +53,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	if group.DeletionTimestamp != nil {
 		return r.finalize(ctx, group)
 	}
-	if problems := validation.IsDNS1123Label(group.NamespaceName()); len(problems) != 0 || !strings.HasPrefix(group.NamespaceName(), "arally-") {
-		return ctrl.Result{}, r.status(ctx, group, false, "InvalidConfiguration", "namespace must be a DNS label starting with arally-", nil)
+	if problems := validation.IsDNS1123Label(group.NamespaceName()); len(problems) != 0 || !strings.HasPrefix(group.NamespaceName(), "agentrally-") {
+		return ctrl.Result{}, r.status(ctx, group, false, "InvalidConfiguration", "namespace must be a DNS label starting with agentrally-", nil)
 	}
 	if group.Spec.PodSecurity != "" && group.Spec.PodSecurity != "Restricted" && group.Spec.PodSecurity != "Baseline" {
 		return ctrl.Result{}, r.status(ctx, group, false, "InvalidConfiguration", "podSecurity must be Restricted or Baseline", nil)
@@ -196,7 +196,7 @@ func (r *Reconciler) mapCapabilities(ctx context.Context, object client.Object) 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Client, r.Scheme = mgr.GetClient(), mgr.GetScheme()
 	r.Reader = mgr.GetAPIReader()
-	r.Recorder = mgr.GetEventRecorder("arally-agentgroup")
+	r.Recorder = mgr.GetEventRecorder("agentrally-agentgroup")
 	return ctrl.NewControllerManagedBy(mgr).For(&v1.AgentGroup{}).
 		Owns(&corev1.Namespace{}).Owns(&corev1.ResourceQuota{}).Owns(&corev1.LimitRange{}).Owns(&networkingv1.NetworkPolicy{}).
 		Watches(&v1.AgentInstance{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember), builder.WithPredicates(groupMemberChanges())).

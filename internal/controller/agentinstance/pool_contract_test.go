@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	arallyv1alpha1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	agentrallyv1alpha1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,7 +37,7 @@ func poolFixture(t *testing.T) (*unstructured.Unstructured, *unstructured.Unstru
 }
 
 func TestPoolClaimContainsOnlyAllocationReference(t *testing.T) {
-	w := &arallyv1alpha1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 253), Namespace: "agents", UID: "workload-1"}, Spec: arallyv1alpha1.AgentInstanceSpec{Provisioning: &arallyv1alpha1.AgentInstanceProvisioning{WarmPoolRef: &arallyv1alpha1.WarmPoolReference{Name: "warm"}}}}
+	w := &agentrallyv1alpha1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 253), Namespace: "agents", UID: "workload-1"}, Spec: agentrallyv1alpha1.AgentInstanceSpec{Provisioning: &agentrallyv1alpha1.AgentInstanceProvisioning{WarmPoolRef: &agentrallyv1alpha1.WarmPoolReference{Name: "warm"}}}}
 	claim := desiredPoolClaim(w)
 	if claim.GetNamespace() != w.Namespace || len(validation.IsDNS1035Label(claim.GetName())) > 0 {
 		t.Fatalf("invalid claim identity: %s/%s", claim.GetNamespace(), claim.GetName())
@@ -63,7 +63,7 @@ func TestPoolClaimContainsOnlyAllocationReference(t *testing.T) {
 		}
 	}
 	// Upgrades keep the already-recorded native Claim identity for observation/cleanup.
-	w.Status.Provisioning = &arallyv1alpha1.AgentInstanceProvisioningStatus{ClaimName: "legacy.name-claim-1234567890abcdef"}
+	w.Status.Provisioning = &agentrallyv1alpha1.AgentInstanceProvisioningStatus{ClaimName: "legacy.name-claim-1234567890abcdef"}
 	if existing := (&Reconciler{}).allocationClaim(w); existing.GetName() != w.Status.Provisioning.ClaimName {
 		t.Fatal("recorded allocation name changed during upgrade")
 	}

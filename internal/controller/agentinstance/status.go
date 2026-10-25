@@ -3,10 +3,10 @@ package agentinstance
 import (
 	"context"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -83,7 +83,7 @@ func (r *Reconciler) status(
 		if workload.Status.VolumeClaims == nil {
 			workload.Status.VolumeClaims = map[string]string{}
 		}
-		workload.Status.VolumeClaims["arally-workspace"] = config.Workspace.ClaimName
+		workload.Status.VolumeClaims["agentrally-workspace"] = config.Workspace.ClaimName
 	}
 	workload.Status.Interaction = interaction.status
 	acceptedConfigurationStatus(workload, config)

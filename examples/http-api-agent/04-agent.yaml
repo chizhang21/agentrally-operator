@@ -2,7 +2,7 @@ apiVersion: arally.io/v1alpha1
 kind: AgentInstance
 metadata:
   name: http-api-agent
-  namespace: arally-http-api-agent
+  namespace: agentrally-http-api-agent
 spec:
   agentGroupRef:
     name: http-api-agent

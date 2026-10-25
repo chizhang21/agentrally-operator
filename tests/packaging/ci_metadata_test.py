@@ -12,9 +12,9 @@ metadata = runpy.run_path(
 
 class MetadataTests(unittest.TestCase):
     def test_pr_tags_identify_checked_commit(self):
-        result = metadata("pull_request", "Owner/Arally-Operator", "a" * 40,
+        result = metadata("pull_request", "Owner/AgentRally-Operator", "a" * 40,
                           "refs/pull/123/merge", {"number": 123})
-        self.assertEqual(result, {"image": "ghcr.io/owner/arally-operator",
+        self.assertEqual(result, {"image": "ghcr.io/owner/agentrally-operator",
                                  "tag": "v0.0.0-pr.123.gaaaaaaaaaaaa",
                                  "version": "0.0.0-pr.123.gaaaaaaaaaaaa",
                                  "chart_repository": "oci://ghcr.io/owner/helm"})
@@ -27,7 +27,7 @@ class MetadataTests(unittest.TestCase):
     def test_release_and_prerelease_tags(self):
         for version in ["1.2.3", "1.0.0-rc.1"]:
             with self.subTest(version=version):
-                result = metadata("push", "owner/arally-operator", "b" * 40,
+                result = metadata("push", "owner/agentrally-operator", "b" * 40,
                                   "refs/tags/v" + version, {})
                 self.assertEqual(result["tag"], "v" + version)
                 self.assertEqual(result["version"], version)

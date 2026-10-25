@@ -35,11 +35,11 @@ kubectl apply -f examples/openclaw/group.yaml
 kubectl wait agentgroup/openclaw --for=condition=Ready --timeout=120s
 kubectl apply -f examples/openclaw/workspace.yaml
 # Supply a private token file; do not commit it.
-kubectl -n arally-openclaw create secret generic alice-gateway --from-file=token=/path/to/token
+kubectl -n agentrally-openclaw create secret generic alice-gateway --from-file=token=/path/to/token
 kubectl apply -f examples/openclaw/definition.yaml
-kubectl -n arally-openclaw wait agentdefinition/openclaw --for=condition=Ready --timeout=120s
+kubectl -n agentrally-openclaw wait agentdefinition/openclaw --for=condition=Ready --timeout=120s
 kubectl apply -f examples/openclaw/instance.yaml
-kubectl -n arally-openclaw wait agentinstance/alice --for=condition=Ready --timeout=5m
+kubectl -n agentrally-openclaw wait agentinstance/alice --for=condition=Ready --timeout=5m
 ```
 
 On an empty workspace, the startup command writes a minimal local Gateway config with
@@ -63,8 +63,8 @@ Set a new restart token to adopt the latest published revision:
 
 ```sh
 kubectl apply -f examples/openclaw/definition.yaml
-kubectl -n arally-openclaw wait agentdefinition/openclaw --for=condition=Ready --timeout=120s
-kubectl -n arally-openclaw patch agentinstance alice --type=merge \
+kubectl -n agentrally-openclaw wait agentdefinition/openclaw --for=condition=Ready --timeout=120s
+kubectl -n agentrally-openclaw patch agentinstance alice --type=merge \
   -p '{"spec":{"restartToken":"upgrade-1"}}'
 ```
 

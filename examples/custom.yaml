@@ -3,7 +3,7 @@ apiVersion: arally.io/v1alpha1
 kind: AgentInstance
 metadata:
   name: custom-agent
-  namespace: arally-demo
+  namespace: agentrally-demo
 spec:
   agentGroupRef:
     name: demo

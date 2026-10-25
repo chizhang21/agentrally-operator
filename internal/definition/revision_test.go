@@ -3,10 +3,10 @@ package definition_test
 import (
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/definition"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/definition"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,7 +14,7 @@ import (
 
 func TestRevisionIdentityCompatibility(t *testing.T) {
 	object := &v1.AgentDefinition{
-		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "arally-team", UID: "definition-uid"},
+		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "agentrally-team", UID: "definition-uid"},
 		Spec: v1.AgentDefinitionSpec{
 			AgentGroupRef: v1.AgentGroupReference{Name: "team"},
 			TemplateRef:   &v1.SandboxTemplateReference{Name: "source"},

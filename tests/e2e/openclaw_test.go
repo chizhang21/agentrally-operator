@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -144,7 +144,7 @@ func TestOpenClawLifecycle(t *testing.T) {
 	retained()
 	t.Log("Suspend/resume: new Pod, retained Sandbox/PVC/files")
 	previousRevision, previousPod := instance.Status.Definition.Revision, instance.Status.PodUID
-	definition.Spec.Container.Env = append(definition.Spec.Container.Env, corev1.EnvVar{Name: "ARALLY_OPENCLAW_E2E_REVISION", Value: "v2"})
+	definition.Spec.Container.Env = append(definition.Spec.Container.Env, corev1.EnvVar{Name: "AGENTRALLY_OPENCLAW_E2E_REVISION", Value: "v2"})
 	update(t, ctx, kube, definition)
 	await(t, "OpenClaw definition publication", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(definition), definition)
@@ -157,7 +157,7 @@ func TestOpenClawLifecycle(t *testing.T) {
 		t.Fatal("publication replaced the pinned OpenClaw execution")
 	}
 	revision := func() string {
-		return execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "node", "-e", `console.log(process.env.ARALLY_OPENCLAW_E2E_REVISION||'v1')`)
+		return execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "node", "-e", `console.log(process.env.AGENTRALLY_OPENCLAW_E2E_REVISION||'v1')`)
 	}
 	if revision() != "v1" {
 		t.Fatal("pinned OpenClaw adopted unpublished execution settings")

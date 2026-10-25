@@ -7,11 +7,11 @@ import (
 	"reflect"
 	"strings"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/podconfig"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/podconfig"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -49,7 +49,7 @@ func desiredPoolClaim(agentClaim *v1.AgentInstance) *unstructured.Unstructured {
 }
 
 // validatePoolTemplate compares the effective warm configuration before any
-// allocation. Storage is part of the shared blueprint; Arally never rewrites a
+// allocation. Storage is part of the shared blueprint; AgentRally never rewrites a
 // running warm Pod or injects per-Claim volume templates to fit a request.
 func validatePoolTemplate(pool, template *unstructured.Unstructured, config allocation.Configuration) error {
 	desired, service, claims := config.PodTemplate, config.Service, config.VolumeClaimTemplates

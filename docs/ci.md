@@ -44,7 +44,7 @@ The Chart is published beneath the owner's `helm` namespace.
 For this repository, tag `v0.1.0` produces:
 
 - Image: `ghcr.io/chizhang21/agentrally-operator:v0.1.0`
-- Chart: `oci://ghcr.io/chizhang21/helm/arally-operator`, version `0.1.0`
+- Chart: `oci://ghcr.io/chizhang21/helm/agentrally-operator`, version `0.1.0`
 - Chart `appVersion`: `0.1.0`
 
 The image contains one `/operator` binary, including the optional Connector.

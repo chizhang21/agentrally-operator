@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
+	v1 "agentrally/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"

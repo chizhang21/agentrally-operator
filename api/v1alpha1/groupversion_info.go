@@ -1,4 +1,4 @@
-// Package v1alpha1 contains API Schema definitions for the arally v1alpha1 API group.
+// Package v1alpha1 contains API Schema definitions for the AgentRally v1alpha1 API group (arally.io).
 // +kubebuilder:object:generate=true
 // +groupName=arally.io
 package v1alpha1

@@ -15,7 +15,7 @@ IMG := $(word 2,$(BUILD_IDENTITY))
 CHART_OCI_REPO := $(word 3,$(BUILD_IDENTITY))
 export VERSION IMG
 endif
-IMAGE_TAG_BASE ?= arally-operator
+IMAGE_TAG_BASE ?= agentrally-operator
 CONTAINER_TOOL ?= docker
 
 SHELL = /usr/bin/env bash -o pipefail
@@ -65,7 +65,7 @@ check: verify-generated ## Check source, generated files, tests and chart.
 	GOWORK=off go test -tags=e2e ./tests/e2e -run '^$$'
 	GOWORK=off go vet ./...
 	helm lint chart
-	helm template arally-operator chart -n arally-system >/dev/null
+	helm template agentrally-operator chart -n agentrally-system >/dev/null
 	helm lint chart --set connector.enabled=true --set connector.endpoint=https://backend.example --set connector.id=test-cluster --set connector.credentialsSecret=test-credentials
 
 clean: ## Remove build outputs and downloaded tools.
@@ -88,7 +88,7 @@ chart-package: save-build-state ## Package a versioned chart with the selected i
 	bash hack/package-chart.sh "$(IMG)" "$(CURDIR)/dist"
 
 chart-push: chart-package ## Package and push the chart to CHART_OCI_REPO.
-	helm push "$(CURDIR)/dist/arally-operator-$(VERSION).tgz" "$(CHART_OCI_REPO)"
+	helm push "$(CURDIR)/dist/agentrally-operator-$(VERSION).tgz" "$(CHART_OCI_REPO)"
 
 ##@ Tools
 

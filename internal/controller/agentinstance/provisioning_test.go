@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -69,7 +69,7 @@ func TestAgentInstancePoolAllocationUsesClaimAndCoreOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := checkClaimSandboxOwner(observed, getClaim(t, c, w)); err != nil {
-		t.Fatal("Arally adopted Claim's Sandbox")
+		t.Fatal("AgentRally adopted Claim's Sandbox")
 	}
 }
 

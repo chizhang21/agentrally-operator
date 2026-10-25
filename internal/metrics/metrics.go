@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
 
 	"github.com/prometheus/client_golang/prometheus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,7 +31,7 @@ type Observer struct {
 func New(reader client.Reader) *Observer {
 	buckets := []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800}
 	opts := func(name, help string) prometheus.HistogramOpts {
-		return prometheus.HistogramOpts{Namespace: "arally", Name: name, Help: help, Buckets: buckets}
+		return prometheus.HistogramOpts{Namespace: "agentrally", Name: name, Help: help, Buckets: buckets}
 	}
 	return &Observer{
 		reader:     reader,
@@ -39,12 +39,12 @@ func New(reader client.Reader) *Observer {
 		startup:    prometheus.NewHistogramVec(opts("agent_startup_duration_seconds", "Observed time from Pod creation to first execution availability."), []string{"launch_type"}),
 		suspension: prometheus.NewHistogram(opts("agent_suspension_duration_seconds", "Observed time from suspension submission to Core confirmation and Pod removal.")),
 		cleanup:    prometheus.NewHistogram(opts("agent_cleanup_duration_seconds", "Observed time from cleanup submission to owned allocation and access resource removal.")),
-		instances:  prometheus.NewDesc("arally_agentinstances", "Cached instance counts; states overlap.", []string{"state"}, nil),
-		pools:      prometheus.NewDesc("arally_pools", "Native pools in observed Group namespaces.", nil, nil),
-		spares:     prometheus.NewDesc("arally_pool_spare_replicas", "Desired and current-generation ready spare capacity; excludes terminating resources.", []string{"state"}, nil),
-		pvcs:       prometheus.NewDesc("arally_namespace_pvcs", "All PVCs in observed Group namespaces, including external and deleting PVCs.", nil, nil),
-		storage:    prometheus.NewDesc("arally_namespace_storage_bytes", "Requested and provisioned PVC capacity; not disk usage.", []string{"state"}, nil),
-		success:    prometheus.NewDesc("arally_observation_success", "Whether cached instance and Group collection succeeded.", nil, nil),
+		instances:  prometheus.NewDesc("agentrally_agentinstances", "Cached instance counts; states overlap.", []string{"state"}, nil),
+		pools:      prometheus.NewDesc("agentrally_pools", "Native pools in observed Group namespaces.", nil, nil),
+		spares:     prometheus.NewDesc("agentrally_pool_spare_replicas", "Desired and current-generation ready spare capacity; excludes terminating resources.", []string{"state"}, nil),
+		pvcs:       prometheus.NewDesc("agentrally_namespace_pvcs", "All PVCs in observed Group namespaces, including external and deleting PVCs.", nil, nil),
+		storage:    prometheus.NewDesc("agentrally_namespace_storage_bytes", "Requested and provisioned PVC capacity; not disk usage.", []string{"state"}, nil),
+		success:    prometheus.NewDesc("agentrally_observation_success", "Whether cached instance and Group collection succeeded.", nil, nil),
 	}
 }
 

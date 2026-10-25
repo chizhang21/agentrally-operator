@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	v1 "arally/operator/api/v1alpha1"
+	v1 "agentrally/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

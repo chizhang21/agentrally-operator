@@ -78,11 +78,11 @@ registry before building.
 These commands target Linux amd64, matching the chart's default node selector.
 
 ```sh
-git clone https://github.com/chizhang21/arally-operator.git
-cd arally-operator
+git clone https://github.com/chizhang21/agentrally-operator.git
+cd agentrally-operator
 
 make configure VERSION=0.0.0-dev \
-  IMAGE_TAG_BASE=registry.example.com/your-team/arally-operator
+  IMAGE_TAG_BASE=registry.example.com/your-team/agentrally-operator
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 make docker-build
 make docker-push
@@ -96,8 +96,8 @@ For a private Operator image, prepare
 `imagePullSecrets` option to this command.
 
 ```sh
-helm install arally-operator ./dist/arally-operator-0.0.0-dev.tgz \
-  -n arally-system --create-namespace --wait --timeout 5m
+helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
+  -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 
 ### 3. Deploy an agent
@@ -113,9 +113,9 @@ create the AgentInstance:
 kubectl apply -f examples/base/group.yaml
 kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
 kubectl apply -f examples/base/definition.yaml
-kubectl -n arally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
+kubectl -n agentrally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/base/agent.yaml
-kubectl -n arally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
+kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
 ```
 
 For credentials, persistent storage and HTTP access, follow the
@@ -124,7 +124,7 @@ For credentials, persistent storage and HTTP access, follow the
 If the agent does not become ready, inspect its conditions and events:
 
 ```sh
-kubectl -n arally-demo describe agentinstance demo-agent
+kubectl -n agentrally-demo describe agentinstance demo-agent
 ```
 
 The [diagnostics guide](docs/usage.md#status-and-diagnostics) explains the reported

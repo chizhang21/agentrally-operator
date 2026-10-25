@@ -17,11 +17,11 @@ Reference it in Helm values:
 ```yaml
 connector:
   enabled: true
-  endpoint: https://arally.example.com/
+  endpoint: https://agentrally.example.com/
   id: production-cluster
-  credentialsSecret: arally-connector-credentials
+  credentialsSecret: agentrally-connector-credentials
   # For a private backend CA:
-  caFile: /var/run/arally-connector/ca.crt
+  caFile: /var/run/agentrally-connector/ca.crt
 ```
 
 Omit `caFile` for system CA roots.

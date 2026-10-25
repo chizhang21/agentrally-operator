@@ -10,9 +10,9 @@ metadata:
   name: {{ .Release.Name }}-metrics
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/component: manager
-    {{- include "arally-operator.labels" . | nindent 4 }}
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
     {{- /* User labels extend the monitor without replacing chart identity. */}}
     {{- with omit ($monitor.labels | default dict)
       "app.kubernetes.io/name" "app.kubernetes.io/component"
@@ -23,7 +23,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: arally-operator
+      app.kubernetes.io/name: agentrally-operator
       app.kubernetes.io/instance: {{ .Release.Name | quote }}
   endpoints:
     - port: metrics

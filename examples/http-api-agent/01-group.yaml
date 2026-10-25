@@ -3,7 +3,7 @@ kind: AgentGroup
 metadata:
   name: http-api-agent
 spec:
-  namespace: arally-http-api-agent
+  namespace: agentrally-http-api-agent
   interactionDefaults:
     httpRoute:
       gatewayRef:

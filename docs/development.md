@@ -1,8 +1,7 @@
 # Development
 
-AgentRally is the product name.
-The project codename is `arally`; repository, module, image, chart and Kubernetes
-identifiers use this name.
+Use `AgentRally` in prose and `agentrally` in code, package and resource names.
+The Kubernetes API group remains `arally.io`.
 
 Run commands from the repository root.
 
@@ -78,14 +77,14 @@ Image tags add `v`; Chart versions do not.
 Build and package locally:
 
 ```sh
-make configure IMAGE_TAG_BASE=YOUR_REGISTRY/arally-operator
+make configure IMAGE_TAG_BASE=YOUR_REGISTRY/agentrally-operator
 make docker-build
 make docker-push
 make chart-package
 ```
 
 Docker stores the built image locally.
-The Chart archive is `dist/arally-operator-<VERSION>.tgz` and includes the selected
+The Chart archive is `dist/agentrally-operator-<VERSION>.tgz` and includes the selected
 image defaults.
 
 The saved record identifies outputs; it does not prove a build or push succeeded.
@@ -106,7 +105,7 @@ Set their addresses, log in, then build and upload:
 
 ```sh
 make configure \
-  IMAGE_TAG_BASE=ghcr.io/chizhang21/arally-operator \
+  IMAGE_TAG_BASE=ghcr.io/chizhang21/agentrally-operator \
   CHART_OCI_REPO=oci://ghcr.io/chizhang21/helm
 docker login ghcr.io --username chizhang21
 helm registry login ghcr.io --username chizhang21
@@ -117,9 +116,9 @@ make chart-push
 
 `chart-push` packages the archive before publishing it with Helm's native OCI format.
 `CHART_OCI_REPO` is the parent path, without a Chart name or tag; Helm adds
-`arally-operator:<VERSION>`.
+`agentrally-operator:<VERSION>`.
 The default parent is `oci://ghcr.io/chizhang21/helm`, so a dev Chart is published as
-`ghcr.io/chizhang21/helm/arally-operator:0.0.0-dev`.
+`ghcr.io/chizhang21/helm/agentrally-operator:0.0.0-dev`.
 Use `make configure CHART_OCI_REPO=oci://REGISTRY/NAMESPACE/helm` to change it.
 
 ## Tests
@@ -257,7 +256,7 @@ Successful execution validates these lifecycle paths; it is not a general securi
 For an existing Kata-enabled cluster, run only the Kata test with an explicitly confirmed context and API server:
 
 ```sh
-ARALLY_E2E_KUBECONFIG=/path/to/private-kubeconfig \
+AGENTRALLY_E2E_KUBECONFIG=/path/to/private-kubeconfig \
 E2E_KATA_CONTEXT=my-kata-cluster \
 E2E_KATA_API_SERVER=https://kubernetes.example.com:6443 \
 E2E_RUNTIME_CLASS=kata-qemu \

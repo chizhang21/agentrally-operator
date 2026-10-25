@@ -1,6 +1,6 @@
 // Package sandbox adapts the upstream Core Sandbox v1beta1 wire contract.
 // The external controller owns its CRD and Pod lifecycle. This package contains
-// only the fields Arally uses; it does not implement or fork the upstream controller.
+// only the fields AgentRally uses; it does not implement or fork the upstream controller.
 package sandbox
 
 import (
@@ -20,7 +20,7 @@ const (
 var GroupVersion = schema.GroupVersion{Group: "agents.x-k8s.io", Version: "v1beta1"}
 
 // Spec follows upstream api/v1beta1/sandbox_types.go. Core provisions the PVC
-// templates copied by Extensions; Arally only changes the requested operating mode.
+// templates copied by Extensions; AgentRally only changes the requested operating mode.
 type Spec struct {
 	PodTemplate          corev1.PodTemplateSpec                 `json:"podTemplate"`
 	VolumeClaimTemplates []corev1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplates,omitempty"`

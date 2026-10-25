@@ -4,9 +4,9 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   labels:
-    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/component: manager
-    {{- include "arally-operator.labels" . | nindent 4 }}
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
   annotations:
     helm.sh/resource-policy: keep
     meta.helm.sh/release-name: {{ .Release.Name | quote }}
@@ -202,11 +202,11 @@ spec:
                 type: object
               namespace:
                 description: |-
-                  Namespace optionally names the dedicated namespace and must start with arally-.
+                  Namespace optionally names the dedicated namespace and must start with agentrally-.
                   Omitted names are derived from the group name. Unrelated namespaces are never adopted.
                 maxLength: 63
                 minLength: 1
-                pattern: ^arally-[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                pattern: ^agentrally-[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                 type: string
                 x-kubernetes-validations:
                 - message: namespace is immutable
@@ -693,7 +693,7 @@ spec:
                 type: string
               prewarming:
                 description: |-
-                  Prewarming controls only Arally-managed pools. Omitted preserves manual
+                  Prewarming controls only AgentRally-managed pools. Omitted preserves manual
                   scaling and removes unused pools immediately; external pools are never scaled.
                 properties:
                   idleTTLSeconds:

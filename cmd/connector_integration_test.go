@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"arally/operator/internal/connector"
+	"agentrally/operator/internal/connector"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

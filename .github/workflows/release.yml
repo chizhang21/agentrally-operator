@@ -20,8 +20,8 @@ jobs:
     uses: ./.github/workflows/e2e.yml
     with:
       image: ${{ needs.packages.outputs.image }}
-      image_artifact: operator-image
-      chart_artifact: operator-chart
+      image_artifact: agentrally-operator-image
+      chart_artifact: agentrally-operator-chart
   publish:
     needs: [packages]
     uses: ./.github/workflows/publish.yml

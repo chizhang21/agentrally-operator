@@ -5,7 +5,7 @@ apiVersion: arally.io/v1alpha1
 kind: AgentInstance
 metadata:
   name: builtin-agent
-  namespace: arally-demo
+  namespace: agentrally-demo
 spec:
   agentGroupRef:
     name: demo
@@ -49,6 +49,6 @@ spec:
   provisioning:
     claimTimeoutSeconds: 300
     # Optional: select an existing external pool referencing the matching
-    # Group-owned Arally configuration snapshot. Arally does not create this pool.
+    # Group-owned AgentRally configuration snapshot. AgentRally does not create this pool.
     # warmPoolRef:
     #   name: coding-pool

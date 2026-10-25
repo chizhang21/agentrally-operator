@@ -5,12 +5,12 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/controller/agentgroup"
-	"arally/operator/internal/podconfig"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/controller/agentgroup"
+	"agentrally/operator/internal/podconfig"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,14 +32,14 @@ func TestAgentInstanceDelegatesLifecycleAndPreservesCoreFields(t *testing.T) {
 	guarded := interceptor.NewClient(c, interceptor.Funcs{
 		Create: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.CreateOption) error {
 			if _, ok := o.(*corev1.Pod); ok {
-				t.Fatal("Arally created a Pod")
+				t.Fatal("AgentRally created a Pod")
 			}
 			mutations++
 			return c.Create(ctx, o, opts...)
 		},
 		Update: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.UpdateOption) error {
 			if _, ok := o.(*corev1.Pod); ok {
-				t.Fatal("Arally updated a Pod")
+				t.Fatal("AgentRally updated a Pod")
 			}
 			if u, ok := o.(*unstructured.Unstructured); ok && u.GroupVersionKind().Kind == "Sandbox" {
 				old := sandbox.Object()
@@ -55,7 +55,7 @@ func TestAgentInstanceDelegatesLifecycleAndPreservesCoreFields(t *testing.T) {
 		},
 		Delete: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.DeleteOption) error {
 			if _, ok := o.(*corev1.Pod); ok {
-				t.Fatal("Arally deleted a Pod")
+				t.Fatal("AgentRally deleted a Pod")
 			}
 			return c.Delete(ctx, o, opts...)
 		},
@@ -137,7 +137,7 @@ func TestAgentInstanceDelegatesLifecycleAndPreservesCoreFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	if original.Spec.Containers[0].Image != "example/agent:v1" {
-		t.Fatal("Arally rolled the Pod instead of delegating to Core")
+		t.Fatal("AgentRally rolled the Pod instead of delegating to Core")
 	}
 }
 
@@ -171,7 +171,7 @@ func TestModelAndWorkspaceReferencesAllowFirstConsumerAndKeepTemplate(t *testing
 			}
 		}
 	}
-	if !found || len(template.Spec.Volumes) != 0 || len(resolved.VolumeClaimTemplates) != 1 || resolved.VolumeClaimTemplates[0].Name != "arally-workspace" || !container.VolumeMounts[0].ReadOnly {
+	if !found || len(template.Spec.Volumes) != 0 || len(resolved.VolumeClaimTemplates) != 1 || resolved.VolumeClaimTemplates[0].Name != "agentrally-workspace" || !container.VolumeMounts[0].ReadOnly {
 		t.Fatal("model/workspace wiring missing")
 	}
 	secret.Data["token"] = nil
@@ -218,7 +218,7 @@ func TestAgentInstanceDependencyBlockingAndWatchMapping(t *testing.T) {
 		})
 	}
 	group, _, definition, w, source := testutil.Fixture()
-	w.Status.VolumeClaims = map[string]string{"arally-workspace": "workspace"}
+	w.Status.VolumeClaims = map[string]string{"agentrally-workspace": "workspace"}
 	unrelated := w.DeepCopy()
 	unrelated.Name = "unrelated"
 	unrelated.Spec.Workspace = nil

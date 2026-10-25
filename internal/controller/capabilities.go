@@ -1,7 +1,7 @@
 package controller
 
 import (
-	v1 "arally/operator/api/v1alpha1"
+	v1 "agentrally/operator/api/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/event"

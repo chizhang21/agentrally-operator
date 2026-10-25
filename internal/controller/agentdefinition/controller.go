@@ -3,12 +3,12 @@ package agentdefinition
 import (
 	"context"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/definition"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/definition"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"

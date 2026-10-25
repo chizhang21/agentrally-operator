@@ -3,7 +3,7 @@ kind: AgentGroup
 metadata:
   name: demo
 spec:
-  namespace: arally-demo
+  namespace: agentrally-demo
   quota:
     hard:
       count/agentinstances.arally.io: "20"

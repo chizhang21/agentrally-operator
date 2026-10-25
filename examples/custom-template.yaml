@@ -3,7 +3,7 @@ apiVersion: extensions.agents.x-k8s.io/v1beta1
 kind: SandboxTemplate
 metadata:
   name: custom-agent
-  namespace: arally-demo
+  namespace: agentrally-demo
   labels:
     arally.io/category: generic
 spec:

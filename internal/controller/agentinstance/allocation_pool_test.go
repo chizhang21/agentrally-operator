@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/podconfig"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/podconfig"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -427,13 +427,13 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 	guarded := interceptor.NewClient(c, interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, object client.Object, opts ...client.CreateOption) error {
 		kind := object.GetObjectKind().GroupVersionKind().Kind
 		if kind == "Sandbox" {
-			t.Fatal("Arally created a Sandbox")
+			t.Fatal("AgentRally created a Sandbox")
 		}
 		if _, ok := object.(*corev1.Pod); ok {
-			t.Fatal("Arally created a Pod")
+			t.Fatal("AgentRally created a Pod")
 		}
 		if _, ok := object.(*corev1.PersistentVolumeClaim); ok {
-			t.Fatal("Arally created a PVC instead of delegating to Core")
+			t.Fatal("AgentRally created a PVC instead of delegating to Core")
 		}
 		creates = append(creates, kind)
 		selected := getAgentInstance(t, c, w).Status.Provisioning
@@ -485,7 +485,7 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 		}
 	}
 	claims, err := sandbox.TemplateVolumeClaims(template)
-	if err != nil || len(claims) != 1 || claims[0].Name != "arally-workspace" || !reflect.DeepEqual(claims[0].Spec, *w.Spec.Workspace.VolumeClaimTemplate) {
+	if err != nil || len(claims) != 1 || claims[0].Name != "agentrally-workspace" || !reflect.DeepEqual(claims[0].Spec, *w.Spec.Workspace.VolumeClaimTemplate) {
 		t.Fatal("workspace was not carried by the shared volume template", claims, err)
 	}
 	if keyRef == nil || keyRef.Name != secret.Name || keyRef.Key != "key" || pod.Spec.Containers[0].EnvFrom[0].SecretRef.Name != secret.Name || len(pod.Spec.Volumes) != 0 {
@@ -500,7 +500,7 @@ func TestMandatoryPoolCreationPrecedesClaimAndPreservesReferences(t *testing.T) 
 		t.Fatalf("pending allocation recreated resources: %v", creates)
 	}
 	if err := c.Get(ctx, client.ObjectKeyFromObject(w), sandbox.Object()); !apierrors.IsNotFound(err) {
-		t.Fatal("Arally allocated execution without upstream")
+		t.Fatal("AgentRally allocated execution without upstream")
 	}
 }
 
@@ -575,7 +575,7 @@ func TestSharedPoolKeepsEachAllocatedWorkspacePrivate(t *testing.T) {
 		reconcileWithUpstreamSimulation(t, r, claim)
 		state := getAgentInstance(t, c, claim)
 		testutil.Condition(t, state.Status.Conditions, "ConfigurationApplied", metav1.ConditionTrue)
-		pvcName := state.Status.VolumeClaims["arally-workspace"]
+		pvcName := state.Status.VolumeClaims["agentrally-workspace"]
 		if pvcName == "" || pvcName == previousPVC {
 			t.Fatal("allocations shared or failed to report a workspace PVC", state.Status.VolumeClaims)
 		}
@@ -585,7 +585,7 @@ func TestSharedPoolKeepsEachAllocatedWorkspacePrivate(t *testing.T) {
 		}
 		poolName = state.Status.Provisioning.PoolName
 		for i := range pod.Spec.Volumes {
-			if pod.Spec.Volumes[i].Name == "arally-workspace" {
+			if pod.Spec.Volumes[i].Name == "agentrally-workspace" {
 				if pod.Spec.Volumes[i].PersistentVolumeClaim.ClaimName != pvcName {
 					t.Fatal("reported workspace differs from the owned Pod mount")
 				}
@@ -858,7 +858,7 @@ func TestGroupPrunesOnlyUnusedManagedCapacityAfterPoolCleanup(t *testing.T) {
 	if prune() {
 		t.Fatal("live AgentInstance lost shared capacity")
 	}
-	// Native claims protect the pool even when the Arally AgentInstance has expired.
+	// Native claims protect the pool even when the AgentRally AgentInstance has expired.
 	state.Status.Lifecycle = &v1.AgentInstanceLifecycleStatus{ExpiredAt: ptr.To(metav1.Now())}
 	if err := c.Status().Update(ctx, state); err != nil {
 		t.Fatal(err)

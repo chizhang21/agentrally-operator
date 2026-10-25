@@ -3,8 +3,8 @@ package allocation
 import (
 	"context"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/sandbox"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Prune removes unused Arally-generated pools and snapshots, returning whether cleanup is pending.
+// Prune removes unused AgentRally-generated pools and snapshots, returning whether cleanup is pending.
 // Read current references before pruning. Pool selection is persisted before its
 // creation, so an in-flight AgentInstance protects a newly created shared pool.
 // Native Claims also protect pools if an external caller uses managed capacity.

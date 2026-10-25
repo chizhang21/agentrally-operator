@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
+	v1 "agentrally/operator/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -225,7 +225,7 @@ func TestInteractionDiscoveryAcceptsNamespaceSelectorAndNativeDefault(t *testing
 
 func TestInteractionGeneratedHostnamesAreUniqueAndBounded(t *testing.T) {
 	seen := map[string]bool{}
-	for _, identity := range []struct{ name, namespace string }{{"a-b", "arally-c"}, {"a", "arally-b-c"}, {"a.b", "arally-c"}, {strings.Repeat("a", 253), "arally-c"}, {"same", "arally-one"}, {"same", "arally-two"}} {
+	for _, identity := range []struct{ name, namespace string }{{"a-b", "agentrally-c"}, {"a", "agentrally-b-c"}, {"a.b", "agentrally-c"}, {strings.Repeat("a", 253), "agentrally-c"}, {"same", "agentrally-one"}, {"same", "agentrally-two"}} {
 		w := &v1.AgentInstance{}
 		w.Name = identity.name
 		w.Namespace = identity.namespace

@@ -14,7 +14,7 @@ For a public image, skip that file and remove `container.imagePullSecrets`.
 The Group uses an existing `gateway-system/shared` Gateway with an HTTPS listener named
 `https`.
 Change these defaults to match your Gateway.
-It must allow HTTPRoutes from `arally-http-api-agent`; point `*.agents.example.com` at
+It must allow HTTPRoutes from `agentrally-http-api-agent`; point `*.agents.example.com` at
 its address and configure a matching TLS certificate.
 
 If the Gateway proxy runs in a different namespace, update the Group's NetworkPolicy
@@ -26,11 +26,11 @@ kubectl wait agentgroup/http-api-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/http-api-agent/02-agent-secret.yaml
 kubectl apply -f examples/http-api-agent/03-registry-secret.yaml
 kubectl apply -f examples/http-api-agent/04-agent-definition.yaml
-kubectl -n arally-http-api-agent wait agentdefinition/http-api-agent --for=condition=Ready --timeout=120s
+kubectl -n agentrally-http-api-agent wait agentdefinition/http-api-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/http-api-agent/04-agent.yaml
-kubectl -n arally-http-api-agent wait agentinstance/http-api-agent --for=condition=Ready --timeout=5m
-kubectl -n arally-http-api-agent wait agentinstance/http-api-agent --for=condition=InteractionReady --timeout=5m
-kubectl -n arally-http-api-agent get agentinstance http-api-agent -o jsonpath='{.status.interaction.url}{"\n"}'
+kubectl -n agentrally-http-api-agent wait agentinstance/http-api-agent --for=condition=Ready --timeout=5m
+kubectl -n agentrally-http-api-agent wait agentinstance/http-api-agent --for=condition=InteractionReady --timeout=5m
+kubectl -n agentrally-http-api-agent get agentinstance http-api-agent -o jsonpath='{.status.interaction.url}{"\n"}'
 ```
 
 For an application using Bearer authentication, use the Secret's `API_TOKEN` value when

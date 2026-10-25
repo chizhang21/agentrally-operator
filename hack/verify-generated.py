@@ -15,7 +15,7 @@ def snapshot(directory):
             for pattern in patterns for p in directory.glob(pattern)}
 
 before = snapshot(root)
-with tempfile.TemporaryDirectory(prefix='arally-generated-') as temporary:
+with tempfile.TemporaryDirectory(prefix='agentrally-generated-') as temporary:
     stage = Path(temporary)
     for name in ('api', 'internal', 'cmd', 'hack', 'mk', 'Makefile', 'go.mod', 'go.sum'):
         source = root / name

@@ -32,11 +32,11 @@ spec:
     workingDir: /workspace
     volumeMounts:
     - mountPath: /workspace
-      name: arally-workspace
+      name: agentrally-workspace
     - mountPath: /dev/shm
       name: browser-shm
     - mountPath: /tmp
-      name: arally-tmp
+      name: agentrally-tmp
   terminationGracePeriodSeconds: 30
   restartPolicy: Always
   securityContext:
@@ -45,10 +45,10 @@ spec:
       type: RuntimeDefault
   volumes:
   - emptyDir: {}
-    name: arally-tmp
+    name: agentrally-tmp
   - name: browser-shm
     emptyDir:
       medium: Memory
       sizeLimit: 512Mi
-  - name: arally-workspace
+  - name: agentrally-workspace
     emptyDir: {}

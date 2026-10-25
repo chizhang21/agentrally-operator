@@ -30,7 +30,7 @@ func TestChartExcludesLocalCredentials(t *testing.T) {
 		}
 	}
 	version := buildVersionedChart(t, stage, "1.2.3")
-	file, err := os.Open(filepath.Join(stage, "dist", "arally-operator-"+version+".tgz"))
+	file, err := os.Open(filepath.Join(stage, "dist", "agentrally-operator-"+version+".tgz"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +66,9 @@ func TestVersionedCharts(t *testing.T) {
 		t.Run("version="+version, func(t *testing.T) {
 			before := sourceSnapshot(t, stage)
 			actual := buildVersionedChart(t, stage, version)
-			archive := filepath.Join(stage, "dist", "arally-operator-"+actual+".tgz")
+			archive := filepath.Join(stage, "dist", "agentrally-operator-"+actual+".tgz")
 			verifyChartVersion(t, archive, actual)
-			verifyPackagedResources(t, archive, "registry.example.com:5000/arally-operator:v"+actual)
+			verifyPackagedResources(t, archive, "registry.example.com:5000/agentrally-operator:v"+actual)
 			if !reflect.DeepEqual(before, sourceSnapshot(t, stage)) {
 				t.Fatal("packaging modified source files")
 			}
@@ -85,7 +85,7 @@ func TestChartReusesSavedImage(t *testing.T) {
 	} {
 		runMake(t, stage, arguments...)
 	}
-	archive := filepath.Join(stage, "dist", "arally-operator-1.2.3.tgz")
+	archive := filepath.Join(stage, "dist", "agentrally-operator-1.2.3.tgz")
 	verifyChartVersion(t, archive, "1.2.3")
 	verifyPackagedResources(t, archive, "registry.example.com:5000/operator:custom")
 	if !reflect.DeepEqual(before, sourceSnapshot(t, stage)) {
@@ -95,7 +95,7 @@ func TestChartReusesSavedImage(t *testing.T) {
 
 func buildVersionedChart(t *testing.T, stage, version string) string {
 	t.Helper()
-	args := []string{"version", "chart-package", "IMAGE_TAG_BASE=registry.example.com:5000/arally-operator"}
+	args := []string{"version", "chart-package", "IMAGE_TAG_BASE=registry.example.com:5000/agentrally-operator"}
 	if version != "" {
 		args = append(args, "VERSION="+version)
 	}
@@ -125,7 +125,7 @@ func verifyChartVersion(t *testing.T, archive, version string) {
 	}
 	var deployment appsv1.Deployment
 	objects := renderChartObjects(t, archive)
-	if err := yaml.Unmarshal(objects["Deployment/arally-operator"], &deployment); err != nil {
+	if err := yaml.Unmarshal(objects["Deployment/agentrally-operator"], &deployment); err != nil {
 		t.Fatal(err)
 	}
 	for key, value := range deployment.Spec.Template.Labels {
@@ -160,11 +160,11 @@ func verifyPackagedResources(t *testing.T, archive, image string) {
 	if _, ok := objects["ClusterCapabilities/cluster"]; ok {
 		t.Fatal("report bootstrap must wait for CRD registration in the controller")
 	}
-	if _, ok := objects["ClusterRole/arally-operator-arally-system"]; !ok {
+	if _, ok := objects["ClusterRole/agentrally-operator-agentrally-system"]; !ok {
 		t.Fatal("chart archive omitted manager RBAC")
 	}
 	var deployment appsv1.Deployment
-	if err := yaml.Unmarshal(objects["Deployment/arally-operator"], &deployment); err != nil {
+	if err := yaml.Unmarshal(objects["Deployment/agentrally-operator"], &deployment); err != nil {
 		t.Fatal(err)
 	}
 	containers := deployment.Spec.Template.Spec.Containers
@@ -177,14 +177,14 @@ func verifyPackagedResources(t *testing.T, archive, image string) {
 func TestChartBuildPreservesSourceConfiguration(t *testing.T) {
 	stage, _ := packageStage(t)
 	before := sourceSnapshot(t, stage)
-	for _, image := range []string{"registry.example.com/arally-operator:custom", "registry.example.com/arally-operator@sha256:" + strings.Repeat("a", 64)} {
+	for _, image := range []string{"registry.example.com/agentrally-operator:custom", "registry.example.com/agentrally-operator@sha256:" + strings.Repeat("a", 64)} {
 		command := exec.Command("bash", "hack/package-chart.sh", image, filepath.Join(stage, "dist"))
 		command.Dir = stage
 		command.Env = append(os.Environ(), "VERSION=1.2.3")
 		if out, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("chart package: %v\n%s", err, out)
 		}
-		archive := filepath.Join(stage, "dist", "arally-operator-1.2.3.tgz")
+		archive := filepath.Join(stage, "dist", "agentrally-operator-1.2.3.tgz")
 		verifyPackagedResources(t, archive, image)
 	}
 	if !reflect.DeepEqual(before, sourceSnapshot(t, stage)) {

@@ -31,20 +31,20 @@ jobs:
         run: test "$GITHUB_REF" = "refs/tags/v$VERSION"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: operator-image
+          name: agentrally-operator-image
           path: dist/image
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: operator-chart
+          name: agentrally-operator-chart
           path: dist/chart
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.19.0
       - name: Load and inspect the built packages
         run: |
-          docker image load --input dist/image/operator-image.tar
+          docker image load --input dist/image/agentrally-operator-image.tar
           docker image inspect "$IMAGE" >/dev/null
-          helm show chart "dist/chart/arally-operator-${VERSION}.tgz"
+          helm show chart "dist/chart/agentrally-operator-${VERSION}.tgz"
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -58,5 +58,5 @@ jobs:
         run: |
           printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USERNAME" --password-stdin
           docker image push "$IMAGE"
-          helm push "dist/chart/arally-operator-${VERSION}.tgz" "$CHART_REPOSITORY"
-          printf 'Image: %s\nChart: %s/arally-operator:%s\n' "$IMAGE" "$CHART_REPOSITORY" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          helm push "dist/chart/agentrally-operator-${VERSION}.tgz" "$CHART_REPOSITORY"
+          printf 'Image: %s\nChart: %s/agentrally-operator:%s\n' "$IMAGE" "$CHART_REPOSITORY" "$VERSION" >> "$GITHUB_STEP_SUMMARY"

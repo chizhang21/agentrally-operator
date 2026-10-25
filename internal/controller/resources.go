@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-// CheckOwner rejects resources without the expected Arally controller owner UID.
+// CheckOwner rejects resources without the expected AgentRally controller owner UID.
 func CheckOwner(object, owner client.Object) error {
 	ref := metav1.GetControllerOf(object)
 	if ref == nil || ref.UID != owner.GetUID() || ref.APIVersion != v1.GroupVersion.String() {

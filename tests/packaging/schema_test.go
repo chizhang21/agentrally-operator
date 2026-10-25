@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
+	v1 "agentrally/operator/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
@@ -115,7 +115,7 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 					Provisioning: &v1.AgentInstanceProvisioningStatus{Mode: "Pool", PoolName: "pool", TemplateName: "snapshot", ConfigurationRevision: "revision", ClaimName: "claim", StartedAt: &now, CompletedAt: &now, TimedOutAt: &now, LaunchType: "warm"},
 					Timings:      &v1.AgentInstanceTimings{PodCreatedAt: &now, PodReadyAt: &now, SuspensionStartedAt: &now, SuspendedAt: &now, CleanupStartedAt: &now, CleanupCompletedAt: &now}}
 				workload.Status.Interaction = &v1.InteractionEndpointStatus{ServiceName: "access", RouteName: "access", URL: "https://agent.example.com", Port: 8080, GatewayRef: workload.Spec.Interaction.GatewayRef.DeepCopy()}
-				workload.Status.VolumeClaims = map[string]string{"arally-workspace": "arally-workspace-instance"}
+				workload.Status.VolumeClaims = map[string]string{"agentrally-workspace": "agentrally-workspace-instance"}
 				object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(workload)
 				if err != nil {
 					t.Fatal(err)
@@ -482,7 +482,7 @@ func TestBuiltinTemplateAdmission(t *testing.T) {
 
 func TestGroupNamespaceAdmission(t *testing.T) {
 	accepts := admissionChecker(t, "agentgroups")
-	if !accepts(map[string]interface{}{}) || !accepts(map[string]interface{}{"namespace": "arally-demo"}) || accepts(map[string]interface{}{"namespace": "default"}) || accepts(map[string]interface{}{"podSecurity": "Privileged"}) {
+	if !accepts(map[string]interface{}{}) || !accepts(map[string]interface{}{"namespace": "agentrally-demo"}) || accepts(map[string]interface{}{"namespace": "default"}) || accepts(map[string]interface{}{"podSecurity": "Privileged"}) {
 		t.Fatal("namespace/security admission does not enforce the group contract")
 	}
 }

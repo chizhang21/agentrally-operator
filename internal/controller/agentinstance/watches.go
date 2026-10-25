@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -118,7 +118,7 @@ func (r *Reconciler) mapClaimSandbox(ctx context.Context, object client.Object) 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Client, r.Scheme = mgr.GetClient(), mgr.GetScheme()
 	r.Reader = mgr.GetAPIReader()
-	r.Recorder = mgr.GetEventRecorder("arally-agentinstance")
+	r.Recorder = mgr.GetEventRecorder("agentrally-agentinstance")
 	if r.Scheme == nil {
 		return fmt.Errorf("manager scheme is required")
 	}

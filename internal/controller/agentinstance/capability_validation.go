@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/capabilities"
-	"arally/operator/internal/controller"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/capabilities"
+	"agentrally/operator/internal/controller"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"

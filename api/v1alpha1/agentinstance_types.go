@@ -163,7 +163,7 @@ type WarmPoolReference struct {
 }
 
 // AgentInstanceProvisioning configures mandatory upstream pool allocation.
-// When omitted, Arally creates or reuses a configuration-specific pool.
+// When omitted, AgentRally creates or reuses a configuration-specific pool.
 // +kubebuilder:validation:XValidation:rule="has(self.warmPoolRef) == has(oldSelf.warmPoolRef)",message="warmPoolRef cannot be added or removed after creation"
 type AgentInstanceProvisioning struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="warmPoolRef is immutable"

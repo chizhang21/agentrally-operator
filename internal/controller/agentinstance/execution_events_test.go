@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"arally/operator/internal/testutil"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -99,7 +99,7 @@ func TestExecutionEventsReachAgentInstance(t *testing.T) {
 
 func TestExecutionEventEvidenceDoesNotOutliveProgress(t *testing.T) {
 	now := time.Now().UTC()
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "arally-demo", UID: types.UID("current-pod"), CreationTimestamp: metav1.NewTime(now.Add(-time.Minute))}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "agentrally-demo", UID: types.UID("current-pod"), CreationTimestamp: metav1.NewTime(now.Add(-time.Minute))}}
 	failure := podEvent(pod, "failure", "FailedMount", now)
 	wrongUID := failure.DeepCopy()
 	wrongUID.InvolvedObject.UID = "previous-pod"

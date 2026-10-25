@@ -38,7 +38,7 @@ func TestHelmManagesCRDs(t *testing.T) {
 				if actual.Annotations["helm.sh/resource-policy"] != "keep" || actual.Annotations["helm.sh/hook"] != "" {
 					t.Fatalf("CRD must be retained and managed without hooks: %s", name)
 				}
-				if actual.Labels["app.kubernetes.io/managed-by"] != "Helm" || actual.Annotations["meta.helm.sh/release-name"] != "arally-operator" || actual.Annotations["meta.helm.sh/release-namespace"] != "arally-system" {
+				if actual.Labels["app.kubernetes.io/managed-by"] != "Helm" || actual.Annotations["meta.helm.sh/release-name"] != "agentrally-operator" || actual.Annotations["meta.helm.sh/release-namespace"] != "agentrally-system" {
 					t.Fatalf("CRD release ownership missing: %s", name)
 				}
 			}

@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
+	v1 "agentrally/operator/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -146,8 +146,8 @@ func TestClusterCapabilities(t *testing.T) {
 		t.Fatal("runtime probe did not execute", got)
 	}
 	before := report.Status.Sections[0].LastSuccessAt.DeepCopy()
-	kubectl(t, kubeconfig, "-n", "arally-system", "rollout", "restart", "deployment/arally-operator")
-	kubectl(t, kubeconfig, "-n", "arally-system", "rollout", "status", "deployment/arally-operator", "--timeout=180s")
+	kubectl(t, kubeconfig, "-n", "agentrally-system", "rollout", "restart", "deployment/agentrally-operator")
+	kubectl(t, kubeconfig, "-n", "agentrally-system", "rollout", "status", "deployment/agentrally-operator", "--timeout=180s")
 	await(t, "replacement manager's fresh direct audit", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKey{Name: "cluster"}, report)
 		return len(report.Status.Sections) == 3 && report.Status.Sections[0].LastSuccessAt != nil && report.Status.Sections[0].LastSuccessAt.After(before.Time), err

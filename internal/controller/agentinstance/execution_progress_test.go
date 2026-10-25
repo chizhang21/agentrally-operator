@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -32,7 +32,7 @@ func TestExecutionSuspensionShowsTerminatingPodAndStall(t *testing.T) {
 	}
 	reconcileWithUpstreamSimulation(t, r, w)
 	assertReason(t, getAgentInstance(t, c, w), "Ready", "Suspending")
-	// Only the test simulates Core deleting the Pod; Arally does not delete it.
+	// Only the test simulates Core deleting the Pod; AgentRally does not delete it.
 	if err := c.Delete(ctx, pod); err != nil {
 		t.Fatal(err)
 	}

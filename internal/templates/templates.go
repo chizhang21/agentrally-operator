@@ -7,8 +7,8 @@ import (
 	"embed"
 	"strings"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
@@ -78,7 +78,7 @@ func replaceEnv(container *corev1.Container, value corev1.EnvVar) {
 func removeEphemeralWorkspace(pod *corev1.PodTemplateSpec) {
 	volumes := pod.Spec.Volumes[:0]
 	for _, volume := range pod.Spec.Volumes {
-		if volume.Name != "arally-workspace" {
+		if volume.Name != "agentrally-workspace" {
 			volumes = append(volumes, volume)
 		}
 	}
@@ -86,7 +86,7 @@ func removeEphemeralWorkspace(pod *corev1.PodTemplateSpec) {
 	container := &pod.Spec.Containers[0]
 	mounts := container.VolumeMounts[:0]
 	for _, mount := range container.VolumeMounts {
-		if mount.Name != "arally-workspace" {
+		if mount.Name != "agentrally-workspace" {
 			mounts = append(mounts, mount)
 		}
 	}

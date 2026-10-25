@@ -3,6 +3,6 @@ kind: AgentGroup
 metadata:
   name: openclaw
 spec:
-  namespace: arally-openclaw
+  namespace: agentrally-openclaw
   prewarming:
     replicas: 0

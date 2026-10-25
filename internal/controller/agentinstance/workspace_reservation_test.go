@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/testutil"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

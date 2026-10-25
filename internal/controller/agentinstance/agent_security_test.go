@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

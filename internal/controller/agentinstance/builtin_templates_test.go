@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -61,11 +61,11 @@ func TestBuiltinRuntimePreservesSecretReferencesAndWorkspace(t *testing.T) {
 		t.Fatal("Secret references were lost")
 	}
 	for _, volume := range pod.Spec.Volumes {
-		if volume.Name == "arally-workspace" {
+		if volume.Name == "agentrally-workspace" {
 			t.Fatal("workspace must be provisioned per Sandbox instead of pre-bound in the Pod template")
 		}
 	}
-	if len(resolved.VolumeClaimTemplates) != 1 || resolved.VolumeClaimTemplates[0].Name != "arally-workspace" {
+	if len(resolved.VolumeClaimTemplates) != 1 || resolved.VolumeClaimTemplates[0].Name != "agentrally-workspace" {
 		t.Fatal("workspace must have exactly one PVC template")
 	}
 	r := &Reconciler{Client: c}

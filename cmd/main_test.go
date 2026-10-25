@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"arally/operator/internal/sandbox"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -33,16 +33,16 @@ func TestManagerClientDoesNotCacheSecrets(t *testing.T) {
 	var requests atomic.Int32
 	httpClient := &http.Client{Transport: apiTransport(func(r *http.Request) (*http.Response, error) {
 		requests.Add(1)
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/namespaces/arally-demo/secrets/credentials" {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/namespaces/agentrally-demo/secrets/credentials" {
 			t.Errorf("unexpected API request: %s %s", r.Method, r.URL.Path)
 		}
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"apiVersion":"v1","kind":"Secret","metadata":{"name":"credentials","namespace":"arally-demo"},"data":{"token":"dGVzdA=="}}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"apiVersion":"v1","kind":"Secret","metadata":{"name":"credentials","namespace":"agentrally-demo"},"data":{"token":"dGVzdA=="}}`))}, nil
 	})}
 	cfg := &rest.Config{Host: "http://api.example.test"}
 	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1.SchemeGroupVersion, sandbox.ExtensionsGroupVersion})
 	mapper.Add(corev1.SchemeGroupVersion.WithKind("Secret"), meta.RESTScopeNamespace)
 	mapper.Add(sandbox.ExtensionsGroupVersion.WithKind("SandboxTemplate"), meta.RESTScopeNamespace)
-	options := managerOptions("0", "0", "arally-system", false).Client
+	options := managerOptions("0", "0", "agentrally-system", false).Client
 	options.Scheme, options.Mapper, options.HTTPClient = scheme, mapper, httpClient
 	cached, err := cache.New(cfg, cache.Options{Scheme: scheme, Mapper: mapper, HTTPClient: httpClient})
 	if err != nil {
@@ -55,11 +55,11 @@ func TestManagerClientDoesNotCacheSecrets(t *testing.T) {
 	}
 	// Without DisableFor, this read would require a running Secret informer.
 	secret := &corev1.Secret{}
-	if err := k8s.Get(context.Background(), client.ObjectKey{Namespace: "arally-demo", Name: "credentials"}, secret); err != nil || string(secret.Data["token"]) != "test" {
+	if err := k8s.Get(context.Background(), client.ObjectKey{Namespace: "agentrally-demo", Name: "credentials"}, secret); err != nil || string(secret.Data["token"]) != "test" {
 		t.Fatalf("reference GET failed without an informer: %v", err)
 	}
 	// Native template index lookups must use the cache, never an API list.
-	err = k8s.List(context.Background(), sandbox.ExtensionList("SandboxTemplate"), client.InNamespace("arally-demo"))
+	err = k8s.List(context.Background(), sandbox.ExtensionList("SandboxTemplate"), client.InNamespace("agentrally-demo"))
 	var notStarted *cache.ErrCacheNotStarted
 	if !errors.As(err, &notStarted) || requests.Load() != 1 {
 		t.Fatalf("unexpected cache or API use: %v (%d requests)", err, requests.Load())
@@ -78,7 +78,7 @@ func TestManagerControllerDeadlineReachesReconciler(t *testing.T) {
 		}
 		return ctrl.Result{}, nil
 	})}
-	options.DefaultFromConfig(managerOptions("0", "0", "arally-system", false).Controller)
+	options.DefaultFromConfig(managerOptions("0", "0", "agentrally-system", false).Controller)
 	worker, err := controller.NewUnmanaged("deadline-regression", options)
 	if err != nil {
 		t.Fatal(err)

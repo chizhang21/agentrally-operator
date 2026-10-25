@@ -73,11 +73,11 @@ type ExecutionPolicy struct {
 
 // +kubebuilder:validation:XValidation:rule="has(self.namespace) == has(oldSelf.namespace)",message="namespace cannot be added or removed after creation"
 type AgentGroupSpec struct {
-	// Namespace optionally names the dedicated namespace and must start with arally-.
+	// Namespace optionally names the dedicated namespace and must start with agentrally-.
 	// Omitted names are derived from the group name. Unrelated namespaces are never adopted.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern="^arally-[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+	// +kubebuilder:validation:Pattern="^agentrally-[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="namespace is immutable"
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
@@ -97,7 +97,7 @@ type AgentGroupSpec struct {
 	// executions, suspension and cleanup continue normally.
 	// +optional
 	AllocationPaused bool `json:"allocationPaused,omitempty"`
-	// Prewarming controls only Arally-managed pools. Omitted preserves manual
+	// Prewarming controls only AgentRally-managed pools. Omitted preserves manual
 	// scaling and removes unused pools immediately; external pools are never scaled.
 	// +optional
 	Prewarming *PrewarmingPolicy `json:"prewarming,omitempty"`
@@ -119,7 +119,7 @@ func (g *AgentGroup) NamespaceName() string {
 		return g.Spec.Namespace
 	}
 	name := strings.ReplaceAll(g.Name, ".", "-")
-	const prefix = "arally-"
+	const prefix = "agentrally-"
 	const maxNameLength = 63 - len(prefix)
 	const hashSuffixLength = 9
 	if len(name) > maxNameLength || name != g.Name {

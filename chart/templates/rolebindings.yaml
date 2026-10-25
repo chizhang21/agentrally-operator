@@ -3,9 +3,9 @@ kind: ClusterRoleBinding
 metadata:
   name: {{ .Release.Name }}-{{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/component: manager
-    {{- include "arally-operator.labels" . | nindent 4 }}
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -21,9 +21,9 @@ metadata:
   name: {{ .Release.Name }}-leader-election
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/component: manager
-    {{- include "arally-operator.labels" . | nindent 4 }}
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

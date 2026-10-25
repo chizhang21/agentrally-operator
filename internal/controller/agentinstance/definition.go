@@ -3,9 +3,9 @@ package agentinstance
 import (
 	"context"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/definition"
-	"arally/operator/internal/diagnostics"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/definition"
+	"agentrally/operator/internal/diagnostics"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

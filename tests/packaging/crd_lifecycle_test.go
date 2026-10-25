@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/capabilities"
-	"arally/operator/internal/controller/agentgroup"
-	"arally/operator/internal/controller/clustercapabilities"
-	"arally/operator/internal/podconfig"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/capabilities"
+	"agentrally/operator/internal/controller/agentgroup"
+	"agentrally/operator/internal/controller/clustercapabilities"
+	"agentrally/operator/internal/podconfig"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -62,7 +62,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	})
 	kubeconfig := isolatedKubeconfig(t, cfg)
 	chart := filepath.Join(stage, "chart")
-	runHelm(t, kubeconfig, "install", "arally-operator", chart, "-n", "arally-system", "--create-namespace")
+	runHelm(t, kubeconfig, "install", "agentrally-operator", chart, "-n", "agentrally-system", "--create-namespace")
 
 	scheme := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{v1.AddToScheme, apiextensionsv1.AddToScheme, corev1.AddToScheme, appsv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme} {
@@ -88,7 +88,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	uid := verifySchemaUpgrade(t, k8s, kubeconfig, chart)
 	crd := &apiextensionsv1.CustomResourceDefinition{}
 	key := client.ObjectKey{Name: "agentinstances.arally.io"}
-	runHelm(t, kubeconfig, "uninstall", "arally-operator", "-n", "arally-system")
+	runHelm(t, kubeconfig, "uninstall", "agentrally-operator", "-n", "agentrally-system")
 	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid {
 		t.Fatalf("uninstall removed CRD: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 		t.Fatalf("uninstall removed existing AgentGroup: %v", err)
 	}
 	verifyLegacyAdoption(t, k8s, kubeconfig, chart)
-	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid || crd.Annotations["meta.helm.sh/release-name"] != "arally-legacy" || crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Description != "schema updated by helm upgrade" {
+	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid || crd.Annotations["meta.helm.sh/release-name"] != "agentrally-legacy" || crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Description != "schema updated by helm upgrade" {
 		t.Fatalf("retained CRD was not adopted in place: %v", err)
 	}
 	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(group), &v1.AgentGroup{}); err != nil {
@@ -189,7 +189,7 @@ func verifyGroupLimitRangeConvergence(t *testing.T, kube client.WithWatch, schem
 		}
 	}
 	limits := &corev1.LimitRange{}
-	if err := kube.Get(ctx, client.ObjectKey{Namespace: group.NamespaceName(), Name: "arally-limits"}, limits); err != nil {
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: group.NamespaceName(), Name: "agentrally-limits"}, limits); err != nil {
 		t.Fatal(err)
 	}
 	if len(limits.Spec.Limits[0].Default) != 0 || limits.Spec.Limits[0].DefaultRequest.Cpu().Cmp(resource.MustParse("50m")) != 0 {
@@ -286,7 +286,7 @@ func verifySchemaUpgrade(t *testing.T, k8s client.Client, kubeconfig, chart stri
 	if err := os.WriteFile(source, append([]byte(header+"\n"), data...), 0644); err != nil {
 		t.Fatal(err)
 	}
-	runHelm(t, kubeconfig, "upgrade", "arally-operator", chart, "-n", "arally-system")
+	runHelm(t, kubeconfig, "upgrade", "agentrally-operator", chart, "-n", "agentrally-system")
 	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid || crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Description != description {
 		t.Fatalf("CRD was not upgraded in place: %v", err)
 	}
@@ -314,7 +314,7 @@ func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart str
 			Spec:       *retained.Spec.DeepCopy(),
 		}
 		applied.Spec.Versions[0].Schema.OpenAPIV3Schema.Description = "schema applied before adoption"
-		if err := k8s.Patch(context.Background(), applied, client.Apply, client.FieldOwner("arally-operator-install"), client.ForceOwnership); err != nil {
+		if err := k8s.Patch(context.Background(), applied, client.Apply, client.FieldOwner("agentrally-operator-install"), client.ForceOwnership); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -338,9 +338,9 @@ func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart str
 			t.Fatal(err)
 		}
 	}
-	runHelm(t, kubeconfig, "install", "arally-legacy", legacy, "-n", "arally-system")
-	runHelm(t, kubeconfig, "upgrade", "arally-legacy", chart, "-n", "arally-system", "--take-ownership")
-	runHelm(t, kubeconfig, "upgrade", "arally-legacy", chart, "-n", "arally-system")
+	runHelm(t, kubeconfig, "install", "agentrally-legacy", legacy, "-n", "agentrally-system")
+	runHelm(t, kubeconfig, "upgrade", "agentrally-legacy", chart, "-n", "agentrally-system", "--take-ownership")
+	runHelm(t, kubeconfig, "upgrade", "agentrally-legacy", chart, "-n", "agentrally-system")
 }
 
 func isolatedKubeconfig(t *testing.T, cfg *rest.Config) string {

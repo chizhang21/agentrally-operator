@@ -1,4 +1,4 @@
-module arally/operator
+module agentrally/operator
 
 go 1.27.3
 

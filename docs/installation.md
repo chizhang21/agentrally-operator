@@ -52,9 +52,9 @@ See [CI packaging](ci.md) for the current distribution workflow.
 
 ```sh
 CHART_VERSION=x.y.z
-helm install arally-operator oci://ghcr.io/chizhang21/helm/arally-operator \
+helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
   --version "$CHART_VERSION" \
-  -n arally-system --create-namespace --wait --timeout 5m
+  -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 
 Add `-f myvalues.yaml` for custom values.
@@ -85,9 +85,9 @@ For a local archive, use [Updating a dev build](#updating-a-dev-build).
 
 ```sh
 CHART_VERSION=x.y.z
-helm upgrade arally-operator oci://ghcr.io/chizhang21/helm/arally-operator \
+helm upgrade agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
   --version "$CHART_VERSION" \
-  -n arally-system --reset-then-reuse-values --wait --timeout 5m
+  -n agentrally-system --reset-then-reuse-values --wait --timeout 5m
 ```
 
 This updates the Operator and CRDs together.
@@ -109,9 +109,9 @@ Complete [Development: Package versions](development.md#package-versions), then
 From the repository root, install the default dev archive:
 
 ```sh
-CHART_PACKAGE="./dist/arally-operator-0.0.0-dev.tgz"
-helm install arally-operator "$CHART_PACKAGE" \
-  -n arally-system --create-namespace --wait --timeout 5m
+CHART_PACKAGE="./dist/agentrally-operator-0.0.0-dev.tgz"
+helm install agentrally-operator "$CHART_PACKAGE" \
+  -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 
 If CRDs remain from a previous uninstall, add `--take-ownership` to the install command.
@@ -128,8 +128,8 @@ If your development image requires authentication, create its pull Secret before
 installing:
 
 ```sh
-kubectl create namespace arally-system --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n arally-system create secret generic registry-credentials \
+kubectl create namespace agentrally-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n agentrally-system create secret generic registry-credentials \
   --type=kubernetes.io/dockerconfigjson \
   --from-file=.dockerconfigjson=/path/to/registry-config.json
 ```
@@ -138,9 +138,9 @@ Use a Docker config containing credentials for your registry.
 Pass the Secret name directly; the packaged image settings need no overrides:
 
 ```sh
-helm install arally-operator "$CHART_PACKAGE" \
+helm install agentrally-operator "$CHART_PACKAGE" \
   --set 'imagePullSecrets[0].name=registry-credentials' \
-  -n arally-system --wait --timeout 5m
+  -n agentrally-system --wait --timeout 5m
 ```
 
 Keep the `--set` argument quoted so shells such as zsh do not expand the brackets.
@@ -155,9 +155,9 @@ Rebuild, push and package using [Development](development.md#package-versions), 
 upgrade from the new archive:
 
 ```sh
-CHART_PACKAGE="./dist/arally-operator-0.0.0-dev.tgz"
-helm upgrade arally-operator "$CHART_PACKAGE" \
-  -n arally-system --reset-then-reuse-values --wait --timeout 5m
+CHART_PACKAGE="./dist/agentrally-operator-0.0.0-dev.tgz"
+helm upgrade agentrally-operator "$CHART_PACKAGE" \
+  -n agentrally-system --reset-then-reuse-values --wait --timeout 5m
 ```
 
 This uses the [same upgrade behavior](#upgrade-agentrally) as a published chart, preserving
@@ -171,13 +171,13 @@ Its packaged pull policy is `Always`, but existing Pods need a restart to use th
 replacement image:
 
 ```sh
-kubectl -n arally-system rollout restart deployment \
-  -l app.kubernetes.io/instance=arally-operator
-kubectl -n arally-system rollout status deployment \
-  -l app.kubernetes.io/instance=arally-operator --timeout=5m
+kubectl -n agentrally-system rollout restart deployment \
+  -l app.kubernetes.io/instance=agentrally-operator
+kubectl -n agentrally-system rollout status deployment \
+  -l app.kubernetes.io/instance=agentrally-operator --timeout=5m
 ```
 
 Restarting the Operator also restarts its enabled Connector worker.
-If you used a different Helm release name, replace `arally-operator` in the selector.
+If you used a different Helm release name, replace `agentrally-operator` in the selector.
 
 [Chart configuration](../chart/README.md) covers monitoring and scheduling.

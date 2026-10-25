@@ -5,10 +5,10 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -50,7 +50,7 @@ func TestNativeTemplateIsSingleExecutionSource(t *testing.T) {
 		}
 		current := sandbox.ExtensionObject("SandboxTemplate")
 		if err := c.Get(ctx, client.ObjectKeyFromObject(object), current); err != nil || !reflect.DeepEqual(before, current) {
-			t.Fatalf("Arally mutated template: %v", err)
+			t.Fatalf("AgentRally mutated template: %v", err)
 		}
 	}
 }

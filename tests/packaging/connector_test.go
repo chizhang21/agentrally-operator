@@ -25,7 +25,7 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 		t.Fatal("manager chart lost capability report CRD")
 	}
 	for name, object := range managerOnly {
-		if name == "Deployment/arally-operator" {
+		if name == "Deployment/agentrally-operator" {
 			continue
 		}
 		if strings.Contains(name, "connector") || !reflect.DeepEqual(object, connected[name]) {
@@ -35,13 +35,13 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 	if len(connected) != len(managerOnly)+2 {
 		t.Fatal("connector introduced unexpected resources")
 	}
-	object := connected["Deployment/arally-operator"]
+	object := connected["Deployment/agentrally-operator"]
 	var deployment appsv1.Deployment
 	if object == nil || yaml.Unmarshal(object, &deployment) != nil {
 		t.Fatal("operator deployment missing")
 	}
 	pod := deployment.Spec.Template.Spec
-	if *deployment.Spec.Replicas != 2 || len(pod.Containers) != 1 || pod.ServiceAccountName != "arally-operator" {
+	if *deployment.Spec.Replicas != 2 || len(pod.Containers) != 1 || pod.ServiceAccountName != "agentrally-operator" {
 		t.Fatal("connector must run inside the operator")
 	}
 	container := pod.Containers[0]
@@ -49,12 +49,12 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 	if len(container.Command) != 0 || !reflect.DeepEqual(container.Args, expectedArgs) || !*container.SecurityContext.ReadOnlyRootFilesystem {
 		t.Fatal("connector startup/security configuration incorrect")
 	}
-	if len(pod.Volumes) != 1 || pod.Volumes[0].Secret.SecretName != "backend-credentials" || len(container.VolumeMounts) != 1 || container.VolumeMounts[0].Name != pod.Volumes[0].Name || container.VolumeMounts[0].MountPath != "/var/run/arally-connector" || !container.VolumeMounts[0].ReadOnly {
+	if len(pod.Volumes) != 1 || pod.Volumes[0].Secret.SecretName != "backend-credentials" || len(container.VolumeMounts) != 1 || container.VolumeMounts[0].Name != pod.Volumes[0].Name || container.VolumeMounts[0].MountPath != "/var/run/agentrally-connector" || !container.VolumeMounts[0].ReadOnly {
 		t.Fatal("credential must be mounted as a rotating read-only Secret")
 	}
 	// Turning the feature off removes its flags and Secret mount, not the operator.
 	var disabled appsv1.Deployment
-	if err := yaml.Unmarshal(managerOnly["Deployment/arally-operator"], &disabled); err != nil {
+	if err := yaml.Unmarshal(managerOnly["Deployment/agentrally-operator"], &disabled); err != nil {
 		t.Fatal(err)
 	}
 	pod.Volumes = nil
@@ -64,7 +64,7 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 		t.Fatal("connector changed unrelated operator settings")
 	}
 	var role rbacv1.ClusterRole
-	if yaml.Unmarshal(connected["ClusterRole/arally-operator-arally-system-connector"], &role) != nil {
+	if yaml.Unmarshal(connected["ClusterRole/agentrally-operator-agentrally-system-connector"], &role) != nil {
 		t.Fatal("invalid connector role")
 	}
 	expected := []rbacv1.PolicyRule{
@@ -75,10 +75,10 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 		t.Fatal("connector must only add the missing CR write permissions")
 	}
 	var binding rbacv1.ClusterRoleBinding
-	if err := yaml.Unmarshal(connected["ClusterRoleBinding/arally-operator-arally-system-connector"], &binding); err != nil {
+	if err := yaml.Unmarshal(connected["ClusterRoleBinding/agentrally-operator-agentrally-system-connector"], &binding); err != nil {
 		t.Fatal(err)
 	}
-	if binding.RoleRef.Name != role.Name || len(binding.Subjects) != 1 || binding.Subjects[0].Name != pod.ServiceAccountName || binding.Subjects[0].Namespace != "arally-system" {
+	if binding.RoleRef.Name != role.Name || len(binding.Subjects) != 1 || binding.Subjects[0].Name != pod.ServiceAccountName || binding.Subjects[0].Namespace != "agentrally-system" {
 		t.Fatal("connector RBAC bound to incorrect identity")
 	}
 }
@@ -89,7 +89,7 @@ func TestConnectorChartRequiresConfigurationOnlyWhenEnabled(t *testing.T) {
 		{"--set", "connector.enabled=true", "--set", "connector.endpoint=http://backend.example"},
 		{"--set", "connector.enabled=true", "--set", "connector.endpoint=https://backend.example", "--set", "connector.id=cluster"},
 	} {
-		args := append([]string{"template", "arally-operator", "../../chart", "-n", "arally-system"}, overrides...)
+		args := append([]string{"template", "agentrally-operator", "../../chart", "-n", "agentrally-system"}, overrides...)
 		if _, err := exec.Command("helm", args...).CombinedOutput(); err == nil {
 			t.Fatal("enabled connector accepted incomplete/insecure configuration")
 		}

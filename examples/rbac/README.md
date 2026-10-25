@@ -12,11 +12,11 @@ An administrator can bind the role to an existing `agent-user` ServiceAccount:
 
 ```sh
 kubectl apply -f examples/rbac/editor.yaml
-kubectl -n arally-demo create rolebinding agentinstance-editor \
-  --clusterrole=agentinstance-editor-role --serviceaccount=arally-demo:agent-user
+kubectl -n agentrally-demo create rolebinding agentinstance-editor \
+  --clusterrole=agentinstance-editor-role --serviceaccount=agentrally-demo:agent-user
 ```
 
-The RoleBinding limits access to `arally-demo`.
+The RoleBinding limits access to `agentrally-demo`.
 It grants no access to AgentGroup, ClusterCapabilities, SandboxTemplate, Secret, PVC,
 Sandbox, Pod or Namespace.
 Add permissions for those resources if the user's work requires them.

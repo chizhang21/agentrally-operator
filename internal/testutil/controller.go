@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/definition"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/definition"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -77,7 +77,7 @@ func PublishDefinitions(t *testing.T, c client.Client, scheme *runtime.Scheme) {
 }
 
 func Fixture() (*v1.AgentGroup, *corev1.Namespace, *v1.AgentDefinition, *v1.AgentInstance, *corev1.PodTemplateSpec) {
-	group := &v1.AgentGroup{ObjectMeta: metav1.ObjectMeta{Name: "team", UID: "group-uid", Generation: 1}, Spec: v1.AgentGroupSpec{Namespace: "arally-team-agents"}}
+	group := &v1.AgentGroup{ObjectMeta: metav1.ObjectMeta{Name: "team", UID: "group-uid", Generation: 1}, Spec: v1.AgentGroupSpec{Namespace: "agentrally-team-agents"}}
 	group.Status.Conditions = []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: "ResourcesPrepared", LastTransitionTime: metav1.Now()}}
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{

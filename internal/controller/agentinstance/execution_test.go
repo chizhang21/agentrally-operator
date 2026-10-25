@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -70,10 +70,10 @@ func TestAgentInstanceExplicitRestartIsPersistedAndIdempotent(t *testing.T) {
 	guarded := interceptor.NewClient(c, interceptor.Funcs{
 		Create: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.CreateOption) error {
 			if _, ok := o.(*corev1.PersistentVolumeClaim); ok {
-				t.Fatal("Arally created a PVC")
+				t.Fatal("AgentRally created a PVC")
 			}
 			if _, ok := o.(*corev1.Pod); ok {
-				t.Fatal("Arally created Pod")
+				t.Fatal("AgentRally created Pod")
 			}
 			if o.GetObjectKind().GroupVersionKind().Kind == "SandboxClaim" {
 				creates++
@@ -82,10 +82,10 @@ func TestAgentInstanceExplicitRestartIsPersistedAndIdempotent(t *testing.T) {
 		},
 		Delete: func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.DeleteOption) error {
 			if _, ok := o.(*corev1.PersistentVolumeClaim); ok {
-				t.Fatal("Arally deleted a PVC")
+				t.Fatal("AgentRally deleted a PVC")
 			}
 			if _, ok := o.(*corev1.Pod); ok {
-				t.Fatal("Arally deleted Pod")
+				t.Fatal("AgentRally deleted Pod")
 			}
 			if o.GetObjectKind().GroupVersionKind().Kind == "SandboxClaim" {
 				deletes++

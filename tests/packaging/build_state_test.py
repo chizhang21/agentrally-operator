@@ -77,7 +77,7 @@ class BuildStateTests(unittest.TestCase):
         self.make("clean")
         self.make("version")
         self.assertEqual(self.state()["version"], "0.0.0-dev")
-        self.assertTrue(self.state()["image"].startswith("arally-operator:"))
+        self.assertTrue(self.state()["image"].startswith("agentrally-operator:"))
 
     def test_invalid_override_preserves_saved_identity(self):
         self.make("version", "VERSION=1.2.3")
@@ -108,7 +108,7 @@ class BuildStateTests(unittest.TestCase):
         package.write_text(
             'printf "%s %s\\n" "$VERSION" "$1" > packaged\n'
             'mkdir -p "$2"\n'
-            'touch "$2/arally-operator-${VERSION}.tgz"\n')
+            'touch "$2/agentrally-operator-${VERSION}.tgz"\n')
 
     def test_chart_upload_reuses_version_and_does_not_push_operator_image(self):
         self.stub_chart_upload()
@@ -123,7 +123,7 @@ class BuildStateTests(unittest.TestCase):
                          f'{selected["version"]} {selected["image"]}')
         self.assertEqual(json.loads((self.root / "chart-calls").read_text()),
                          ["push", str(self.root / "dist" /
-                                      f'arally-operator-{selected["version"]}.tgz'), destination])
+                                      f'agentrally-operator-{selected["version"]}.tgz'), destination])
         self.assertFalse((self.root / "calls").exists())
         self.make("docker-push")
         self.assertEqual((self.root / "calls").read_text().strip(), f'push {selected["image"]}')
@@ -134,7 +134,7 @@ class BuildStateTests(unittest.TestCase):
         self.make("chart-push")
         self.assertEqual(self.state()["version"], "0.0.0-dev")
         self.assertEqual(json.loads((self.root / "chart-calls").read_text()),
-                         ["push", str(self.root / "dist/arally-operator-0.0.0-dev.tgz"),
+                         ["push", str(self.root / "dist/agentrally-operator-0.0.0-dev.tgz"),
                           "oci://ghcr.io/chizhang21/helm"])
 
     def test_chart_upload_stops_when_packaging_fails(self):

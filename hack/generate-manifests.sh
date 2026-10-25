@@ -25,9 +25,9 @@ for manifest in "${crds[@]}" "$stage/rbac/role.yaml"; do
     $0 == "metadata:" {
       print
       print "  labels:"
-      print "    app.kubernetes.io/name: arally-operator"
+      print "    app.kubernetes.io/name: agentrally-operator"
       print "    app.kubernetes.io/component: manager"
-      print "    {{- include \"arally-operator.labels\" . | nindent 4 }}"
+      print "    {{- include \"agentrally-operator.labels\" . | nindent 4 }}"
       next
     }
     $0 == "  annotations:" && kind == "CustomResourceDefinition" {

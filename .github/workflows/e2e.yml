@@ -40,7 +40,7 @@ jobs:
           IMAGE: ${{ inputs.image }}
         run: |
           test -n "$IMAGE"
-          docker image load --input .cache/release/image/operator-image.tar
+          docker image load --input .cache/release/image/agentrally-operator-image.tar
           docker image inspect "$IMAGE" >/dev/null
       - name: Download the release chart
         if: inputs.chart_artifact != ''

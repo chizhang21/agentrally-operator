@@ -19,7 +19,7 @@ COPY internal/ internal/
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off go build -trimpath -ldflags='-w' -o /out/operator ./cmd
 
 # Package the static Operator binary and CA certificates in a minimal image.
-RUN GOWORK=off GOBIN=/tools go install github.com/google/go-licenses/v2@v2.0.1 && GOWORK=off /tools/go-licenses save ./cmd --ignore=arally/ --save_path=/out/licenses && mkdir -p /out/licenses
+RUN GOWORK=off GOBIN=/tools go install github.com/google/go-licenses/v2@v2.0.1 && GOWORK=off /tools/go-licenses save ./cmd --ignore=agentrally/ --save_path=/out/licenses && mkdir -p /out/licenses
 FROM scratch
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 COPY LICENSE NOTICE /licenses/

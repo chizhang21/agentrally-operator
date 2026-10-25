@@ -1,7 +1,7 @@
 replicaCount: 1
 imagePullSecrets: []
 image:
-  repository: arally-operator
+  repository: agentrally-operator
   # Empty uses Chart.appVersion; set explicitly for a custom image build.
   tag: ""
   # Optional sha256 digest takes precedence over tag.

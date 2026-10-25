@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/podconfig"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/podconfig"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
@@ -89,7 +89,7 @@ func applyModelProvider(ctx context.Context, c client.Reader, namespace string, 
 		}
 		ref.Optional = ptr.To(false)
 		setEnv(container, corev1.EnvVar{Name: "OPENAI_BASE_URL", Value: provider.BaseURL})
-		setEnv(container, corev1.EnvVar{Name: "ARALLY_MODEL_NAME", Value: provider.Model})
+		setEnv(container, corev1.EnvVar{Name: "AGENTRALLY_MODEL_NAME", Value: provider.Model})
 		setEnv(container, corev1.EnvVar{Name: "OPENAI_API_KEY", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &ref}})
 	}
 	return nil

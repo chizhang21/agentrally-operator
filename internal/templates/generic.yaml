@@ -27,7 +27,7 @@ spec:
       runAsNonRoot: true
     volumeMounts:
     - mountPath: /tmp
-      name: arally-tmp
+      name: agentrally-tmp
   terminationGracePeriodSeconds: 30
   restartPolicy: Always
   securityContext:
@@ -36,4 +36,4 @@ spec:
       type: RuntimeDefault
   volumes:
   - emptyDir: {}
-    name: arally-tmp
+    name: agentrally-tmp

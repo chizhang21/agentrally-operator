@@ -1,11 +1,11 @@
 # Create the demo Group first. Replace the image, StorageClass and snapshot name.
-# The ready VolumeSnapshot must already exist in arally-demo, and its CSI driver
+# The ready VolumeSnapshot must already exist in agentrally-demo, and its CSI driver
 # must support restoration through the selected StorageClass.
 apiVersion: arally.io/v1alpha1
 kind: AgentInstance
 metadata:
   name: restored-agent
-  namespace: arally-demo
+  namespace: agentrally-demo
 spec:
   agentGroupRef:
     name: demo

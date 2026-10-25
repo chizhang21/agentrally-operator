@@ -8,10 +8,10 @@ import (
 	"maps"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/podconfig"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/podconfig"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Manager reconciles only Arally-generated allocation resources. Core and Extensions
+// Manager reconciles only AgentRally-generated allocation resources. Core and Extensions
 // retain ownership of execution Pods, Sandbox allocation and pool refill.
 type Manager struct {
 	Client client.Client
@@ -50,7 +50,7 @@ func (m *Manager) reader() client.Reader {
 	return m.Client
 }
 
-// ManagedLabel identifies Arally-generated group-owned allocation resources.
+// ManagedLabel identifies AgentRally-generated group-owned allocation resources.
 const ManagedLabel = "arally.io/managed-allocation"
 const lastAllocationAnnotation = "arally.io/last-allocation"
 
@@ -77,7 +77,7 @@ func (m *Manager) Select(ctx context.Context, w *v1.AgentInstance, config Config
 	}
 	sum := sha256.Sum256(key)
 	suffix := hex.EncodeToString(sum[:16])
-	poolName, templateName := "arally-pool-"+suffix, "arally-template-"+suffix
+	poolName, templateName := "agentrally-pool-"+suffix, "agentrally-template-"+suffix
 	if selected := PoolName(w); selected != "" {
 		poolName = selected
 	}
@@ -197,7 +197,7 @@ func ValidateSnapshot(template *unstructured.Unstructured, group *v1.AgentGroup,
 		return poolDiagnostic("DependencyTerminating", "The selected configuration snapshot is terminating")
 	}
 	if group.UID == "" || !managedByGroup(template, group) || template.GetNamespace() != group.NamespaceName() || revision == "" {
-		return poolDiagnostic("PoolConfigurationUnverified", "The pool must reference a current Arally-generated configuration snapshot owned by this Group; use a managed pool or its matching snapshot")
+		return poolDiagnostic("PoolConfigurationUnverified", "The pool must reference a current AgentRally-generated configuration snapshot owned by this Group; use a managed pool or its matching snapshot")
 	}
 	if template.GetAnnotations()["arally.io/source-template"] != source || template.GetAnnotations()["arally.io/configuration-revision"] != revision {
 		return poolDiagnostic("PoolTemplateMismatch", "The pool snapshot was created for another source template or configuration revision")

@@ -3,8 +3,8 @@ package agentinstance
 import (
 	"context"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"

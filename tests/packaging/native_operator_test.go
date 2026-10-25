@@ -83,7 +83,7 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 					if resource == "sandboxes" {
 						for _, verb := range rule.Verbs {
 							if verb == "create" || verb == "delete" || verb == "update" {
-								t.Fatal("Arally must delegate Sandbox creation/deletion to Extensions")
+								t.Fatal("AgentRally must delegate Sandbox creation/deletion to Extensions")
 							}
 						}
 					}

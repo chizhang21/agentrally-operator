@@ -95,7 +95,7 @@ The storage driver must support `fsGroup` volume permissions.
 Read-only workspaces and custom SandboxTemplate security settings are unchanged.
 Use a custom template to set a separate volume group.
 
-`modelProvider` supplies `OPENAI_BASE_URL`, `ARALLY_MODEL_NAME` and Secret-backed
+`modelProvider` supplies `OPENAI_BASE_URL`, `AGENTRALLY_MODEL_NAME` and Secret-backed
 `OPENAI_API_KEY`; the image must consume or map them.
 See the [complete definition](../examples/full-definition.yaml).
 

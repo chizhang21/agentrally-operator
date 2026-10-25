@@ -27,7 +27,7 @@ func testConfig(t *testing.T) Config {
 	if err := os.WriteFile(path, []byte("credential-one\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	return Config{Endpoint: "https://backend.example/arally/", ID: "cluster-one", TokenFile: path}
+	return Config{Endpoint: "https://backend.example/agentrally/", ID: "cluster-one", TokenFile: path}
 }
 
 func TestResponseRetryDoesNotReplayWriteAndReloadsToken(t *testing.T) {
@@ -47,12 +47,12 @@ func TestResponseRetryDoesNotReplayWriteAndReloadsToken(t *testing.T) {
 		}
 		if req.Method == "GET" {
 			polls++
-			if polls != 1 || req.URL.Path != "/arally/internal/v1/connectors/cluster-one/requests" {
+			if polls != 1 || req.URL.Path != "/agentrally/internal/v1/connectors/cluster-one/requests" {
 				t.Fatal("polled again before acknowledging executed operation")
 			}
-			return remoteResponse(req, 200, `{"id":"write-1","method":"POST","resource":"agentgroups","body":{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"demo"},"spec":{"namespace":"arally-demo"}}}`), nil
+			return remoteResponse(req, 200, `{"id":"write-1","method":"POST","resource":"agentgroups","body":{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"demo"},"spec":{"namespace":"agentrally-demo"}}}`), nil
 		}
-		if req.Method != "POST" || req.URL.Path != "/arally/internal/v1/connectors/cluster-one/responses" || req.Header.Get("Content-Type") != "application/json" {
+		if req.Method != "POST" || req.URL.Path != "/agentrally/internal/v1/connectors/cluster-one/responses" || req.Header.Get("Content-Type") != "application/json" {
 			t.Fatal("invalid response endpoint")
 		}
 		data, err := io.ReadAll(req.Body)

@@ -112,7 +112,7 @@ observations.
 | Assigned Sandbox | Extensions | Allocation SandboxClaim |
 | Execution Pod, private PVCs and optional headless Service | Core | Sandbox |
 
-AgentGroup creates an `arally-` namespace and rejects an unrelated existing one.
+AgentGroup creates an `agentrally-` namespace and rejects an unrelated existing one.
 instances must use their Group's namespace.
 Source templates, external pools and referenced credentials remain user-managed.
 
@@ -288,7 +288,7 @@ shutdown.
 | Finished | Core confirms natural completion of the current owned Pod, excluding suspension and Pod deletion. |
 | InteractionReady | Execution is available and the route controller accepted the endpoint. |
 
-Generated Pods carry `ARALLY_CONFIGURATION_REVISION`.
+Generated Pods carry `AGENTRALLY_CONFIGURATION_REVISION`.
 External pools must reference the matching Group-owned generated snapshot, including its
 full stamped blueprint; unmarked source templates are rejected before allocation.
 An assigned Sandbox's creation evidence is checked against the recorded selection, even

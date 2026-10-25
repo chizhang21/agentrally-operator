@@ -6,9 +6,9 @@ import (
 	"path"
 	"strings"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,8 +28,8 @@ func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.Agen
 		return diagnostics.New("InvalidConfiguration", "workspace requires exactly one of volumeClaimTemplate or existingClaimRef", nil)
 	}
 	for _, volume := range resolved.PodTemplate.Spec.Volumes {
-		if volume.Name == "arally-workspace" {
-			return diagnostics.New("InvalidConfiguration", "workspace volume name arally-workspace is already used in SandboxTemplate", nil)
+		if volume.Name == "agentrally-workspace" {
+			return diagnostics.New("InvalidConfiguration", "workspace volume name agentrally-workspace is already used in SandboxTemplate", nil)
 		}
 	}
 	for _, mount := range container.VolumeMounts {
@@ -57,18 +57,18 @@ func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.Agen
 			return diagnostics.New("InvalidConfiguration", "workspace requires a Filesystem PVC", nil)
 		}
 		resolved.Workspace = &v1.WorkspaceBinding{ClaimName: pvc.Name, UID: pvc.UID}
-		resolved.PodTemplate.Spec.Volumes = append(resolved.PodTemplate.Spec.Volumes, corev1.Volume{Name: "arally-workspace", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name, ReadOnly: workspace.ReadOnly}}})
+		resolved.PodTemplate.Spec.Volumes = append(resolved.PodTemplate.Spec.Volumes, corev1.Volume{Name: "agentrally-workspace", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name, ReadOnly: workspace.ReadOnly}}})
 	} else {
 		if mode := workspace.VolumeClaimTemplate.VolumeMode; mode != nil && *mode != corev1.PersistentVolumeFilesystem {
 			return diagnostics.New("InvalidConfiguration", "workspace requires a Filesystem volume", nil)
 		}
 		resolved.VolumeClaimTemplates = append(resolved.VolumeClaimTemplates, corev1.PersistentVolumeClaimTemplate{
-			ObjectMeta: metav1.ObjectMeta{Name: "arally-workspace"},
+			ObjectMeta: metav1.ObjectMeta{Name: "agentrally-workspace"},
 			Spec:       *workspace.VolumeClaimTemplate.DeepCopy(),
 		})
 	}
-	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: "arally-workspace", MountPath: workspace.MountPath, ReadOnly: workspace.ReadOnly})
-	setEnv(container, corev1.EnvVar{Name: "ARALLY_WORKSPACE_PATH", Value: workspace.MountPath})
+	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: "agentrally-workspace", MountPath: workspace.MountPath, ReadOnly: workspace.ReadOnly})
+	setEnv(container, corev1.EnvVar{Name: "AGENTRALLY_WORKSPACE_PATH", Value: workspace.MountPath})
 	return nil
 }
 

@@ -1,6 +1,6 @@
 package controller
 
-// Condition types shared by Arally's controllers and cleanup paths.
+// Condition types shared by AgentRally's controllers and cleanup paths.
 // Core observations are validated against the current execution before mirroring.
 const (
 	ConditionReady                 = "Ready"

@@ -33,7 +33,7 @@ apiVersion: coordination.k8s.io/v1
 kind: Lease
 metadata:
   name: agent-activity
-  namespace: arally-demo
+  namespace: agentrally-demo
   ownerReferences:
   - apiVersion: arally.io/v1alpha1
     kind: AgentInstance

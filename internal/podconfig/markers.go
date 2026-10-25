@@ -1,7 +1,7 @@
 package podconfig
 
 import (
-	"arally/operator/internal/diagnostics"
+	"agentrally/operator/internal/diagnostics"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -55,4 +55,4 @@ func StripMarkers(spec *corev1.PodSpec) {
 }
 
 // RevisionEnv records immutable configuration inputs on the Agent container.
-const RevisionEnv = "ARALLY_CONFIGURATION_REVISION"
+const RevisionEnv = "AGENTRALLY_CONFIGURATION_REVISION"

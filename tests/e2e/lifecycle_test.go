@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/sandbox"
 
 	"github.com/go-logr/logr/testr"
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -35,7 +35,7 @@ import (
 )
 
 // The driver creates a disposable kind cluster, installs the real upstream
-// controllers and Arally chart, and supplies its separate kubeconfig explicitly.
+// controllers and AgentRally chart, and supplies its separate kubeconfig explicitly.
 func TestOperatorLifecycle(t *testing.T) {
 	kube, kubeconfig := e2eClient(t)
 	ctx := context.Background()
@@ -99,8 +99,8 @@ func TestOperatorLifecycle(t *testing.T) {
 		return state != nil && state.StartedAt != nil && state.ClaimName != "" && state.CompletedAt == nil, err
 	})
 	started := claim.Status.Provisioning.StartedAt.DeepCopy()
-	kubectl(t, kubeconfig, "-n", "arally-system", "rollout", "restart", "deployment/arally-operator")
-	kubectl(t, kubeconfig, "-n", "arally-system", "rollout", "status", "deployment/arally-operator", "--timeout=180s")
+	kubectl(t, kubeconfig, "-n", "agentrally-system", "rollout", "restart", "deployment/agentrally-operator")
+	kubectl(t, kubeconfig, "-n", "agentrally-system", "rollout", "status", "deployment/agentrally-operator", "--timeout=180s")
 	kubectl(t, kubeconfig, "-n", "agent-sandbox-system", "scale", "deployment/agent-sandbox-controller", "--replicas=1")
 	awaitReady := func() {
 		await(t, "current desired configuration ready", func() (bool, error) {
@@ -116,7 +116,7 @@ func TestOperatorLifecycle(t *testing.T) {
 			return false, err
 		}
 		for _, event := range events.Items {
-			if event.Regarding.UID == claim.UID && event.ReportingController == "arally-agentinstance" && event.Action == "Reconcile" {
+			if event.Regarding.UID == claim.UID && event.ReportingController == "agentrally-agentinstance" && event.Action == "Reconcile" {
 				return true, nil
 			}
 		}
@@ -133,8 +133,8 @@ func TestOperatorLifecycle(t *testing.T) {
 		summary := group.Status.Summary
 		return summary != nil && summary.Instances.Ready == 1 && summary.Instances.Available == 1 && summary.Storage.PVCs == 1, err
 	})
-	metrics := kubectl(t, kubeconfig, "get", "--raw", "/api/v1/namespaces/arally-system/services/arally-operator-metrics:8080/proxy/metrics")
-	if !strings.Contains(metrics, "arally_observation_success 1") || !strings.Contains(metrics, "arally_agent_allocation_duration_seconds_count{launch_type=\"cold\"} 1") {
+	metrics := kubectl(t, kubeconfig, "get", "--raw", "/api/v1/namespaces/agentrally-system/services/agentrally-operator-metrics:8080/proxy/metrics")
+	if !strings.Contains(metrics, "agentrally_observation_success 1") || !strings.Contains(metrics, "agentrally_agent_allocation_duration_seconds_count{launch_type=\"cold\"} 1") {
 		t.Fatal("business metrics missing from the existing endpoint")
 	}
 	pvc := allocatedWorkspace(t, ctx, kube, claim)
@@ -287,7 +287,7 @@ func agentCommand(version string) string {
 
 func allocatedWorkspace(t *testing.T, ctx context.Context, kube client.Client, claim *v1.AgentInstance) *corev1.PersistentVolumeClaim {
 	t.Helper()
-	name := claim.Status.VolumeClaims["arally-workspace"]
+	name := claim.Status.VolumeClaims["agentrally-workspace"]
 	if name == "" {
 		t.Fatal("allocated workspace is absent from status")
 	}
@@ -352,7 +352,7 @@ func verifyWarmWorkspaces(t *testing.T, ctx context.Context, kube client.Client,
 				continue
 			}
 			pvc := &corev1.PersistentVolumeClaim{}
-			if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "arally-workspace-" + object.GetName()}, pvc); err != nil {
+			if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "agentrally-workspace-" + object.GetName()}, pvc); err != nil {
 				return false, err
 			}
 			if pvc.Status.Phase == corev1.ClaimBound {
@@ -461,7 +461,7 @@ func validateE2ETarget(context, server, expectedContext, expectedServer string) 
 		}
 		return nil
 	}
-	if !strings.HasPrefix(context, "kind-arally-e2e-") {
+	if !strings.HasPrefix(context, "kind-agentrally-e2e-") {
 		return fmt.Errorf("E2E requires the driver's disposable kind context")
 	}
 	return nil
@@ -469,7 +469,7 @@ func validateE2ETarget(context, server, expectedContext, expectedServer string) 
 
 func e2eClientForTarget(t *testing.T, expectedContext, expectedServer string) (client.Client, string) {
 	t.Helper()
-	kubeconfig := os.Getenv("ARALLY_E2E_KUBECONFIG")
+	kubeconfig := os.Getenv("AGENTRALLY_E2E_KUBECONFIG")
 	if kubeconfig == "" {
 		t.Fatal("run make e2e to create an isolated cluster")
 	}

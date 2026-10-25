@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"arally/operator/internal/sandbox"
+	"agentrally/operator/internal/sandbox"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -29,7 +29,7 @@ See the [base definition](../examples/base/definition.yaml) and
 [instance](../examples/base/agent.yaml).
 
 ```sh
-kubectl -n arally-demo get agentdefinitions,agentinstances
+kubectl -n agentrally-demo get agentdefinitions,agentinstances
 kubectl explain agentdefinition.spec --recursive
 kubectl explain agentinstance.spec --recursive
 ```

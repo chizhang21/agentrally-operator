@@ -7,11 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/templates"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/templates"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -39,7 +39,7 @@ type Revision struct {
 
 func Name(uid types.UID, revision string) string {
 	sum := sha256.Sum256([]byte(string(uid) + "/" + revision))
-	return "arally-definition-" + hex.EncodeToString(sum[:16])
+	return "agentrally-definition-" + hex.EncodeToString(sum[:16])
 }
 
 // Publish captures native source configuration without creating a Sandbox or Pod.

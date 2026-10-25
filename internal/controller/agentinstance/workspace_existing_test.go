@@ -4,10 +4,10 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +28,7 @@ func TestExistingWorkspaceSurvivesExecutionReplacement(t *testing.T) {
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, instance)
 	state := getAgentInstance(t, c, instance)
-	if state.Status.Workspace == nil || state.Status.Workspace.UID != pvc.UID || state.Status.VolumeClaims["arally-workspace"] != pvc.Name {
+	if state.Status.Workspace == nil || state.Status.Workspace.UID != pvc.UID || state.Status.VolumeClaims["agentrally-workspace"] != pvc.Name {
 		t.Fatal("external workspace was not pinned and reported", state.Status)
 	}
 	pool := allocationObject(t, c, instance, "SandboxWarmPool", allocation.PoolName(state))
@@ -106,7 +106,7 @@ func TestExistingWorkspaceBlocksUnavailableVolumes(t *testing.T) {
 			case "block":
 				pvc.Spec.VolumeMode = ptr.To(corev1.PersistentVolumeBlock)
 			case "volume-name-conflict":
-				source.Spec.Volumes = []corev1.Volume{{Name: "arally-workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
+				source.Spec.Volumes = []corev1.Volume{{Name: "agentrally-workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
 			}
 			objects = append(objects, nativeTemplate(definition, source))
 			if scenario != "missing" {

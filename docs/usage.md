@@ -12,9 +12,9 @@ and instance in order:
 kubectl apply -f examples/base/group.yaml
 kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
 kubectl apply -f examples/base/definition.yaml
-kubectl -n arally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
+kubectl -n agentrally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/base/agent.yaml
-kubectl -n arally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
+kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
 ```
 
 ## Users and permissions
@@ -54,8 +54,8 @@ kubectl explain agentinstance.spec --recursive
 
 ## Group namespace and security
 
-AgentGroup creates `arally-<group-name>`; read `status.namespace` for the resolved name.
-An explicit `spec.namespace` must start with `arally-` and cannot change.
+AgentGroup creates `agentrally-<group-name>`; read `status.namespace` for the resolved name.
+An explicit `spec.namespace` must start with `agentrally-` and cannot change.
 Definitions, instances, Secrets, ConfigMaps, PVCs and source templates belong in that
 namespace.
 AgentRally does not adopt an unrelated existing namespace.
@@ -90,7 +90,7 @@ Use Kubernetes admission controls when independently submitted native workloads 
 
 `spec.limitRange` accepts a native LimitRange spec for container/Pod/PVC defaults and
 limits.
-AgentRally owns `arally-limits` in the Group namespace.
+AgentRally owns `agentrally-limits` in the Group namespace.
 Removing the field removes that policy; changes apply to newly admitted resources.
 
 Admission-added resource defaults do not cause `RestartRequired`; explicit requested
@@ -168,9 +168,9 @@ Allow its traffic through Group NetworkPolicy and provide application authentica
 the agent or ingress infrastructure.
 
 ```sh
-kubectl -n arally-demo wait agentinstance/demo-agent \
+kubectl -n agentrally-demo wait agentinstance/demo-agent \
   --for=condition=InteractionReady --timeout=120s
-kubectl -n arally-demo get agentinstance demo-agent \
+kubectl -n agentrally-demo get agentinstance demo-agent \
   -o jsonpath='{.status.interaction.url}{"\n"}'
 ```
 
@@ -206,7 +206,7 @@ See the [ordered HTTP Agent example](../examples/http-api-agent/README.md).
 
 `AgentDefinition.spec.modelProvider` in
 [full-definition.yaml](../examples/full-definition.yaml) injects `OPENAI_BASE_URL`,
-`ARALLY_MODEL_NAME` and Secret-backed `OPENAI_API_KEY`.
+`AGENTRALLY_MODEL_NAME` and Secret-backed `OPENAI_API_KEY`.
 The application must consume or map these variables.
 
 `agentContainer` selects the target container; the default is the first container.
@@ -225,7 +225,7 @@ workspace:
     # storageClassName: your-storage-class
 ```
 
-This also sets `ARALLY_WORKSPACE_PATH`.
+This also sets `AGENTRALLY_WORKSPACE_PATH`.
 Omit `storageClassName` to use the cluster default.
 AgentRally carries the spec through the pool template; Core creates and owns the PVC.
 
@@ -273,8 +273,8 @@ Ordinary workspaces require none of these snapshot APIs.
 ## Status and diagnostics
 
 ```sh
-kubectl -n arally-demo get agentinstances
-kubectl -n arally-demo describe agentinstance demo-agent
+kubectl -n agentrally-demo get agentinstances
+kubectl -n agentrally-demo describe agentinstance demo-agent
 ```
 
 Read Conditions, Events and `status.podName`.
@@ -311,14 +311,14 @@ The existing metrics endpoint exposes the following business measurements:
 
 | Metric | Observation |
 | --- | --- |
-| `arally_agentinstances{state}` | Cached total, ready, available, suspended, pending and expired counts |
-| `arally_pool_spare_replicas{state}` / `arally_pools` | Ready/desired spare capacity and pool count from Group summaries |
-| `arally_namespace_pvcs` / `arally_namespace_storage_bytes{state}` | Namespace PVC count and requested/provisioned capacity, including external PVCs |
-| `arally_agent_allocation_duration_seconds{launch_type}` | Persisted allocation start to validated assignment |
-| `arally_agent_startup_duration_seconds{launch_type}` | Pod creation to first observed availability |
-| `arally_agent_suspension_duration_seconds` | Suspension submission to Core confirmation with no remaining Pod |
-| `arally_agent_cleanup_duration_seconds` | Cleanup submission to owned allocation/access-resource removal |
-| `arally_observation_success` | Whether cached instance and Group collection succeeded |
+| `agentrally_agentinstances{state}` | Cached total, ready, available, suspended, pending and expired counts |
+| `agentrally_pool_spare_replicas{state}` / `agentrally_pools` | Ready/desired spare capacity and pool count from Group summaries |
+| `agentrally_namespace_pvcs` / `agentrally_namespace_storage_bytes{state}` | Namespace PVC count and requested/provisioned capacity, including external PVCs |
+| `agentrally_agent_allocation_duration_seconds{launch_type}` | Persisted allocation start to validated assignment |
+| `agentrally_agent_startup_duration_seconds{launch_type}` | Pod creation to first observed availability |
+| `agentrally_agent_suspension_duration_seconds` | Suspension submission to Core confirmation with no remaining Pod |
+| `agentrally_agent_cleanup_duration_seconds` | Cleanup submission to owned allocation/access-resource removal |
+| `agentrally_observation_success` | Whether cached instance and Group collection succeeded |
 
 Duration metrics are histograms.
 The allocation histogram's `_count` series provides observed allocation counts by
@@ -362,13 +362,13 @@ More detail is in
 Suspend, wait for the Pod to disappear, then resume:
 
 ```sh
-kubectl -n arally-demo patch agentinstance demo-agent --type=merge \
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
   -p '{"spec":{"operatingMode":"Suspended"}}'
-kubectl -n arally-demo wait agentinstance/demo-agent \
+kubectl -n agentrally-demo wait agentinstance/demo-agent \
   --for=condition=Suspended --timeout=120s
-kubectl -n arally-demo patch agentinstance demo-agent --type=merge \
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
   -p '{"spec":{"operatingMode":"Running"}}'
-kubectl -n arally-demo wait agentinstance/demo-agent \
+kubectl -n agentrally-demo wait agentinstance/demo-agent \
   --for=condition=Ready --timeout=5m
 ```
 
@@ -379,7 +379,7 @@ This is stop/start, not checkpoint/restore.
 After publishing a definition update or rotating credentials, set a new restart token:
 
 ```sh
-kubectl -n arally-demo patch agentinstance demo-agent --type=merge \
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
   -p '{"spec":{"restartToken":"restart-1"}}'
 ```
 
@@ -408,9 +408,9 @@ Wait for execution cleanup, then inspect remaining Sandboxes and PVCs before mov
 removing data:
 
 ```sh
-kubectl -n arally-demo delete agentinstance demo-agent --wait=true --timeout=120s
-kubectl -n arally-demo delete agentdefinition demo-agent --wait=true --timeout=120s
-kubectl -n arally-demo get agentdefinitions,agentinstances,sandboxes,pvc
+kubectl -n agentrally-demo delete agentinstance demo-agent --wait=true --timeout=120s
+kubectl -n agentrally-demo delete agentdefinition demo-agent --wait=true --timeout=120s
+kubectl -n agentrally-demo get agentdefinitions,agentinstances,sandboxes,pvc
 ```
 
 Deleting the Group's Namespace deletes remaining namespaced resources, including

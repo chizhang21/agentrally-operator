@@ -27,7 +27,7 @@ func renderChartObjects(t *testing.T, chart string, overrides ...string) map[str
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm required")
 	}
-	args := append([]string{"template", "arally-operator", chart, "-n", "arally-system"}, overrides...)
+	args := append([]string{"template", "agentrally-operator", chart, "-n", "agentrally-system"}, overrides...)
 	out, err := exec.Command("helm", args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("helm: %v\n%s", err, out)
@@ -57,7 +57,7 @@ func renderChartObjects(t *testing.T, chart string, overrides ...string) map[str
 
 func TestOperatorConfiguration(t *testing.T) {
 	values := []byte(`image:
-  repository: registry.example.com/arally-operator
+  repository: registry.example.com/agentrally-operator
 imagePullSecrets:
   - name: registry-credentials
 nodeSelector:
@@ -107,12 +107,12 @@ connector:
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			objects := renderObjects(t, append([]string{"-f", filename}, tc.args...)...)
-			name := "arally-operator"
+			name := "agentrally-operator"
 			var dep appsv1.Deployment
 			if err := yaml.Unmarshal(objects["Deployment/"+name], &dep); err != nil {
 				t.Fatal(err)
 			}
-			if dep.Name != name || dep.Namespace != "arally-system" {
+			if dep.Name != name || dep.Namespace != "agentrally-system" {
 				t.Fatalf("installed deployment identity changed: %+v", dep.ObjectMeta)
 			}
 			selector := map[string]string{"app.kubernetes.io/name": name, "app.kubernetes.io/instance": name}
@@ -146,7 +146,7 @@ connector:
 				t.Fatalf("expected one operator container, got %d", len(pod.Containers))
 			}
 			container := pod.Containers[0]
-			if container.Image != "registry.example.com/arally-operator:"+tc.tag {
+			if container.Image != "registry.example.com/agentrally-operator:"+tc.tag {
 				t.Fatalf("image version not resolved: %s", container.Image)
 			}
 			sc := container.SecurityContext
@@ -157,10 +157,10 @@ connector:
 				t.Fatal("health probes lost")
 			}
 			var svc corev1.Service
-			if err := yaml.Unmarshal(objects["Service/arally-operator-metrics"], &svc); err != nil {
+			if err := yaml.Unmarshal(objects["Service/agentrally-operator-metrics"], &svc); err != nil {
 				t.Fatal(err)
 			}
-			if svc.Namespace != "arally-system" || !reflect.DeepEqual(svc.Spec.Selector, map[string]string{"app.kubernetes.io/name": "arally-operator", "app.kubernetes.io/instance": "arally-operator"}) {
+			if svc.Namespace != "agentrally-system" || !reflect.DeepEqual(svc.Spec.Selector, map[string]string{"app.kubernetes.io/name": "agentrally-operator", "app.kubernetes.io/instance": "agentrally-operator"}) {
 				t.Fatal("metrics no longer select the manager")
 			}
 		})
@@ -176,7 +176,7 @@ func TestServiceMonitorRequiresAPIAndSelectsManager(t *testing.T) {
 			t.Fatal("default install requires monitoring APIs")
 		}
 	}
-	out, err := exec.Command("helm", "template", "arally-operator", "../../chart", "--set", "metrics.serviceMonitor.enabled=true").CombinedOutput()
+	out, err := exec.Command("helm", "template", "agentrally-operator", "../../chart", "--set", "metrics.serviceMonitor.enabled=true").CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "requires monitoring.coreos.com/v1/ServiceMonitor") {
 		t.Fatalf("missing monitoring CRD not explained: %v\n%s", err, out)
 	}
@@ -190,10 +190,10 @@ func TestServiceMonitorRequiresAPIAndSelectsManager(t *testing.T) {
 			} `json:"endpoints"`
 		} `json:"spec"`
 	}
-	if err := yaml.Unmarshal(objects["ServiceMonitor/arally-operator-metrics"], &monitor); err != nil {
+	if err := yaml.Unmarshal(objects["ServiceMonitor/agentrally-operator-metrics"], &monitor); err != nil {
 		t.Fatal(err)
 	}
-	if monitor.Namespace != "arally-system" || monitor.Labels["release"] != "prometheus" || !reflect.DeepEqual(monitor.Spec.Selector.MatchLabels, map[string]string{"app.kubernetes.io/name": "arally-operator", "app.kubernetes.io/instance": "arally-operator"}) || len(monitor.Spec.Endpoints) != 1 || monitor.Spec.Endpoints[0].Port != "metrics" {
+	if monitor.Namespace != "agentrally-system" || monitor.Labels["release"] != "prometheus" || !reflect.DeepEqual(monitor.Spec.Selector.MatchLabels, map[string]string{"app.kubernetes.io/name": "agentrally-operator", "app.kubernetes.io/instance": "agentrally-operator"}) || len(monitor.Spec.Endpoints) != 1 || monitor.Spec.Endpoints[0].Port != "metrics" {
 		t.Fatalf("ServiceMonitor cannot select manager metrics: %+v", monitor)
 	}
 }

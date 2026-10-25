@@ -8,14 +8,14 @@ import (
 	"os"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/connector"
-	"arally/operator/internal/controller/agentdefinition"
-	"arally/operator/internal/controller/agentgroup"
-	"arally/operator/internal/controller/agentinstance"
-	"arally/operator/internal/controller/clustercapabilities"
-	"arally/operator/internal/metrics"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/connector"
+	"agentrally/operator/internal/controller/agentdefinition"
+	"agentrally/operator/internal/controller/agentgroup"
+	"agentrally/operator/internal/controller/agentinstance"
+	"agentrally/operator/internal/controller/clustercapabilities"
+	"agentrally/operator/internal/metrics"
+	"agentrally/operator/internal/sandbox"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -61,7 +61,7 @@ func run() error {
 	flag.BoolVar(&connectorEnabled, "connector-enabled", false, "Enable the outbound Connector")
 	flag.StringVar(&connectorConfig.Endpoint, "connector-endpoint", "", "HTTPS backend base URL")
 	flag.StringVar(&connectorConfig.ID, "connector-id", "", "Stable backend cluster/connector id")
-	flag.StringVar(&connectorConfig.TokenFile, "connector-token-file", "/var/run/arally-connector/token", "Mounted backend credential file")
+	flag.StringVar(&connectorConfig.TokenFile, "connector-token-file", "/var/run/agentrally-connector/token", "Mounted backend credential file")
 	flag.StringVar(&connectorConfig.CAFile, "connector-ca-file", "", "Optional backend private CA PEM file")
 	flag.Parse()
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewTextHandler(os.Stderr, nil)))
@@ -144,7 +144,7 @@ func managerOptions(probeAddr, metricsAddr, electionNamespace string, leaderElec
 		HealthProbeBindAddress:        probeAddr,
 		LeaderElection:                leaderElection,
 		LeaderElectionNamespace:       electionNamespace,
-		LeaderElectionID:              "arally-operator.arally.io",
+		LeaderElectionID:              "agentrally-operator.arally.io",
 		LeaderElectionReleaseOnCancel: true,
 	}
 }

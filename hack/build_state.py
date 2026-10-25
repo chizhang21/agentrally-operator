@@ -45,7 +45,7 @@ def select_identity(version=None, image=None, image_base=None, dev=False, chart_
         selected_image = saved["image"]
     else:
         repository = image_base if image_base is not None else (
-            parse_image(saved["image"])[0] if saved else "arally-operator")
+            parse_image(saved["image"])[0] if saved else "agentrally-operator")
         selected_image = f"{repository}:v{selected_version}"
     parse_image(selected_image)
     selected_chart = validate_chart_repo(

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/metrics"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/metrics"
+	"agentrally/operator/internal/testutil"
 
 	"github.com/prometheus/client_golang/prometheus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -85,7 +85,7 @@ func TestMetricsFollowPersistedTransitionsAndCachedState(t *testing.T) {
 	if err := r.patchStatus(ctx, w, w.DeepCopy()); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"arally_agent_allocation_duration_seconds", "arally_agent_startup_duration_seconds", "arally_agent_suspension_duration_seconds", "arally_agent_cleanup_duration_seconds"} {
+	for _, name := range []string{"agentrally_agent_allocation_duration_seconds", "agentrally_agent_startup_duration_seconds", "agentrally_agent_suspension_duration_seconds", "agentrally_agent_cleanup_duration_seconds"} {
 		if counts()[name] != 1 {
 			t.Fatal("missing or duplicated persisted observation", name)
 		}
@@ -95,7 +95,7 @@ func TestMetricsFollowPersistedTransitionsAndCachedState(t *testing.T) {
 	if err := r.patchStatus(ctx, w, base); err != nil {
 		t.Fatal(err)
 	}
-	if counts()["arally_agent_startup_duration_seconds"] != 1 {
+	if counts()["agentrally_agent_startup_duration_seconds"] != 1 {
 		t.Fatal("Pod removal recounted old startup")
 	}
 	base = w.DeepCopy()
@@ -103,7 +103,7 @@ func TestMetricsFollowPersistedTransitionsAndCachedState(t *testing.T) {
 	if err := r.patchStatus(ctx, w, base); err != nil {
 		t.Fatal(err)
 	}
-	if counts()["arally_agent_startup_duration_seconds"] != 2 {
+	if counts()["agentrally_agent_startup_duration_seconds"] != 2 {
 		t.Fatal("new Pod with same timestamp lost startup observation")
 	}
 	readFailure = true
@@ -112,7 +112,7 @@ func TestMetricsFollowPersistedTransitionsAndCachedState(t *testing.T) {
 		t.Fatal("cache read failure broke all metric exposition", err)
 	}
 	for _, family := range families {
-		if family.GetName() == "arally_observation_success" && !ptr.Equal(family.Metric[0].Gauge.Value, ptr.To(float64(0))) {
+		if family.GetName() == "agentrally_observation_success" && !ptr.Equal(family.Metric[0].Gauge.Value, ptr.To(float64(0))) {
 			t.Fatal("failed cache read reported success")
 		}
 	}

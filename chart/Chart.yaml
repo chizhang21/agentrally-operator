@@ -1,5 +1,5 @@
 apiVersion: v2
-name: arally-operator
+name: agentrally-operator
 description: Kubernetes operator for Agent environments and automation
 # Build-time placeholders; make injects VERSION into a staged copy.
 version: 0.0.0

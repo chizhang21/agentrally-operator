@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/controller/agentgroup"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller/agentgroup"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

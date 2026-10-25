@@ -32,8 +32,8 @@ if [[ ! -f "$chart" && ! -f "$chart/Chart.yaml" ]]; then
   exit 1
 fi
 
-cluster="arally-e2e-$(date +%s)-$$"
-temporary=$(mktemp -d "${TMPDIR:-/tmp}/arally-e2e.XXXXXX")
+cluster="agentrally-e2e-$(date +%s)-$$"
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/agentrally-e2e.XXXXXX")
 export KUBECONFIG="$temporary/kubeconfig"
 logs="${E2E_LOG_DIR:-$PWD/.cache/e2e/$cluster}"
 mkdir -p "$logs"
@@ -45,8 +45,8 @@ finish() {
   if [[ "$created" == true ]]; then
     if (( result != 0 )); then
       kubectl get pods,events -A -o yaml > "$logs/resources.yaml" 2>&1 || true
-      kubectl get agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/arally-resources.yaml" 2>&1 || true
-      kubectl -n arally-system logs deployment/arally-operator --all-containers > "$logs/operator.log" 2>&1 || true
+      kubectl get agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/agentrally-resources.yaml" 2>&1 || true
+      kubectl -n agentrally-system logs deployment/agentrally-operator --all-containers > "$logs/operator.log" 2>&1 || true
       kubectl -n agent-sandbox-system logs deployment/agent-sandbox-controller --all-containers > "$logs/upstream.log" 2>&1 || true
       "$KIND" export logs "$logs/kind" --name "$cluster" || true
     fi
@@ -59,7 +59,7 @@ trap finish EXIT
 
 # Supplying an image tests an already built local release candidate. Otherwise
 # build the production Dockerfile from this checkout, without publishing it.
-image=${E2E_IMAGE:-arally-operator:e2e}
+image=${E2E_IMAGE:-agentrally-operator:e2e}
 if [[ "$image" == *@* || ${image##*/} != *:* ]]; then
   echo 'E2E_IMAGE must name a locally built image with an explicit tag.' >&2
   exit 1
@@ -133,8 +133,8 @@ kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controll
 # identical to a real chart install; Connector remains disabled by default.
 repository=${image%:*}
 tag=${image##*:}
-helm install arally-operator "$chart" -n arally-system --create-namespace \
+helm install agentrally-operator "$chart" -n agentrally-system --create-namespace \
   --set-string image.repository="$repository" --set-string image.tag="$tag" \
   --set image.pullPolicy=IfNotPresent --wait --timeout=240s
-ARALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
+AGENTRALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
   go test -tags=e2e ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v 2>&1 | tee "$logs/lifecycle.log"

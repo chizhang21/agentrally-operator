@@ -4,21 +4,21 @@ metadata:
   name: {{ .Release.Name }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/name: arally-operator
+    app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/component: manager
-    {{- include "arally-operator.labels" . | nindent 4 }}
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: arally-operator
+      app.kubernetes.io/name: agentrally-operator
       app.kubernetes.io/instance: {{ .Release.Name | quote }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: arally-operator
+        app.kubernetes.io/name: agentrally-operator
         app.kubernetes.io/component: manager
-        {{- include "arally-operator.labels" . | nindent 8 }}
+        {{- include "agentrally-operator.labels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Release.Name }}
       {{- with .Values.imagePullSecrets }}
@@ -43,7 +43,7 @@ spec:
       {{- end }}
       containers:
         - name: operator
-          image: {{ include "arally-operator.image" . | quote }}
+          image: {{ include "agentrally-operator.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --leader-elect=true
@@ -87,7 +87,7 @@ spec:
           {{- if .Values.connector.enabled }}
           volumeMounts:
             - name: connector-credentials
-              mountPath: /var/run/arally-connector
+              mountPath: /var/run/agentrally-connector
               readOnly: true
           {{- end }}
       {{- if .Values.connector.enabled }}

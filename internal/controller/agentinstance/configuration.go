@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"sort"
 
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/controller"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/podconfig"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/podconfig"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -128,7 +128,7 @@ func validateConfigurationMarker(template *corev1.PodTemplateSpec) error {
 		for _, container := range containers {
 			for _, env := range container.Env {
 				if env.Name == podconfig.RevisionEnv {
-					return diagnostics.New("InvalidConfiguration", "ARALLY_CONFIGURATION_REVISION is reserved for operator configuration observation; remove it from the Pod template", nil)
+					return diagnostics.New("InvalidConfiguration", "AGENTRALLY_CONFIGURATION_REVISION is reserved for operator configuration observation; remove it from the Pod template", nil)
 				}
 			}
 		}

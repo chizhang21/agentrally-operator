@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/sandbox"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"

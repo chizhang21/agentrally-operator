@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/podconfig"
-	"arally/operator/internal/testutil"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/podconfig"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/definition"
-	"arally/operator/internal/diagnostics"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/templates"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/definition"
+	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/templates"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"

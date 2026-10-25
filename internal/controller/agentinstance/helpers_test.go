@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	v1 "arally/operator/api/v1alpha1"
-	"arally/operator/internal/allocation"
-	"arally/operator/internal/sandbox"
-	"arally/operator/internal/testutil"
+	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -88,7 +88,7 @@ func updateTemplate(t *testing.T, c client.Client, w *v1.AgentInstance, pod *cor
 
 // reconcileWithUpstreamSimulation includes a small upstream allocation simulation for default-pool
 // scenarios. Named-pool and allocation contract tests drive the two controllers
-// explicitly; raw Reconcile tests verify Arally never creates a Sandbox or Pod.
+// explicitly; raw Reconcile tests verify AgentRally never creates a Sandbox or Pod.
 func reconcileWithUpstreamSimulation(t *testing.T, r *Reconciler, w *v1.AgentInstance) ctrl.Result {
 	t.Helper()
 	testutil.PublishDefinitions(t, r.Client, r.Scheme)
@@ -155,7 +155,7 @@ func simulateUpstreamAllocation(t *testing.T, r *Reconciler, w *v1.AgentInstance
 }
 
 // The fake API server has no garbage collector. Simulate only children of the
-// exact default-testutil.Fixture Claim, outside Arally's reconciliation contract.
+// exact default-testutil.Fixture Claim, outside AgentRally's reconciliation contract.
 func simulateUpstreamGarbageCollection(t *testing.T, r *Reconciler, w *v1.AgentInstance) {
 	t.Helper()
 	claim := desiredPoolClaim(w)

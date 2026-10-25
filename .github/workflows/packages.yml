@@ -62,12 +62,12 @@ jobs:
       - name: Save the built image
         run: |
           mkdir -p dist
-          docker image save --platform=linux/amd64 --output dist/operator-image.tar "$IMAGE"
+          docker image save --platform=linux/amd64 --output dist/agentrally-operator-image.tar "$IMAGE"
       - name: Retain image for E2E and publication
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: operator-image
-          path: dist/operator-image.tar
+          name: agentrally-operator-image
+          path: dist/agentrally-operator-image.tar
           if-no-files-found: error
           retention-days: 7
 
@@ -89,12 +89,12 @@ jobs:
       - name: Package and validate the versioned chart
         run: |
           make chart-package
-          helm lint "dist/arally-operator-${VERSION}.tgz"
-          helm template arally-operator "dist/arally-operator-${VERSION}.tgz" -n arally-system >/dev/null
+          helm lint "dist/agentrally-operator-${VERSION}.tgz"
+          helm template agentrally-operator "dist/agentrally-operator-${VERSION}.tgz" -n agentrally-system >/dev/null
       - name: Retain chart for E2E and publication
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: operator-chart
+          name: agentrally-operator-chart
           path: dist/*.tgz
           if-no-files-found: error
           retention-days: 30

@@ -3,7 +3,7 @@ package capabilities
 import (
 	"sort"
 
-	v1 "arally/operator/api/v1alpha1"
+	v1 "agentrally/operator/api/v1alpha1"
 )
 
 // summarize groups audited inventory without reading APIs or renewing evidence.

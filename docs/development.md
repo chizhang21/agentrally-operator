@@ -148,6 +148,9 @@ Core/Extensions v1.0.5 and the local chart.
 
 To test an already built local release candidate, set `E2E_IMAGE=repository:tag`.
 No image is pushed.
+Set `E2E_CHART=/path/to/chart.tgz` to install a packaged Chart instead of the source
+directory.
+The tag release workflow uses both options to test the same artifacts it publishes.
 
 The test checks the canonical capability report, native RuntimeClass scheduling and
 overhead, administrator mappings, a real runc execution and direct audit renewal after
@@ -179,9 +182,9 @@ The driver always uses its own kubeconfig and deletes its temporary cluster.
 Failures retain logs under `.cache/e2e/`; `E2E_LOG_DIR` selects another output
 directory.
 
-[Operator lifecycle E2E](../.github/workflows/e2e.yml) supports manual dispatch.
-Version-tag CI must pass it before image publication; PRs compile the E2E test and keep
-the existing fast checks without creating a cluster.
+[AgentRally Operator E2E](../.github/workflows/e2e.yml) supports manual dispatch.
+Version-tag Release must pass it before image and Chart publication.
+PR and main-branch CI compile the E2E tests and build packages without creating a cluster.
 
 The default profile uses kindnet and local-path storage.
 The snapshot profile preloads its fixture images before starting CSI Pods.

@@ -1,17 +1,13 @@
 package capabilities
 
-// NetworkDaemonSet identifies catalog inputs. Unknown installations remain
-// Unknown and cannot turn a provider-scoped negative into a global conclusion.
-func NetworkDaemonSet(name string) bool {
-	_, found := builtins.networkByName[name]
-	return found
-}
+import appsv1 "k8s.io/api/apps/v1"
 
-func NetworkConfigMap(name string) bool {
-	for _, rule := range builtins.Network {
-		if rule.ConfigMap == name {
-			return true
-		}
+// NetworkProviderName identifies catalog candidates without making API reads or
+// evaluating namespace trust and effective policy configuration.
+func NetworkProviderName(daemon *appsv1.DaemonSet) string {
+	if daemon == nil {
+		return ""
 	}
-	return false
+	rule, _ := networkRule(daemon)
+	return rule.Provider
 }

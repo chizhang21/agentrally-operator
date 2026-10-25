@@ -32,13 +32,13 @@ package controller
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses;csidrivers;csinodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cilium.io,resources=ciliumnodeconfigs,verbs=list
 
 // Pods are observed only; Core retains all Pod lifecycle writes.
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get
 // ServiceAccounts are administrator-managed; the Operator only verifies references.
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get
 // +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get
-// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshotclasses,verbs=list
 // Allocation and managed pool setup use upstream CRs; Pod/refill lifecycle stays upstream.
 // +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxclaims,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxwarmpools,verbs=get;list;create;patch;delete

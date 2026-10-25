@@ -16,12 +16,19 @@ type RuntimeObservation struct {
 	Category      string `json:"category"`
 	ImageContract string `json:"imageContract"`
 	EligibleNodes int32  `json:"eligibleNodes"`
+	// HandlerEvidence covers the existing scheduling candidates, not Pod startup.
+	// Missing node inventory is unknown rather than evidence of no support.
+	// +optional
+	HandlerEvidence *RuntimeHandlerEvidence `json:"handlerEvidence,omitempty"`
+	// Features counts node reports across the same scheduling candidates.
+	// +optional
+	Features *RuntimeFeaturesObservation `json:"features,omitempty"`
 	// +kubebuilder:validation:Enum=Observed;Unknown
 	Status string `json:"status"`
 	// +optional
 	Reason string `json:"reason,omitempty"`
 	// Source identifies classification evidence, not a successful runtime probe.
-	// +kubebuilder:validation:Enum=NativeAPI;BuiltInCatalog;AdministratorDeclared
+	// +kubebuilder:validation:Enum=NativeAPI;BuiltInCatalog;AdministratorDeclared;RuntimeClassDeclared;InstallerMetadata
 	// +optional
 	Source string `json:"source,omitempty"`
 	// Rule identifies the built-in rule or administrator mapping.
@@ -34,6 +41,43 @@ type RuntimeObservation struct {
 	Overhead corev1.ResourceList `json:"overhead,omitempty"`
 }
 
+// RuntimeHandlerEvidence partitions eligibleNodes by native handler inventory.
+// A reported handler is configured evidence, not a successful execution probe.
+type RuntimeHandlerEvidence struct {
+	// +kubebuilder:validation:Minimum=0
+	ReportedNodes int32 `json:"reportedNodes"`
+	// +kubebuilder:validation:Minimum=0
+	MissingFromReportedInventoryNodes int32 `json:"missingFromReportedInventoryNodes"`
+	// +kubebuilder:validation:Minimum=0
+	NoInventoryNodes int32 `json:"noInventoryNodes"`
+}
+
+// RuntimeFeatureObservation retains coverage instead of implying uniform support.
+// Reported false may include unavailable CRI feature introspection.
+type RuntimeFeatureObservation struct {
+	// +kubebuilder:validation:Minimum=0
+	ReportedSupportedNodes int32 `json:"reportedSupportedNodes"`
+	// +kubebuilder:validation:Minimum=0
+	ReportedUnsupportedNodes int32 `json:"reportedUnsupportedNodes"`
+	// +kubebuilder:validation:Minimum=0
+	UnknownNodes int32 `json:"unknownNodes"`
+}
+
+type RuntimeFeaturesObservation struct {
+	UserNamespaces          RuntimeFeatureObservation `json:"userNamespaces"`
+	RecursiveReadOnlyMounts RuntimeFeatureObservation `json:"recursiveReadOnlyMounts"`
+}
+
+// NodeRuntimeHandlerObservation inventories reports from non-terminating nodes.
+// A handler may have no RuntimeClass and therefore not be selectable by a Pod.
+type NodeRuntimeHandlerObservation struct {
+	// Name is empty for the default handler, whose executor remains unidentified.
+	Name string `json:"name"`
+	// +kubebuilder:validation:Minimum=0
+	ReportedNodes int32                      `json:"reportedNodes"`
+	Features      RuntimeFeaturesObservation `json:"features"`
+}
+
 // NodeRuntimeObservation reports kubelet CRI versions without inferring executors.
 type NodeRuntimeObservation struct {
 	Implementation string `json:"implementation"`
@@ -44,15 +88,22 @@ type NodeRuntimeObservation struct {
 type StorageObservation struct {
 	Name        string `json:"name"`
 	Provisioner string `json:"provisioner"`
-	// +kubebuilder:validation:Enum=NFS;Block;Local;Unknown
-	Type             string `json:"type"`
-	Source           string `json:"source"`
-	Default          bool   `json:"default"`
-	DriverRegistered bool   `json:"driverRegistered"`
+	// CSIDriver identifies the node driver, which may differ from an aggregate
+	// provisioner. Empty for non-CSI or unrecognized driver selection.
 	// +optional
-	VolumeBindingMode storagev1.VolumeBindingMode `json:"volumeBindingMode,omitempty"`
+	CSIDriver string `json:"csiDriver,omitempty"`
+	// Type classifies a known Kubernetes volume interface, not its backing store.
+	// Catalog entries describe directory mounts; the same class may also support
+	// raw Block volumes. Actual use follows the PVC's volumeMode.
+	// +kubebuilder:validation:Enum=Filesystem;Block;Unknown
+	Type    string `json:"type"`
+	Source  string `json:"source"`
+	Default bool   `json:"default"`
+	// DriverDeclared reports a CSIDriver object; it is not node registration.
 	// +optional
-	ReclaimPolicy string `json:"reclaimPolicy,omitempty"`
+	DriverDeclared bool `json:"driverDeclared,omitempty"`
+	// DriverRegistered requires a non-terminating CSINode registration.
+	DriverRegistered bool `json:"driverRegistered"`
 	// +kubebuilder:validation:Enum=Observed;Unknown
 	Status string `json:"status"`
 	// +optional
@@ -70,6 +121,9 @@ type StorageObservation struct {
 // Registration is not proof of current driver health, I/O or optional CSI RPCs.
 type CSIDriverObservation struct {
 	Name string `json:"name"`
+	// Declared distinguishes a CSIDriver object from node-only registration.
+	// +optional
+	Declared bool `json:"declared,omitempty"`
 	// +optional
 	AttachRequired *bool `json:"attachRequired,omitempty"`
 	// +optional
@@ -82,26 +136,6 @@ type CSIDriverObservation struct {
 	// +listType=set
 	// +optional
 	TopologyKeys []string `json:"topologyKeys,omitempty"`
-}
-
-type SnapshotClassObservation struct {
-	Name           string `json:"name"`
-	Driver         string `json:"driver"`
-	DeletionPolicy string `json:"deletionPolicy"`
-	Default        bool   `json:"default"`
-}
-
-// SnapshotObservation reports VolumeSnapshotClass API availability, not backend
-// snapshot creation or restore success. Pre-provisioned snapshots may have no class.
-type SnapshotObservation struct {
-	// +kubebuilder:validation:Enum=Available;Unavailable;Unknown
-	ClassAPIStatus string `json:"classAPIStatus"`
-	// +optional
-	Reason string `json:"reason,omitempty"`
-	// +listType=map
-	// +listMapKey=name
-	// +optional
-	Classes []SnapshotClassObservation `json:"classes,omitempty"`
 }
 
 type NetworkPolicyProviderObservation struct {
@@ -135,24 +169,60 @@ type NetworkPolicyObservation struct {
 
 // RuntimeMapping classifies one existing RuntimeClass. Administrator declarations
 // do not verify the handler, alter scheduling or bypass native reference checks.
-// +kubebuilder:validation:XValidation:rule="(self.category == 'WebAssembly') == (self.imageContract == 'WasmWASI')",message="WebAssembly requires WasmWASI; other categories require LinuxOCI"
+// +kubebuilder:validation:XValidation:rule="self.category == 'Unknown' || self.imageContract == 'Unknown' || ((self.category == 'WebAssembly') == (self.imageContract == 'WasmWASI'))",message="Known WebAssembly contracts require WasmWASI; known non-WebAssembly contracts require LinuxOCI"
 type RuntimeMapping struct {
 	// +kubebuilder:validation:MinLength=1
 	RuntimeClassName string `json:"runtimeClassName"`
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
 	Family string `json:"family"`
-	// +kubebuilder:validation:Enum=Container;UserSpaceKernel;VirtualMachine;WebAssembly
+	// +kubebuilder:validation:Enum=Container;UserSpaceKernel;VirtualMachine;WebAssembly;Unknown
 	Category string `json:"category"`
-	// +kubebuilder:validation:Enum=LinuxOCI;WasmWASI
+	// +kubebuilder:validation:Enum=LinuxOCI;WasmWASI;Unknown
 	ImageContract string `json:"imageContract"`
 }
 
 type StorageMapping struct {
 	// +kubebuilder:validation:MinLength=1
 	StorageClassName string `json:"storageClassName"`
-	// Type describes the backend; Block does not mean PVC volumeMode: Block.
-	// +kubebuilder:validation:Enum=NFS;Block;Local;Unknown
+	// Type declares the intended Kubernetes volume interface for this class.
+	// It does not change PVC volumeMode or native driver support.
+	// +kubebuilder:validation:Enum=Filesystem;Block;Unknown
 	Type string `json:"type"`
+}
+
+// CapabilityReference links a user-facing capability to its native evidence.
+type CapabilityReference struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	// Namespace is empty for cluster-scoped resources.
+	Namespace string `json:"namespace"`
+	// +kubebuilder:validation:Enum=Observed;Unknown;Unsupported
+	Status string `json:"status"`
+	// +kubebuilder:validation:Enum=NativeAPI;BuiltInCatalog;AdministratorDeclared;RuntimeClassDeclared;InstallerMetadata
+	// +optional
+	Source string `json:"source,omitempty"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+}
+
+// CapabilityObservation groups configuration evidence into user-facing concepts.
+// Observed means at least one reference has positive configuration evidence.
+// It does not attest execution, storage I/O or traffic enforcement.
+type CapabilityObservation struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	// +kubebuilder:validation:Enum=Isolation;Storage;Networking
+	Category    string `json:"category"`
+	Description string `json:"description"`
+	// +kubebuilder:validation:Enum=Observed;Unknown
+	Status string `json:"status"`
+	// +listType=map
+	// +listMapKey=kind
+	// +listMapKey=namespace
+	// +listMapKey=name
+	// +optional
+	Resources []CapabilityReference `json:"resources,omitempty"`
 }
 
 type ClusterCapabilitiesSpec struct {
@@ -190,6 +260,11 @@ type ClusterCapabilitiesStatus struct {
 	// CatalogRevision identifies the embedded classification rules.
 	// +optional
 	CatalogRevision string `json:"catalogRevision,omitempty"`
+	// Capabilities is a derived view of the section inventories below.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Capabilities []CapabilityObservation `json:"capabilities,omitempty"`
 	// +listType=map
 	// +listMapKey=name
 	// +optional
@@ -205,6 +280,11 @@ type ClusterCapabilitiesStatus struct {
 	// +listMapKey=version
 	// +optional
 	NodeRuntimes []NodeRuntimeObservation `json:"nodeRuntimes,omitempty"`
+	// RuntimeHandlers includes node-reported configurations without inventing classes.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	RuntimeHandlers []NodeRuntimeHandlerObservation `json:"runtimeHandlers,omitempty"`
 	// +listType=map
 	// +listMapKey=name
 	// +optional
@@ -217,8 +297,6 @@ type ClusterCapabilitiesStatus struct {
 	// +optional
 	CSIDriverDetails []CSIDriverObservation `json:"csiDriverDetails,omitempty"`
 	// +optional
-	Snapshots *SnapshotObservation `json:"snapshots,omitempty"`
-	// +optional
 	NetworkPolicy *NetworkPolicyObservation `json:"networkPolicy,omitempty"`
 	// +listType=map
 	// +listMapKey=type
@@ -230,7 +308,6 @@ type ClusterCapabilitiesStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=arcap
 // +kubebuilder:validation:XValidation:rule="self.metadata.name == 'cluster'",message="ClusterCapabilities must be named cluster"
-// +kubebuilder:printcolumn:name="Discovered",type=string,JSONPath=".status.conditions[?(@.type=='DiscoveryReady')].status"
 // +kubebuilder:printcolumn:name="NetworkPolicy",type=string,JSONPath=".status.networkPolicy.status"
 // +kubebuilder:printcolumn:name="Observed",type=date,JSONPath=".status.observedAt"
 type ClusterCapabilities struct {

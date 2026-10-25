@@ -46,6 +46,7 @@ func nodeDiscoveryChanges() predicate.Predicate {
 		}
 		return !equality.Semantic.DeepEqual(old.Labels, current.Labels) ||
 			!equality.Semantic.DeepEqual(old.Spec, current.Spec) ||
+			!equality.Semantic.DeepEqual(old.Status.RuntimeHandlers, current.Status.RuntimeHandlers) ||
 			!equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp) ||
 			old.Status.NodeInfo.ContainerRuntimeVersion != current.Status.NodeInfo.ContainerRuntimeVersion || ready(old) != ready(current)
 	}}

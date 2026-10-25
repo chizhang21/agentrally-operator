@@ -1,0 +1,41 @@
+name: AgentRally Operator checks
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  GOWORK: 'off'
+jobs:
+  checks:
+    name: Lint, tests and API integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: '**/go.sum'
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.0
+      - name: Validate Actions workflows
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          actionlint
+      - name: Download checked dependencies
+        run: go mod download
+      - name: Lint Go code
+        run: make lint
+      - name: Test source, generated files and Helm chart
+        run: make check build
+      - name: Test CRD lifecycle and Connector election with an isolated API server
+        run: |
+          mkdir -p .cache/envtest
+          curl -fsSL --retry 3 https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v1.34.1/envtest-v1.34.1-linux-amd64.tar.gz -o .cache/envtest.tar.gz
+          echo 'c8500090806ed5ce4064eeeb2a5666476a5168c1f4ff0eadd54fe59b22c4baa7  .cache/envtest.tar.gz' | sha256sum --check
+          tar -xzf .cache/envtest.tar.gz -C .cache/envtest
+          KUBEBUILDER_ASSETS="$PWD/.cache/envtest/controller-tools/envtest" go test -tags=integration ./cmd ./tests/packaging -count=1 -timeout=180s

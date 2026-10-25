@@ -5,8 +5,8 @@ cd "$(dirname "$0")/.."
 mkdir -p .cache chart/templates/crds
 stage=$(mktemp -d "$PWD/.cache/generated.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
-"$CONTROLLER_GEN" rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true \
-  paths="./..." output:crd:artifacts:config="$stage/crds" \
+GOWORK=off "$CONTROLLER_GEN" rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true \
+  paths="{./api/...,./internal/controller/...}" output:crd:artifacts:config="$stage/crds" \
   output:rbac:artifacts:config="$stage/rbac"
 test -f "$stage/rbac/role.yaml"
 crds=("$stage/crds/"*.yaml)

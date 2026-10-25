@@ -31,7 +31,7 @@ func matchesRuntimeNode(n corev1.Node, r *nodev1.RuntimeClass) bool {
 	var tolerations []corev1.Toleration
 	if r != nil && r.Scheduling != nil {
 		for key, value := range r.Scheduling.NodeSelector {
-			if n.Labels[key] != value {
+			if observed, present := n.Labels[key]; !present || observed != value {
 				return false
 			}
 		}
@@ -61,19 +61,6 @@ func matchesRuntimeNode(n corev1.Node, r *nodev1.RuntimeClass) bool {
 	return true
 }
 
-func describeRuntime(r nodev1.RuntimeClass) v1.RuntimeObservation {
-	c := v1.RuntimeObservation{Name: r.Name, Handler: r.Handler, Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", Reason: "RuntimeTypeUnrecognized", Source: "NativeAPI", Scheduling: r.Scheduling.DeepCopy()}
-	if r.Overhead != nil {
-		c.Overhead = r.Overhead.PodFixed.DeepCopy()
-	}
-	if definition, ok := builtins.runtimeByHandler[strings.ToLower(r.Handler)]; ok {
-		c.Family, c.Category, c.ImageContract = definition.Family, definition.Category, definition.ImageContract
-		c.Status, c.Reason = "Observed", ""
-		c.Source, c.Rule = "BuiltInCatalog", "runtime/"+definition.Family
-	}
-	return c
-}
-
 func discoverRuntimes(ctx context.Context, reader client.Reader, status *v1.ClusterCapabilitiesStatus) error {
 	nodes := &corev1.NodeList{}
 	if err := reader.List(ctx, nodes); err != nil {
@@ -84,15 +71,13 @@ func discoverRuntimes(ctx context.Context, reader client.Reader, status *v1.Clus
 		return err
 	}
 	baseline := v1.RuntimeObservation{Name: "default", Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", Reason: "DefaultRuntimeUnclassified", Source: "NativeAPI"}
+	indexed, handlers := indexRuntimeNodes(nodes.Items)
+	status.RuntimeHandlers = handlers
+	observeRuntimeNodes(&baseline, indexed, nil)
 	type criVersion struct{ implementation, version string }
 	versions := map[criVersion]int32{}
-	for _, n := range nodes.Items {
-		if n.DeletionTimestamp != nil {
-			continue
-		}
-		if matchesRuntimeNode(n, nil) {
-			baseline.EligibleNodes++
-		}
+	for _, entry := range indexed {
+		n := entry.node
 		if version := n.Status.NodeInfo.ContainerRuntimeVersion; version != "" {
 			parts := strings.SplitN(version, "://", 2)
 			key := criVersion{implementation: parts[0]}
@@ -126,15 +111,8 @@ func discoverRuntimes(ctx context.Context, reader client.Reader, status *v1.Clus
 			continue
 		}
 		c := describeRuntime(r)
-		for _, n := range nodes.Items {
-			if matchesRuntimeNode(n, &r) {
-				c.EligibleNodes++
-			}
-		}
-		if c.Status == "Observed" && c.EligibleNodes == 0 {
-			c.Status = "Unknown"
-			c.Reason = "NoEligibleNodes"
-		}
+		observeRuntimeNodes(&c, indexed, &r)
+		runtimeEvidenceStatus(&c)
 		status.Runtimes = append(status.Runtimes, c)
 	}
 	return nil

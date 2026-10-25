@@ -13,22 +13,37 @@ import (
 func isDefault(c storagev1.StorageClass) bool {
 	return c.Annotations["storageclass.kubernetes.io/is-default-class"] == "true" || c.Annotations["storageclass.beta.kubernetes.io/is-default-class"] == "true"
 }
-func legacyNFS(provisioner string) bool {
+func nonCSIProvisioner(provisioner string) bool {
 	rule, ok := storageRule(provisioner)
-	return ok && rule.Legacy
+	return ok && rule.NonCSI
 }
 func classify(c storagev1.StorageClass) string {
 	rule, ok := storageRule(c.Provisioner)
 	if !ok {
 		return "Unknown"
 	}
-	if len(rule.ProtocolTypes) > 0 {
-		if kind, ok := rule.ProtocolTypes[c.Parameters["protocol"]]; ok {
+	if len(rule.ParameterTypes) > 0 {
+		if kind, ok := rule.ParameterTypes[c.Parameters[rule.Parameter]]; ok {
 			return kind
 		}
 		return "Unknown"
 	}
 	return rule.Type
+}
+
+func storageDriverName(c storagev1.StorageClass) string {
+	rule, _ := storageRule(c.Provisioner)
+	if rule.NonCSI {
+		return ""
+	}
+	if rule.DriverFromParameter {
+		value := c.Parameters[rule.Parameter]
+		if _, known := rule.ParameterTypes[value]; known {
+			return value
+		}
+		return ""
+	}
+	return c.Provisioner
 }
 
 func discoverStorage(ctx context.Context, reader client.Reader, status *v1.ClusterCapabilitiesStatus) error {
@@ -61,39 +76,52 @@ func discoverStorage(ctx context.Context, reader client.Reader, status *v1.Clust
 			}
 		}
 	}
-	installed := map[string]bool{}
+	declared := map[string]*storagev1.CSIDriver{}
+	names := map[string]bool{}
+	for name := range registeredNodes {
+		names[name] = true
+	}
 	for _, driver := range drivers.Items {
 		if driver.DeletionTimestamp == nil {
-			installed[driver.Name] = true
-			status.CSIDrivers = append(status.CSIDrivers, driver.Name)
-			observed := v1.CSIDriverObservation{Name: driver.Name, AttachRequired: driver.Spec.AttachRequired, FSGroupPolicy: driver.Spec.FSGroupPolicy, VolumeLifecycleModes: slices.Clone(driver.Spec.VolumeLifecycleModes), RegisteredNodes: registeredNodes[driver.Name]}
-			for key := range topologyKeys[driver.Name] {
-				observed.TopologyKeys = append(observed.TopologyKeys, key)
-			}
-			sort.Strings(observed.TopologyKeys)
-			sort.Slice(observed.VolumeLifecycleModes, func(i, j int) bool { return observed.VolumeLifecycleModes[i] < observed.VolumeLifecycleModes[j] })
-			status.CSIDriverDetails = append(status.CSIDriverDetails, observed)
+			declared[driver.Name] = &driver
+			names[driver.Name] = true
 		}
 	}
+	for name := range names {
+		status.CSIDrivers = append(status.CSIDrivers, name)
+	}
 	sort.Strings(status.CSIDrivers)
+	for _, name := range status.CSIDrivers {
+		observed := v1.CSIDriverObservation{Name: name, Declared: declared[name] != nil, RegisteredNodes: registeredNodes[name]}
+		if driver := declared[name]; driver != nil {
+			observed.AttachRequired, observed.FSGroupPolicy = driver.Spec.AttachRequired, driver.Spec.FSGroupPolicy
+			observed.VolumeLifecycleModes = slices.Clone(driver.Spec.VolumeLifecycleModes)
+		}
+		for key := range topologyKeys[name] {
+			observed.TopologyKeys = append(observed.TopologyKeys, key)
+		}
+		sort.Strings(observed.TopologyKeys)
+		sort.Slice(observed.VolumeLifecycleModes, func(i, j int) bool { return observed.VolumeLifecycleModes[i] < observed.VolumeLifecycleModes[j] })
+		status.CSIDriverDetails = append(status.CSIDriverDetails, observed)
+	}
 	sort.Slice(classes.Items, func(i, j int) bool { return classes.Items[i].Name < classes.Items[j].Name })
 	for _, class := range classes.Items {
 		if class.DeletionTimestamp != nil {
 			continue
 		}
 		kind := classify(class)
-		c := v1.StorageObservation{Name: class.Name, Provisioner: class.Provisioner, Type: kind, Source: "NativeAPI", Default: isDefault(class), DriverRegistered: installed[class.Provisioner], AllowVolumeExpansion: class.AllowVolumeExpansion}
-		if _, known := storageRule(class.Provisioner); known {
+		driverName := storageDriverName(class)
+		_, known := storageRule(class.Provisioner)
+		if !known && declared[driverName] == nil && registeredNodes[driverName] == 0 {
+			driverName = ""
+		}
+		c := v1.StorageObservation{Name: class.Name, Provisioner: class.Provisioner, Type: kind, Source: "NativeAPI", Default: isDefault(class),
+			CSIDriver: driverName, DriverDeclared: declared[driverName] != nil, DriverRegistered: registeredNodes[driverName] > 0, AllowVolumeExpansion: class.AllowVolumeExpansion}
+		if known {
 			c.Source, c.Rule = "BuiltInCatalog", "storage/"+class.Provisioner
 		}
 		for _, term := range class.AllowedTopologies {
 			c.AllowedTopologies = append(c.AllowedTopologies, *term.DeepCopy())
-		}
-		if class.VolumeBindingMode != nil {
-			c.VolumeBindingMode = *class.VolumeBindingMode
-		}
-		if class.ReclaimPolicy != nil {
-			c.ReclaimPolicy = string(*class.ReclaimPolicy)
 		}
 		storageEvidenceStatus(&c)
 		status.StorageClasses = append(status.StorageClasses, c)
@@ -106,9 +134,7 @@ func storageEvidenceStatus(c *v1.StorageObservation) {
 	switch {
 	case c.Type == "Unknown":
 		c.Status, c.Reason = "Unknown", "StorageTypeUnrecognized"
-	case c.Type == "Local":
-		c.Reason = "LocalStorageIsNotDurableBlock"
-	case !c.DriverRegistered && !legacyNFS(c.Provisioner):
+	case !c.DriverRegistered && !nonCSIProvisioner(c.Provisioner):
 		c.Status, c.Reason = "Unknown", "CSIDriverNotRegistered"
 	}
 }

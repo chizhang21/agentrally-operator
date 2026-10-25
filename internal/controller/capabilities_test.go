@@ -22,7 +22,7 @@ func TestCapabilityEventsIgnoreAuditTimestamps(t *testing.T) {
 	if filter.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}) {
 		t.Fatal("timestamp-only refresh woke consumers")
 	}
-	after.Status.Conditions = []metav1.Condition{{Type: "DiscoveryReady", Status: metav1.ConditionFalse, Reason: "DiscoveryFailed"}}
+	after.Status.Conditions = []metav1.Condition{{Type: "StorageDiscoveryReady", Status: metav1.ConditionFalse, Reason: "DiscoveryFailed"}}
 	if !filter.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}) {
 		t.Fatal("discovery failure did not wake consumers")
 	}

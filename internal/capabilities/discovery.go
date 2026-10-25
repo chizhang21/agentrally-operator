@@ -4,6 +4,7 @@ package capabilities
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	v1 "arally/operator/api/v1alpha1"
@@ -12,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -25,8 +27,7 @@ const (
 	Runtime Section = 1 << iota
 	Storage
 	Network
-	Snapshots
-	All = Runtime | Storage | Network | Snapshots
+	All = Runtime | Storage | Network
 )
 
 func (s Section) Condition() string {
@@ -37,8 +38,6 @@ func (s Section) Condition() string {
 		return "StorageDiscoveryReady"
 	case Network:
 		return "NetworkPolicyDiscoveryReady"
-	case Snapshots:
-		return "SnapshotDiscoveryReady"
 	}
 	panic("unknown capability section")
 }
@@ -51,6 +50,20 @@ type Observer struct {
 	Reader client.Reader
 	Cache  client.Reader
 	Now    func() time.Time
+}
+
+// Native candidates use existing informers. Optional APIs stay direct so a
+// candidate cannot create a mandatory informer for an uninstalled component.
+type candidateReader struct {
+	client.Reader
+	api client.Reader
+}
+
+func (r candidateReader) List(ctx context.Context, list client.ObjectList, options ...client.ListOption) error {
+	if _, optional := list.(*unstructured.UnstructuredList); optional {
+		return r.api.List(ctx, list, options...)
+	}
+	return r.Reader.List(ctx, list, options...)
 }
 
 func (o Observer) now() time.Time {
@@ -70,9 +83,15 @@ func Discover(ctx context.Context, reader client.Reader) v1.ClusterCapabilitiesS
 
 func (o Observer) Refresh(ctx context.Context, report *v1.ClusterCapabilities, dirty Section, force bool) time.Duration {
 	force = force || report.Status.ObservedGeneration != report.Generation || report.Status.CatalogRevision != builtins.revision
+	for _, retired := range []string{"DiscoveryReady", "DiscoverySucceeded", "SnapshotDiscoveryReady"} {
+		meta.RemoveStatusCondition(&report.Status.Conditions, retired)
+	}
+	report.Status.Sections = slices.DeleteFunc(report.Status.Sections, func(section v1.DiscoverySectionObservation) bool {
+		return section.Name == "SnapshotDiscoveryReady"
+	})
 	nextAudit := o.now().Add(RefreshInterval)
 	attempted := false
-	for section := Runtime; section <= Snapshots; section <<= 1 {
+	for section := Runtime; section <= Network; section <<= 1 {
 		now := o.now()
 		previous := sectionObservation(report.Status, section)
 		interval := RefreshInterval
@@ -81,12 +100,12 @@ func (o Observer) Refresh(ctx context.Context, report *v1.ClusterCapabilities, d
 			interval = retryInterval
 		}
 		due := force || previous.LastAttemptAt == nil || now.Before(previous.LastAttemptAt.Time) || !now.Before(previous.LastAttemptAt.Add(interval))
-		if !due && dirty&section != 0 && section != Snapshots {
+		if !due && dirty&section != 0 {
 			if o.Cache == nil {
 				due = true
 			} else {
 				candidateCtx, cancel := context.WithTimeout(ctx, time.Second)
-				candidate, err := collect(candidateCtx, o.Cache, report.Spec, section)
+				candidate, err := collect(candidateCtx, candidateReader{Reader: o.Cache, api: o.Reader}, report.Spec, section)
 				cancel()
 				due = err != nil || !sameSection(report.Status, candidate, section)
 			}
@@ -104,9 +123,6 @@ func (o Observer) Refresh(ctx context.Context, report *v1.ClusterCapabilities, d
 				current = v1.ClusterCapabilitiesStatus{}
 				if section == Network {
 					current.NetworkPolicy = &v1.NetworkPolicyObservation{Status: "Unknown", Reason: "DiscoveryFailed"}
-				}
-				if section == Snapshots {
-					current.Snapshots = &v1.SnapshotObservation{ClassAPIStatus: "Unknown", Reason: "DiscoveryFailed"}
 				}
 				condition.Status = metav1.ConditionFalse
 				condition.Reason, condition.Message = readFailure(err)
@@ -131,15 +147,7 @@ func (o Observer) Refresh(ctx context.Context, report *v1.ClusterCapabilities, d
 	if attempted {
 		report.Status.ObservedGeneration = report.Generation
 		report.Status.CatalogRevision = builtins.revision
-		ready := metav1.Condition{Type: "DiscoveryReady", Status: metav1.ConditionTrue, ObservedGeneration: report.Generation,
-			Reason: "ResourcesObserved", Message: "All sections completed; configuration evidence is not runtime verification"}
-		for section := Runtime; section <= Snapshots; section <<= 1 {
-			condition := meta.FindStatusCondition(report.Status.Conditions, section.Condition())
-			if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != report.Generation {
-				ready.Status, ready.Reason, ready.Message = metav1.ConditionFalse, "PartialDiscovery", "One or more sections failed; inspect section conditions"
-			}
-		}
-		meta.SetStatusCondition(&report.Status.Conditions, ready)
+		report.Status.Capabilities = summarize(report.Status)
 	}
 	// Account for time spent auditing other sections before scheduling a retry.
 	return max(time.Millisecond, nextAudit.Sub(o.now()))
@@ -155,8 +163,6 @@ func collect(ctx context.Context, reader client.Reader, spec v1.ClusterCapabilit
 		err = discoverStorage(ctx, reader, &status)
 	case Network:
 		err = discoverNetwork(ctx, reader, &status)
-	case Snapshots:
-		err = discoverSnapshots(ctx, reader, &status)
 	}
 	if err == nil {
 		applyMappings(&status, spec, section)
@@ -175,12 +181,11 @@ func applySection(target *v1.ClusterCapabilitiesStatus, source v1.ClusterCapabil
 	switch section {
 	case Runtime:
 		target.DefaultRuntime, target.Runtimes, target.NodeRuntimes = source.DefaultRuntime, source.Runtimes, source.NodeRuntimes
+		target.RuntimeHandlers = source.RuntimeHandlers
 	case Storage:
 		target.StorageClasses, target.CSIDrivers, target.CSIDriverDetails = source.StorageClasses, source.CSIDrivers, source.CSIDriverDetails
 	case Network:
 		target.NetworkPolicy = source.NetworkPolicy
-	case Snapshots:
-		target.Snapshots = source.Snapshots
 	}
 }
 

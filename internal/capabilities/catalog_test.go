@@ -29,9 +29,9 @@ func TestNetworkCatalogFlagsAndControllerPresence(t *testing.T) {
 		want            string
 	}{
 		{"aws-node", "aws-network-policy-agent", []string{"--enable-network-policy=true"}, "Supported"},
-		{"aws-node", "aws-eks-nodeagent", nil, "Unsupported"},
+		{"aws-node", "aws-eks-nodeagent", nil, "Unknown"},
 		{"aws-node", "aws-node", nil, "Unsupported"},
-		{"kube-router", "kube-router", nil, "Unknown"},
+		{"kube-router", "kube-router", nil, "Supported"},
 		{"kube-router", "kube-router", []string{"--run-firewall=true"}, "Supported"},
 		{"weave-net", "weave", nil, "Unsupported"},
 		{"weave-net", "weave-npc", nil, "Supported"},
@@ -39,7 +39,10 @@ func TestNetworkCatalogFlagsAndControllerPresence(t *testing.T) {
 	} {
 		t.Run(tc.name+tc.container+tc.want, func(t *testing.T) {
 			ds := daemon(tc.name, tc.container)
-			ds.Spec.Template.Spec.Containers[0].Args = tc.args
+			if tc.name == "cilium" {
+				ds = ciliumDaemon("cilium-config")
+			}
+			ds.Spec.Template.Spec.Containers[0].Args = append(ds.Spec.Template.Spec.Containers[0].Args, tc.args...)
 			cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cilium-config", Namespace: ds.Namespace}}
 			s := Discover(context.Background(), testClient(t, ds, cm))
 			want := tc.want

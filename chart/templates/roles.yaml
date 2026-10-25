@@ -118,6 +118,12 @@ rules:
   - list
   - watch
 - apiGroups:
+  - cilium.io
+  resources:
+  - ciliumnodeconfigs
+  verbs:
+  - list
+- apiGroups:
   - coordination.k8s.io
   resources:
   - leases
@@ -212,12 +218,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - snapshot.storage.k8s.io
-  resources:
-  - volumesnapshotclasses
-  verbs:
-  - list
 - apiGroups:
   - snapshot.storage.k8s.io
   resources:

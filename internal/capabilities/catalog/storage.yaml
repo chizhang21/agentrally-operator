@@ -1,21 +1,74 @@
-# Order matters: local storage cannot be classified as durable remote storage.
+# Exact maintainer-defined identities; Rook's namespace-qualified CSI names use
+# suffixes. Classify the Kubernetes mount interface, not protocol or location.
+# These drivers expose directory mounts. Raw Block support cannot be inferred
+# from a StorageClass or a block backend; actual use follows PVC volumeMode.
+# Sources: https://kubernetes-csi.github.io/docs/drivers.html
+# https://kubernetes.io/docs/concepts/storage/persistent-volumes/#volume-mode
 storage:
-  - type: Local
-    provisioners: [rancher.io/local-path, kubernetes.io/no-provisioner]
-    contains: [hostpath, local-path]
-  - type: NFS
-    contains: [nfs-subdir-external-provisioner, nfs-client]
-    legacy: true
+  - type: Filesystem
+    provisioners:
+      - openebs.io/local
+      - rancher.io/local-path
+      - k8s-sigs.io/nfs-subdir-external-provisioner
+      - cluster.local/nfs-subdir-external-provisioner
+      - cluster.local/nfs-client-provisioner
+    nonCSI: true
+  - type: Filesystem
+    provisioners:
+      - hostpath.csi.k8s.io
+      - local.csi.openebs.io
+      - zfs.csi.openebs.io
+      - topolvm.io
+      - csi.san.synology.com
+      - nfs.csi.k8s.io
+      - efs.csi.aws.com
+      - filestore.csi.storage.gke.io
+      - nasplugin.csi.alibabacloud.com
+      - com.tencent.cloud.csi.cfs
+      - fss.csi.oraclecloud.com
+      - vpc.file.csi.ibm.io
+      - smb.csi.k8s.io
+      - fsx.csi.aws.com
+      - file.csi.azure.com
+      - cephfs.csi.ceph.com
+      - ebs.csi.aws.com
+      - ebs.csi.eks.amazonaws.com
+      - disk.csi.azure.com
+      - pd.csi.storage.gke.io
+      - driver.longhorn.io
+      - rbd.csi.ceph.com
+      - cinder.csi.openstack.org
+      - io.openebs.csi-mayastor
+      - cstor.csi.openebs.io
+      - dobs.csi.digitalocean.com
+      - csi.hetzner.cloud
+      - diskplugin.csi.alibabacloud.com
+      - com.tencent.cloud.csi.cbs
+      - blockvolume.csi.oraclecloud.com
+      - vpc.block.csi.ibm.io
+      # FUSE bucket mounts are filesystem interfaces, not object APIs.
+      - s3.csi.aws.com
+      - gcsfuse.csi.storage.gke.io
+      - ossplugin.csi.alibabacloud.com
+      - com.tencent.cloud.csi.cosfs
+      - csi.vsphere.vmware.com
+      - csi.trident.netapp.io
+      - blob.csi.azure.com
+    suffixes: [.cephfs.csi.ceph.com, .rbd.csi.ceph.com]
+  # Everest delegates to a named CSI driver, not its aggregate provisioner ID.
   - type: Unknown
-    provisioners: [csi.san.synology.com]
-    protocolTypes:
-      nfs: NFS
-      "": Block
-      iscsi: Block
-      nvme: Block
-  - type: NFS
-    provisioners: [efs.csi.aws.com]
-    contains: [nfs.csi]
-  - type: Block
-    provisioners: [ebs.csi.aws.com, disk.csi.azure.com, pd.csi.storage.gke.io, driver.longhorn.io, csi.vsphere.vmware.com, rbd.csi.ceph.com]
-    suffixes: [.rbd.csi.ceph.com]
+    provisioners:
+      - everest-csi-provisioner
+    parameter: csi.storage.k8s.io/csi-driver-name
+    driverFromParameter: true
+    parameterTypes:
+      disk.csi.everest.io: Filesystem
+      nas.csi.everest.io: Filesystem
+      sfsturbo.csi.everest.io: Filesystem
+      obs.csi.everest.io: Filesystem
+      local.csi.everest.io: Filesystem
+  # Static provisioning alone does not identify the volume's interface.
+  - type: Unknown
+    provisioners:
+      - kubernetes.io/no-provisioner
+    nonCSI: true

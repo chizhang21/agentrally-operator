@@ -10,11 +10,9 @@ func applyMappings(status *v1.ClusterCapabilitiesStatus, spec v1.ClusterCapabili
 				if mapping.RuntimeClassName != observed.Name {
 					continue
 				}
-				observed.Family, observed.Category, observed.ImageContract = mapping.Family, mapping.Category, mapping.ImageContract
-				observed.Source, observed.Rule = "AdministratorDeclared", "runtimeMappings/"+mapping.RuntimeClassName
-				if observed.EligibleNodes > 0 {
-					observed.Status, observed.Reason = "Observed", ""
-				}
+				classification := runtimeClassification{Family: mapping.Family, Category: mapping.Category, ImageContract: mapping.ImageContract}
+				classification.apply(observed, "AdministratorDeclared", "runtimeMappings/"+mapping.RuntimeClassName)
+				runtimeEvidenceStatus(observed)
 			}
 		}
 	}

@@ -25,9 +25,6 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='DiscoveryReady')].status
-      name: Discovered
-      type: string
     - jsonPath: .status.networkPolicy.status
       name: NetworkPolicy
       type: string
@@ -71,14 +68,17 @@ spec:
                       - UserSpaceKernel
                       - VirtualMachine
                       - WebAssembly
+                      - Unknown
                       type: string
                     family:
+                      maxLength: 128
                       minLength: 1
                       type: string
                     imageContract:
                       enum:
                       - LinuxOCI
                       - WasmWASI
+                      - Unknown
                       type: string
                     runtimeClassName:
                       minLength: 1
@@ -90,10 +90,11 @@ spec:
                   - runtimeClassName
                   type: object
                   x-kubernetes-validations:
-                  - message: WebAssembly requires WasmWASI; other categories require
-                      LinuxOCI
-                    rule: (self.category == 'WebAssembly') == (self.imageContract
-                      == 'WasmWASI')
+                  - message: Known WebAssembly contracts require WasmWASI; known non-WebAssembly
+                      contracts require LinuxOCI
+                    rule: self.category == 'Unknown' || self.imageContract == 'Unknown'
+                      || ((self.category == 'WebAssembly') == (self.imageContract
+                      == 'WasmWASI'))
                 maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
@@ -106,12 +107,12 @@ spec:
                       minLength: 1
                       type: string
                     type:
-                      description: 'Type describes the backend; Block does not mean
-                        PVC volumeMode: Block.'
+                      description: |-
+                        Type declares the intended Kubernetes volume interface for this class.
+                        It does not change PVC volumeMode or native driver support.
                       enum:
-                      - NFS
+                      - Filesystem
                       - Block
-                      - Local
                       - Unknown
                       type: string
                   required:
@@ -126,6 +127,83 @@ spec:
             type: object
           status:
             properties:
+              capabilities:
+                description: Capabilities is a derived view of the section inventories
+                  below.
+                items:
+                  description: |-
+                    CapabilityObservation groups configuration evidence into user-facing concepts.
+                    Observed means at least one reference has positive configuration evidence.
+                    It does not attest execution, storage I/O or traffic enforcement.
+                  properties:
+                    category:
+                      enum:
+                      - Isolation
+                      - Storage
+                      - Networking
+                      type: string
+                    description:
+                      type: string
+                    displayName:
+                      type: string
+                    name:
+                      type: string
+                    resources:
+                      items:
+                        description: CapabilityReference links a user-facing capability
+                          to its native evidence.
+                        properties:
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            description: Namespace is empty for cluster-scoped resources.
+                            type: string
+                          reason:
+                            type: string
+                          source:
+                            enum:
+                            - NativeAPI
+                            - BuiltInCatalog
+                            - AdministratorDeclared
+                            - RuntimeClassDeclared
+                            - InstallerMetadata
+                            type: string
+                          status:
+                            enum:
+                            - Observed
+                            - Unknown
+                            - Unsupported
+                            type: string
+                        required:
+                        - kind
+                        - name
+                        - namespace
+                        - status
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - kind
+                      - namespace
+                      - name
+                      x-kubernetes-list-type: map
+                    status:
+                      enum:
+                      - Observed
+                      - Unknown
+                      type: string
+                  required:
+                  - category
+                  - description
+                  - displayName
+                  - name
+                  - status
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               catalogRevision:
                 description: CatalogRevision identifies the embedded classification
                   rules.
@@ -197,6 +275,10 @@ spec:
                   properties:
                     attachRequired:
                       type: boolean
+                    declared:
+                      description: Declared distinguishes a CSIDriver object from
+                        node-only registration.
+                      type: boolean
                     fsGroupPolicy:
                       description: |-
                         FSGroupPolicy specifies if a CSI Driver supports modifying
@@ -247,8 +329,82 @@ spec:
                     type: integer
                   family:
                     type: string
+                  features:
+                    description: Features counts node reports across the same scheduling
+                      candidates.
+                    properties:
+                      recursiveReadOnlyMounts:
+                        description: |-
+                          RuntimeFeatureObservation retains coverage instead of implying uniform support.
+                          Reported false may include unavailable CRI feature introspection.
+                        properties:
+                          reportedSupportedNodes:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          reportedUnsupportedNodes:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          unknownNodes:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                        required:
+                        - reportedSupportedNodes
+                        - reportedUnsupportedNodes
+                        - unknownNodes
+                        type: object
+                      userNamespaces:
+                        description: |-
+                          RuntimeFeatureObservation retains coverage instead of implying uniform support.
+                          Reported false may include unavailable CRI feature introspection.
+                        properties:
+                          reportedSupportedNodes:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          reportedUnsupportedNodes:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          unknownNodes:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                        required:
+                        - reportedSupportedNodes
+                        - reportedUnsupportedNodes
+                        - unknownNodes
+                        type: object
+                    required:
+                    - recursiveReadOnlyMounts
+                    - userNamespaces
+                    type: object
                   handler:
                     type: string
+                  handlerEvidence:
+                    description: |-
+                      HandlerEvidence covers the existing scheduling candidates, not Pod startup.
+                      Missing node inventory is unknown rather than evidence of no support.
+                    properties:
+                      missingFromReportedInventoryNodes:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      noInventoryNodes:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      reportedNodes:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                    required:
+                    - missingFromReportedInventoryNodes
+                    - noInventoryNodes
+                    - reportedNodes
+                    type: object
                   imageContract:
                     type: string
                   name:
@@ -337,6 +493,8 @@ spec:
                     - NativeAPI
                     - BuiltInCatalog
                     - AdministratorDeclared
+                    - RuntimeClassDeclared
+                    - InstallerMetadata
                     type: string
                   status:
                     enum:
@@ -436,6 +594,81 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              runtimeHandlers:
+                description: RuntimeHandlers includes node-reported configurations
+                  without inventing classes.
+                items:
+                  description: |-
+                    NodeRuntimeHandlerObservation inventories reports from non-terminating nodes.
+                    A handler may have no RuntimeClass and therefore not be selectable by a Pod.
+                  properties:
+                    features:
+                      properties:
+                        recursiveReadOnlyMounts:
+                          description: |-
+                            RuntimeFeatureObservation retains coverage instead of implying uniform support.
+                            Reported false may include unavailable CRI feature introspection.
+                          properties:
+                            reportedSupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            reportedUnsupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            unknownNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                          required:
+                          - reportedSupportedNodes
+                          - reportedUnsupportedNodes
+                          - unknownNodes
+                          type: object
+                        userNamespaces:
+                          description: |-
+                            RuntimeFeatureObservation retains coverage instead of implying uniform support.
+                            Reported false may include unavailable CRI feature introspection.
+                          properties:
+                            reportedSupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            reportedUnsupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            unknownNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                          required:
+                          - reportedSupportedNodes
+                          - reportedUnsupportedNodes
+                          - unknownNodes
+                          type: object
+                      required:
+                      - recursiveReadOnlyMounts
+                      - userNamespaces
+                      type: object
+                    name:
+                      description: Name is empty for the default handler, whose executor
+                        remains unidentified.
+                      type: string
+                    reportedNodes:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - features
+                  - name
+                  - reportedNodes
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               runtimes:
                 items:
                   description: RuntimeObservation is configuration evidence, not a
@@ -448,8 +681,82 @@ spec:
                       type: integer
                     family:
                       type: string
+                    features:
+                      description: Features counts node reports across the same scheduling
+                        candidates.
+                      properties:
+                        recursiveReadOnlyMounts:
+                          description: |-
+                            RuntimeFeatureObservation retains coverage instead of implying uniform support.
+                            Reported false may include unavailable CRI feature introspection.
+                          properties:
+                            reportedSupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            reportedUnsupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            unknownNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                          required:
+                          - reportedSupportedNodes
+                          - reportedUnsupportedNodes
+                          - unknownNodes
+                          type: object
+                        userNamespaces:
+                          description: |-
+                            RuntimeFeatureObservation retains coverage instead of implying uniform support.
+                            Reported false may include unavailable CRI feature introspection.
+                          properties:
+                            reportedSupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            reportedUnsupportedNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            unknownNodes:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                          required:
+                          - reportedSupportedNodes
+                          - reportedUnsupportedNodes
+                          - unknownNodes
+                          type: object
+                      required:
+                      - recursiveReadOnlyMounts
+                      - userNamespaces
+                      type: object
                     handler:
                       type: string
+                    handlerEvidence:
+                      description: |-
+                        HandlerEvidence covers the existing scheduling candidates, not Pod startup.
+                        Missing node inventory is unknown rather than evidence of no support.
+                      properties:
+                        missingFromReportedInventoryNodes:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        noInventoryNodes:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        reportedNodes:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - missingFromReportedInventoryNodes
+                      - noInventoryNodes
+                      - reportedNodes
+                      type: object
                     imageContract:
                       type: string
                     name:
@@ -538,6 +845,8 @@ spec:
                       - NativeAPI
                       - BuiltInCatalog
                       - AdministratorDeclared
+                      - RuntimeClassDeclared
+                      - InstallerMetadata
                       type: string
                     status:
                       enum:
@@ -580,43 +889,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
-              snapshots:
-                description: |-
-                  SnapshotObservation reports VolumeSnapshotClass API availability, not backend
-                  snapshot creation or restore success. Pre-provisioned snapshots may have no class.
-                properties:
-                  classAPIStatus:
-                    enum:
-                    - Available
-                    - Unavailable
-                    - Unknown
-                    type: string
-                  classes:
-                    items:
-                      properties:
-                        default:
-                          type: boolean
-                        deletionPolicy:
-                          type: string
-                        driver:
-                          type: string
-                        name:
-                          type: string
-                      required:
-                      - default
-                      - deletionPolicy
-                      - driver
-                      - name
-                      type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                  reason:
-                    type: string
-                required:
-                - classAPIStatus
-                type: object
               storageClasses:
                 items:
                   properties:
@@ -662,17 +934,26 @@ spec:
                         type: object
                         x-kubernetes-map-type: atomic
                       type: array
+                    csiDriver:
+                      description: |-
+                        CSIDriver identifies the node driver, which may differ from an aggregate
+                        provisioner. Empty for non-CSI or unrecognized driver selection.
+                      type: string
                     default:
                       type: boolean
+                    driverDeclared:
+                      description: DriverDeclared reports a CSIDriver object; it is
+                        not node registration.
+                      type: boolean
                     driverRegistered:
+                      description: DriverRegistered requires a non-terminating CSINode
+                        registration.
                       type: boolean
                     name:
                       type: string
                     provisioner:
                       type: string
                     reason:
-                      type: string
-                    reclaimPolicy:
                       type: string
                     rule:
                       type: string
@@ -684,15 +965,14 @@ spec:
                       - Unknown
                       type: string
                     type:
+                      description: |-
+                        Type classifies a known Kubernetes volume interface, not its backing store.
+                        Catalog entries describe directory mounts; the same class may also support
+                        raw Block volumes. Actual use follows the PVC's volumeMode.
                       enum:
-                      - NFS
+                      - Filesystem
                       - Block
-                      - Local
                       - Unknown
-                      type: string
-                    volumeBindingMode:
-                      description: VolumeBindingMode indicates how PersistentVolumeClaims
-                        should be bound.
                       type: string
                   required:
                   - default

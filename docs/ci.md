@@ -1,49 +1,108 @@
-# CI and image publication
+# CI and releases
 
-[The workflow](../.github/workflows/ci.yml) runs on PR creation, updates and reopening,
-and on `v*` tag pushes.
-It runs lint, source/generated-file checks, unit tests, Helm chart checks, credential
-scanning and `govulncheck`, then builds the image.
-It also runs CRD lifecycle and Connector election/readiness integration tests against
-isolated Kubernetes 1.34.1 API servers using checksum-pinned test binaries.
+[CI](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`.
+[Release](../.github/workflows/release.yml) runs on `v*` tag pushes.
+Both orchestrate reusable workflows for distinct responsibilities.
 
-Images use `ghcr.io/<owner>/<repository>` in lowercase.
+## Workflows
 
-| Trigger | Package version | Image tag | Publication |
+| Workflow | Responsibility | Manual run |
+| --- | --- | --- |
+| [checks.yml](../.github/workflows/checks.yml) | Actions syntax, Go lint, source/generated-file checks, unit tests, example validation, vet, binary build, Helm checks and API integration | Yes |
+| [security.yml](../.github/workflows/security.yml) | Gitleaks source/history scanning and reachable Go vulnerability scanning | Yes |
+| [packages.yml](../.github/workflows/packages.yml) | Validate package identity, build the image and package the Chart as Actions artifacts | Yes |
+| [e2e.yml](../.github/workflows/e2e.yml) | Real Core, Extensions and AgentRally lifecycle in disposable kind | Yes |
+| [publish.yml](../.github/workflows/publish.yml) | Upload tested image and Chart artifacts to GHCR after the release gates | Called by Release |
+
+API integration uses isolated Kubernetes 1.34.1 API servers and checksum-pinned binaries.
+It checks Helm CRD lifecycle, example admission and Connector election/readiness.
+The E2E workflow is named **AgentRally Operator E2E**.
+Its default profile uses kindnet and local-path storage.
+See [local E2E profiles](development.md#real-lifecycle-release-gate) for optional Cilium,
+snapshot, OpenClaw and Kata checks.
+
+Dependabot configuration is removed.
+Security scanning remains part of CI and the release gate.
+
+## Versions and destinations
+
+| Trigger | Package version | Image tag | GHCR publication |
 | --- | --- | --- | --- |
-| Same-repository PR | `0.0.0-pr.<number>.g<12-character checked SHA>` | `v` + package version | Push to GHCR |
-| Fork PR | Same PR version format | `v` + package version | Build only; no registry login |
-| Version tag | Git tag with leading `v` removed | Exact Git tag | Push to GHCR |
+| PR, including forks | `0.0.0-pr.<number>.g<12-character checked SHA>` | `v` + package version | No |
+| Branch push or manual branch packaging | `0.0.0-dev.g<12-character checked SHA>` | `v` + package version | No |
+| Version-tag push | Git tag without its leading `v` | Exact Git tag | Image and Chart after all gates pass |
 
-A tag such as `v1.2.3` builds version `1.2.3`; no source version update is needed.
-CI injects this version and the corresponding image reference into the chart.
-It publishes no `latest` tag.
+Use **`vMAJOR.MINOR.PATCH`** for releases, for example `v0.1.0` or `v1.2.3`.
+Prereleases such as `v0.1.0-rc.1` are supported.
+Versions cannot contain leading-zero numeric components, `+metadata`, or exceed 63
+characters after removing `v`.
+Invalid tags fail package identity validation.
+A branch named `v1.2.3` remains a development build.
 
-The image contains one `/operator` binary, including the optional Connector, and
-currently targets `linux/amd64`.
+The repository name is normalized to lowercase for the image address.
+The Chart is published beneath the owner's `helm` namespace.
+For this repository, tag `v0.1.0` produces:
 
-PR and tag builds retain the chart archive as an Actions artifact for 30 days.
-The chart contains the CI image defaults; trusted builds publish that image after checks
-pass.
-Fork PR images are built but not published, so their packages need an accessible image
-override before installation.
+- Image: `ghcr.io/chizhang21/arally-operator:v0.1.0`
+- Chart: `oci://ghcr.io/chizhang21/helm/arally-operator`, version `0.1.0`
+- Chart `appVersion`: `0.1.0`
 
-CI uses `GITHUB_TOKEN` with `packages: write`; no registry password Secret is needed.
-It does not deploy to existing clusters or create GitHub Releases.
+The image contains one `/operator` binary, including the optional Connector.
+It targets `linux/amd64`.
+No `latest` tag is published.
 
-Version tags must also pass the [real lifecycle E2E gate](../.github/workflows/e2e.yml)
-before image publication.
-It creates and deletes a temporary kind cluster with Core, Extensions and AgentRally.
-The same workflow supports manual dispatch; PRs compile its test code but do not run the
-cluster test.
-See [local E2E instructions](development.md#real-lifecycle-release-gate).
+Source Chart versions stay as placeholders.
+Packaging stamps a temporary copy with the tag version and matching image reference.
+No source version bump is required.
 
-After first publication, set the GHCR package to **Public** for anonymous pulls.
-A public repository does not make its package public automatically.
-See
-[GHCR documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pushing-container-images).
+## Release sequence
 
-For manual builds and packaging, see [Development](development.md).
+Checks, security scanning and package builds run independently.
+Image and Chart builds have no registry credentials or package-write permission.
+
+After all three workflows succeed, E2E downloads the built image and Chart archives.
+It tests those artifacts in a temporary kind cluster and deletes the cluster afterward.
+
+Publication runs only after checks, security scanning, packaging and E2E succeed.
+It downloads the same artifacts, loads and pushes the image, then uploads the existing
+Chart archive with `helm push`.
+It does not rebuild either artifact.
+
+Only the publication job requests `packages: write` and logs in to GHCR.
+It uses `GITHUB_TOKEN`; no registry password Secret is needed.
+For an existing GHCR package, the repository must have Actions write access to it.
+See [GHCR authentication and package permissions](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-in-a-github-actions-workflow).
+
+Image archives are retained as Actions artifacts for seven days; Charts for 30 days.
+PR and branch packages reference images that have not been published to GHCR.
+Download/load their image artifact or supply an accessible image override before
+installing those Charts.
+
+Failures retain E2E diagnostics for seven days.
+Release does not deploy to existing clusters or create GitHub Releases.
+
+## Trigger a release
+
+Commit and push the intended changes before creating a tag.
+The tag must point at a commit containing these workflows.
+For example:
+
+```sh
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+```
+
+For a release candidate, use a new tag such as `v0.1.0-rc.1`.
+Keep published version tags attached to their original commits.
+
+After first publication, set both GHCR packages to **Public** for anonymous downloads.
+A public repository does not make its packages public automatically.
+See [package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
+Install a published Chart using the [installation guide](installation.md#install-agentrally).
+
+For local builds and manual uploads, see [Development](development.md).
+
+## Optional agent image
 
 The separate [Build Codex Mobile image](../.github/workflows/codex-mobile.yml) workflow
 runs only on manual request.

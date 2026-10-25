@@ -1,0 +1,62 @@
+name: AgentRally Operator publication
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      chart_repository:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  publish:
+    name: Publish tested OCI packages
+    if: github.event_name == 'push' && github.event.deleted != true && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ inputs.image }}
+      VERSION: ${{ inputs.version }}
+      CHART_REPOSITORY: ${{ inputs.chart_repository }}
+    steps:
+      - name: Check the release version against the Git tag
+        run: test "$GITHUB_REF" = "refs/tags/v$VERSION"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: operator-image
+          path: dist/image
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: operator-chart
+          path: dist/chart
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.0
+      - name: Load and inspect the tested packages
+        run: |
+          docker image load --input dist/image/operator-image.tar
+          docker image inspect "$IMAGE" >/dev/null
+          helm show chart "dist/chart/arally-operator-${VERSION}.tgz"
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the tested image and chart
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+          docker image push "$IMAGE"
+          helm push "dist/chart/arally-operator-${VERSION}.tgz" "$CHART_REPOSITORY"
+          printf 'Image: `%s`\nChart: `%s/arally-operator:%s`\n' "$IMAGE" "$CHART_REPOSITORY" "$VERSION" >> "$GITHUB_STEP_SUMMARY"

@@ -52,3 +52,4 @@ values.*.local.yaml
 /.aws/
 /.ssh/
 /AGENT.md
+/docs/backlogs.md

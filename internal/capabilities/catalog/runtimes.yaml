@@ -12,14 +12,6 @@ runtimes:
     category: Container
     imageContract: LinuxOCI
     handlers: [youki]
-  - family: containerd
-    category: Container
-    imageContract: LinuxOCI
-    handlers: [containerd]
-  - family: cri-o
-    category: Container
-    imageContract: LinuxOCI
-    handlers: [cri-o]
   - family: gvisor
     category: UserSpaceKernel
     imageContract: LinuxOCI
@@ -27,7 +19,48 @@ runtimes:
   - family: kata
     category: VirtualMachine
     imageContract: LinuxOCI
-    handlers: [kata, kata-qemu, kata-qemu-runtime-rs, kata-clh, kata-clh-runtime-rs, kata-dragonball, kata-fc, kata-clh-azure, kata-clh-azure-runtime-rs]
+    labels:
+      app.kubernetes.io/managed-by: kata-deploy
+    nodeSelector:
+      katacontainers.io/kata-runtime: "true"
+    # https://kata-containers.github.io/kata-containers/kata-deploy-runtimeclasses/
+    # Names identify configured VM runtimes, not verified confidential computing.
+    handlers:
+      - kata
+      - kata-qemu
+      - kata-qemu-runtime-rs
+      - kata-clh
+      - kata-cloud-hypervisor
+      - kata-clh-runtime-rs
+      - kata-dragonball
+      - kata-fc
+      - kata-clh-azure
+      - kata-clh-azure-runtime-rs
+      - kata-qemu-snp
+      - kata-qemu-snp-runtime-rs
+      - kata-qemu-tdx
+      - kata-qemu-tdx-runtime-rs
+      - kata-qemu-se
+      - kata-qemu-se-runtime-rs
+      - kata-qemu-coco-dev
+      - kata-qemu-coco-dev-runtime-rs
+      - kata-qemu-cca
+      - kata-qemu-nvidia-cpu
+      - kata-qemu-nvidia-cpu-runtime-rs
+      - kata-qemu-nvidia-gpu
+      - kata-qemu-nvidia-gpu-runtime-rs
+      - kata-qemu-nvidia-gpu-snp
+      - kata-qemu-nvidia-gpu-snp-runtime-rs
+      - kata-qemu-nvidia-gpu-tdx
+      - kata-qemu-nvidia-gpu-tdx-runtime-rs
+      - kata-remote
+      - kata-stratovirt
+      - kata-openvmm-azure-runtime-rs
+  - family: crun-vm
+    category: VirtualMachine
+    # OCI packaging does not imply an ordinary Linux application image contract.
+    imageContract: Unknown
+    handlers: [crun-vm]
   - family: wasm
     category: WebAssembly
     imageContract: WasmWASI
@@ -48,3 +81,8 @@ runtimes:
     category: WebAssembly
     imageContract: WasmWASI
     handlers: [wamr]
+  # https://github.com/spinframework/containerd-shim-spin#quickstart
+  - family: spin
+    category: WebAssembly
+    imageContract: WasmWASI
+    handlers: [spin]

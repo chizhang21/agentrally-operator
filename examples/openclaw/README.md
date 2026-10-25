@@ -82,6 +82,11 @@ Never attach the same user PVC to multiple independent assistants.
 The example enables `workspace.exclusive` to reserve its PVC until Instance deletion.
 Competing bindings report `WorkspaceInUse` before allocation.
 
+Delete the instance and wait for execution cleanup before deleting its definition.
+Retaining the PVC also requires retaining its namespace.
+Group deletion waits for remaining PVCs.
+See [deletion and data retention](../../docs/agent-definitions.md#delete).
+
 Existing-workspace allocations enforce zero spares even if Group policy changes; channel
 consumers and application cron jobs must not run in unassigned replicas.
 

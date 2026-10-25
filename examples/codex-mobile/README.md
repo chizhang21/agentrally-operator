@@ -53,8 +53,15 @@ Set the resulting address as `AgentDefinition.spec.container.image` with
 `AgentDefinition.spec.template: coding`.
 The server listens on port 5900.
 
-Configure its password and arguments through the instance, as with any other agent
-image; build-time registry credentials and runtime agent credentials are separate.
+Configure its password and arguments through `AgentDefinition.spec.container`, using
+environment variables or arguments supported by the image.
+Declare port 5900 in `container.ports` for interaction endpoint discovery.
+Build-time registry credentials and runtime agent credentials are separate.
+
+AgentInstances reference that definition and configure their workspace, lifecycle and
+optional interaction endpoint.
+After changing a published definition, change the instance's `spec.restartToken` to
+adopt its latest revision.
 
 To select a project when starting the server, pass its directory as a positional
 argument, such as
@@ -67,7 +74,10 @@ A mounted workspace must be writable by that user.
 
 `HOME=/workspace` and `CODEX_HOME=/workspace/.codex`; configure a private workspace PVC
 to retain projects and login state across suspend/resume.
-Replacing the Sandbox starts a new workspace.
+With `workspace.volumeClaimTemplate`, replacing the Sandbox creates a new PVC.
+To keep projects and login state across replacement and upgrades, bind an external PVC
+with `workspace.existingClaimRef` and `exclusive: true` on the instance.
+See the [retained workspace pattern](../openclaw/README.md#upgrade-and-retain-state).
 
 Without an explicit password, the application generates one and stores it beneath
 `CODEX_HOME`.

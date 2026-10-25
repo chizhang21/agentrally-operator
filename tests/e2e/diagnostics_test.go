@@ -150,14 +150,15 @@ func TestSnapshotWorkspaceRestore(t *testing.T) {
 	if restoredPVC.UID == pvc.UID || restoredPVC.Spec.VolumeName == pvc.Spec.VolumeName {
 		t.Fatal("restore reused the source volume")
 	}
-	// The real probe does not claim snapshot RPC support in the passive inventory.
+	// Native CSI registration remains part of storage discovery; snapshot source
+	// validation and this restore test work without global snapshot inventory.
 	report := &v1.ClusterCapabilities{}
-	await(t, "CSI registration and snapshot class inventory", func() (bool, error) {
+	await(t, "CSI driver registration", func() (bool, error) {
 		if err := kube.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
 			return false, err
 		}
 		for _, driver := range report.Status.CSIDriverDetails {
-			if driver.Name == sc.Provisioner && driver.RegisteredNodes > 0 && report.Status.Snapshots != nil && report.Status.Snapshots.ClassAPIStatus == "Available" {
+			if driver.Name == sc.Provisioner && driver.RegisteredNodes > 0 {
 				return true, nil
 			}
 		}

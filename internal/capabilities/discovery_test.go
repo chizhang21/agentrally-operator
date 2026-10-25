@@ -145,21 +145,30 @@ func TestRuntimeDiscoveryDoesNotAssumeComparisonTolerations(t *testing.T) {
 	}
 }
 
-func TestStorageDiscoveryKeepsUnknownLocalAndIndependentCSIInventory(t *testing.T) {
+func TestStorageDiscoveryPreservesNativeEvidenceAndIndependentCSIInventory(t *testing.T) {
 	local := class("local", "rancher.io/local-path")
 	local.Labels = map[string]string{"arally.io/storage-type": "Block"}
 	nfs := class("nfs", "nfs.csi.k8s.io")
 	nfs.Annotations = map[string]string{"storageclass.kubernetes.io/is-default-class": "true"}
 	nfs.VolumeBindingMode = ptr.To(storagev1.VolumeBindingWaitForFirstConsumer)
+	nfs.ReclaimPolicy = ptr.To(corev1.PersistentVolumeReclaimDelete)
 	opaque := class("opaque", "opaque.example")
 	opaque.Labels = map[string]string{"arally.io/storage-type": "Block"}
-	c := testClient(t, local, nfs, opaque, class("unknown", "unmapped.example"), class("legacy", "k8s-sigs.io/nfs-subdir-external-provisioner"), driver("nfs.csi.k8s.io"), driver("opaque.example"))
+	registration := csiRegistration(nfs.Provisioner)
+	c := testClient(t, local, nfs, opaque, class("unknown", "unmapped.example"), class("legacy", "k8s-sigs.io/nfs-subdir-external-provisioner"), driver("nfs.csi.k8s.io"), driver("opaque.example"), registration)
 	status := Discover(context.Background(), c)
-	if s := findStorage(t, status, "local"); s.Type != "Local" || s.Source != "BuiltInCatalog" {
-		t.Fatal("local storage advertised as durable Block")
+	if s := findStorage(t, status, "local"); s.Type != "Filesystem" || s.Source != "BuiltInCatalog" || s.CSIDriver != "" || s.Status != "Observed" {
+		t.Fatal("local-path directory interface was not recognized")
 	}
-	if s := findStorage(t, status, "nfs"); s.Type != "NFS" || !s.Default || !s.DriverRegistered || s.VolumeBindingMode != storagev1.VolumeBindingWaitForFirstConsumer {
+	if s := findStorage(t, status, "nfs"); s.Type != "Filesystem" || !s.Default || !s.DriverRegistered {
 		t.Fatal("native storage attributes lost")
+	}
+	encoded, err := json.Marshal(status.StorageClasses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("volumeBindingMode")) || bytes.Contains(encoded, []byte("reclaimPolicy")) {
+		t.Fatal("removed StorageClass settings remained in the public inventory")
 	}
 	if s := findStorage(t, status, "opaque"); s.Type != "Unknown" || s.Source != "NativeAPI" {
 		t.Fatal("administrator label unexpectedly changed embedded recognition")
@@ -176,6 +185,9 @@ func TestStorageDiscoveryKeepsUnknownLocalAndIndependentCSIInventory(t *testing.
 	if err := c.Delete(context.Background(), driver("nfs.csi.k8s.io")); err != nil {
 		t.Fatal(err)
 	}
+	if err := c.Delete(context.Background(), registration); err != nil {
+		t.Fatal(err)
+	}
 	if s := findStorage(t, Discover(context.Background(), c), "nfs"); s.Status != "Unknown" || s.DriverRegistered || s.Reason != "CSIDriverNotRegistered" {
 		t.Fatal("removed CSI driver still advertised as registered")
 	}
@@ -184,19 +196,6 @@ func TestStorageDiscoveryKeepsUnknownLocalAndIndependentCSIInventory(t *testing.
 	}
 	if len(Discover(context.Background(), c).StorageClasses) != 4 {
 		t.Fatal("deleted StorageClass retained")
-	}
-}
-
-func TestSynologyProtocolClassification(t *testing.T) {
-	for _, tc := range []struct{ protocol, kind string }{{"", "Block"}, {"iscsi", "Block"}, {"nvme", "Block"}, {"nfs", "NFS"}, {"smb", "Unknown"}, {"other", "Unknown"}} {
-		t.Run(tc.protocol, func(t *testing.T) {
-			sc := class("workspace", "csi.san.synology.com")
-			sc.Parameters = map[string]string{"protocol": tc.protocol}
-			s := Discover(context.Background(), testClient(t, sc, driver(sc.Provisioner)))
-			if got := findStorage(t, s, sc.Name).Type; got != tc.kind {
-				t.Fatalf("protocol %q: %s", tc.protocol, got)
-			}
-		})
 	}
 }
 
@@ -210,7 +209,7 @@ func TestNetworkDiscoveryIsConfigurationEvidenceOnly(t *testing.T) {
 			requireCondition(t, s, "NetworkPolicyDiscoveryReady", metav1.ConditionTrue)
 		})
 	}
-	cilium := daemon("cilium", "cilium-agent")
+	cilium := ciliumDaemon("cilium-config")
 	config := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cilium-config", Namespace: cilium.Namespace}, Data: map[string]string{"enable-policy": "never"}}
 	c := testClient(t, cilium, config)
 	if s := Discover(context.Background(), c); s.NetworkPolicy.Status != "Unknown" || s.NetworkPolicy.Providers[0].Status != "Unsupported" {
@@ -256,7 +255,14 @@ func TestSectionFailuresDoNotExposePreviousSuccess(t *testing.T) {
 				return c.List(ctx, list, opts...)
 			}})
 			s := Discover(context.Background(), reader)
-			requireCondition(t, s, "DiscoveryReady", metav1.ConditionFalse)
+			failed := map[string]Section{"runtime": Runtime, "storage": Storage, "network": Network}[section]
+			for _, current := range []Section{Runtime, Storage, Network} {
+				want := metav1.ConditionTrue
+				if current == failed {
+					want = metav1.ConditionFalse
+				}
+				requireCondition(t, s, current.Condition(), want)
+			}
 			if section == "runtime" && (s.DefaultRuntime != nil || len(s.Runtimes) != 0 || len(s.NodeRuntimes) != 0) {
 				t.Fatal("runtime failure exposed partial inventory")
 			}
@@ -274,11 +280,11 @@ func TestSectionFailuresDoNotExposePreviousSuccess(t *testing.T) {
 			}
 		})
 	}
-	cilium := daemon("cilium", "cilium-agent")
+	cilium := ciliumDaemon("cilium-config")
 	s := Discover(context.Background(), testClient(t, cilium))
-	requireCondition(t, s, "NetworkPolicyDiscoveryReady", metav1.ConditionFalse)
-	if s.NetworkPolicy.Status != "Unknown" || len(s.NetworkPolicy.Providers) != 0 {
-		t.Fatal("missing CNI config retained successful provider evidence")
+	requireCondition(t, s, "NetworkPolicyDiscoveryReady", metav1.ConditionTrue)
+	if s.NetworkPolicy.Status != "Unknown" || len(s.NetworkPolicy.Providers) != 1 || s.NetworkPolicy.Providers[0].Status != "Unknown" {
+		t.Fatal("missing CNI configuration was reported as a configured policy engine")
 	}
 }
 
@@ -289,7 +295,9 @@ func TestDiscoveryDoesNotPublishRawReaderErrors(t *testing.T) {
 		return errors.New("private-server-detail: https://internal.example/api?credential=example-only")
 	}})
 	status := Discover(context.Background(), reader)
-	requireCondition(t, status, "DiscoveryReady", metav1.ConditionFalse)
+	for _, section := range []Section{Runtime, Storage, Network} {
+		requireCondition(t, status, section.Condition(), metav1.ConditionFalse)
+	}
 	encoded, err := json.Marshal(status)
 	if err != nil {
 		t.Fatal(err)

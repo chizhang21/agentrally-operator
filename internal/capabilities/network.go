@@ -13,8 +13,8 @@ import (
 )
 
 func networkProvider(ctx context.Context, reader client.Reader, ds appsv1.DaemonSet) (v1.NetworkPolicyProviderObservation, bool, error) {
-	rule, recognized := builtins.networkByName[ds.Name]
-	p := v1.NetworkPolicyProviderObservation{Name: ds.Name, Namespace: ds.Namespace, Provider: rule.Provider, Status: "Supported", Source: "BuiltInCatalog", Rule: "network/" + rule.Provider}
+	rule, recognized := networkRule(&ds)
+	p := v1.NetworkPolicyProviderObservation{Name: ds.Name, Namespace: ds.Namespace, Provider: rule.Provider, Status: "Unknown", Source: "BuiltInCatalog", Rule: "network/" + rule.Provider}
 	if !recognized {
 		return p, false, nil
 	}
@@ -32,51 +32,14 @@ func networkProvider(ctx context.Context, reader client.Reader, ds appsv1.Daemon
 		if rule.MissingContainerStatus == "" {
 			return p, false, nil
 		}
-		p.Status, p.Reason = rule.MissingContainerStatus, "NetworkPolicyControllerNotEnabled"
-	}
-	if rule.Status == "Unsupported" {
-		p.Status, p.Reason = "Unsupported", "NetworkPolicyControllerNotInstalled"
-	}
-	if len(rule.RequiredArgs) > 0 {
-		found := false
-		for _, c := range containers {
-			for _, arg := range c.Args {
-				if oneOf(arg, rule.RequiredArgs...) {
-					found = true
-				}
-			}
-		}
-		if !found {
-			p.Status = rule.MissingArgsStatus
-			if p.Status == "" {
-				p.Status = "Unknown"
-			}
-			p.Reason = "CNIConfigurationUnavailable"
-			if p.Status == "Unsupported" {
-				p.Reason = "NetworkPolicyControllerNotEnabled"
-			}
-		}
-	}
-	if rule.ConfigMap != "" {
-		cm := &corev1.ConfigMap{}
-		if err := reader.Get(ctx, types.NamespacedName{Namespace: ds.Namespace, Name: rule.ConfigMap}, cm); err != nil {
-			p.Status, p.Reason = "Unknown", "CNIConfigurationUnavailable"
+		p.Status, p.Reason = rule.MissingContainerStatus, "NetworkPolicyControllerNotObserved"
+	} else {
+		p.Status, p.Reason, err = networkConfiguration(ctx, reader, &ds, rule, containers)
+		if err != nil {
 			return p, true, err
 		}
-		for key, value := range rule.DisabledConfig {
-			if cm.Data[key] == value {
-				p.Status, p.Reason = "Unsupported", "NetworkPolicyDisabled"
-			}
-		}
 	}
-	for _, c := range containers {
-		for _, arg := range c.Args {
-			if oneOf(arg, rule.DisabledArgs...) {
-				p.Status, p.Reason = "Unsupported", "NetworkPolicyDisabled"
-			}
-		}
-	}
-	if ds.DeletionTimestamp != nil || ds.Status.ObservedGeneration < ds.Generation || ds.Status.DesiredNumberScheduled < 1 || ds.Status.NumberReady < ds.Status.DesiredNumberScheduled {
+	if ds.DeletionTimestamp != nil || ds.Status.ObservedGeneration != ds.Generation || ds.Status.DesiredNumberScheduled < 1 || ds.Status.NumberReady < ds.Status.DesiredNumberScheduled {
 		p.Status, p.Reason = "Unknown", "NetworkPolicyProviderNotReady"
 	}
 	return p, true, nil

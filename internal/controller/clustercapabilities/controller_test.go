@@ -35,7 +35,10 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Name: "cluster", Generation: 3, Labels: map[string]string{"user": "keep"}}}
 	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs"}, Provisioner: "nfs.csi.k8s.io"}
 	driver := &storagev1.CSIDriver{ObjectMeta: metav1.ObjectMeta{Name: sc.Provisioner}}
-	base := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(report).WithObjects(report, sc, driver).Build()
+	registration := &storagev1.CSINode{ObjectMeta: metav1.ObjectMeta{Name: "worker"}, Spec: storagev1.CSINodeSpec{
+		Drivers: []storagev1.CSINodeDriver{{Name: driver.Name, NodeID: "private-node-id"}},
+	}}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(report).WithObjects(report, sc, driver, registration).Build()
 	patches := 0
 	guarded := interceptor.NewClient(base, interceptor.Funcs{
 		Create: func(context.Context, client.WithWatch, client.Object, ...client.CreateOption) error {
@@ -83,7 +86,7 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 	}
 	run()
 	current := get()
-	testutil.Condition(t, current.Status.Conditions, "DiscoveryReady", metav1.ConditionTrue)
+	testutil.Condition(t, current.Status.Conditions, "StorageDiscoveryReady", metav1.ConditionTrue)
 	if current.Status.ObservedGeneration != 3 || current.Status.ObservedAt == nil || len(current.Status.StorageClasses) != 1 || current.Status.StorageClasses[0].Status != "Observed" {
 		t.Fatalf("status not published: %+v", current.Status)
 	}
@@ -95,7 +98,7 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 			t.Fatal("condition generation missing")
 		}
 	}
-	transition := meta.FindStatusCondition(current.Status.Conditions, "DiscoveryReady").LastTransitionTime
+	transition := meta.FindStatusCondition(current.Status.Conditions, "StorageDiscoveryReady").LastTransitionTime
 	stale := metav1.NewTime(time.Now().Add(-3 * time.Minute))
 	current.Status.ObservedAt = &stale
 	for i := range current.Status.Sections {
@@ -106,10 +109,13 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 	}
 	run()
 	current = get()
-	if !current.Status.ObservedAt.After(stale.Time) || !meta.FindStatusCondition(current.Status.Conditions, "DiscoveryReady").LastTransitionTime.Equal(&transition) {
+	if !current.Status.ObservedAt.After(stale.Time) || !meta.FindStatusCondition(current.Status.Conditions, "StorageDiscoveryReady").LastTransitionTime.Equal(&transition) {
 		t.Fatal("freshness/transition semantics wrong")
 	}
 	if err := base.Delete(ctx, driver); err != nil {
+		t.Fatal(err)
+	}
+	if err := base.Delete(ctx, registration); err != nil {
 		t.Fatal(err)
 	}
 	r.mapDependency(ctx, driver)
@@ -148,7 +154,7 @@ func TestClusterCapabilitiesPublishesStatusWithoutMutatingInputs(t *testing.T) {
 var ctx = context.Background()
 
 func TestNodeDiscoveryIgnoresHeartbeats(t *testing.T) {
-	old := &corev1.Node{Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}}
+	old := &corev1.Node{Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}, RuntimeHandlers: []corev1.NodeRuntimeHandler{{Name: "runc"}}}}
 	for _, tc := range []struct {
 		name    string
 		mutate  func(*corev1.Node)
@@ -161,6 +167,11 @@ func TestNodeDiscoveryIgnoresHeartbeats(t *testing.T) {
 		}, true},
 		{"readiness", func(n *corev1.Node) { n.Status.Conditions[0].Status = corev1.ConditionFalse }, true},
 		{"runtime", func(n *corev1.Node) { n.Status.NodeInfo.ContainerRuntimeVersion = "containerd://2.1.0" }, true},
+		{"handler", func(n *corev1.Node) { n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{{Name: "opaque"}} }, true},
+		{"handler-feature", func(n *corev1.Node) {
+			supported := true
+			n.Status.RuntimeHandlers[0].Features = &corev1.NodeRuntimeHandlerFeatures{UserNamespaces: &supported}
+		}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			current := old.DeepCopy()

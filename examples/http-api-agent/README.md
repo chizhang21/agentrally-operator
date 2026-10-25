@@ -26,6 +26,7 @@ kubectl wait agentgroup/http-api-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/http-api-agent/02-agent-secret.yaml
 kubectl apply -f examples/http-api-agent/03-registry-secret.yaml
 kubectl apply -f examples/http-api-agent/04-agent-definition.yaml
+kubectl -n arally-http-api-agent wait agentdefinition/http-api-agent --for=condition=Ready --timeout=120s
 kubectl apply -f examples/http-api-agent/04-agent.yaml
 kubectl -n arally-http-api-agent wait agentinstance/http-api-agent --for=condition=Ready --timeout=5m
 kubectl -n arally-http-api-agent wait agentinstance/http-api-agent --for=condition=InteractionReady --timeout=5m

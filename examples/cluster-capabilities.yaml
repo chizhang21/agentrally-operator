@@ -1,5 +1,6 @@
 # Replace these names with existing native classes. Unmatched mappings do not
 # create capabilities. See docs/cluster-capabilities.md for evidence boundaries.
+# The controller generates status.capabilities; only mappings are user input.
 apiVersion: arally.io/v1alpha1
 kind: ClusterCapabilities
 metadata:
@@ -9,7 +10,10 @@ spec:
     - runtimeClassName: company-kata
       family: kata
       category: VirtualMachine
+      # Use Unknown if the workload image contract has not been established.
       imageContract: LinuxOCI
   storageMappings:
     - storageClassName: company-workspaces
-      type: NFS
+      # Directory mounts use Filesystem; raw volumeDevices use Block.
+      # Mappings do not change PVC volumeMode or bypass CSI registration.
+      type: Filesystem

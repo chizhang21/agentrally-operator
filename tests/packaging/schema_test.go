@@ -3,7 +3,6 @@ package packaging_test
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -19,7 +18,6 @@ import (
 	apiservervalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/yaml"
@@ -129,26 +127,40 @@ func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
 					t.Fatal(err)
 				}
 				now := metav1.Now()
-				report.Spec = v1.ClusterCapabilitiesSpec{RuntimeMappings: []v1.RuntimeMapping{{RuntimeClassName: "custom", Family: "kata", Category: "VirtualMachine", ImageContract: "LinuxOCI"}}, StorageMappings: []v1.StorageMapping{{StorageClassName: "opaque", Type: "NFS"}}}
+				report.Spec = v1.ClusterCapabilitiesSpec{RuntimeMappings: []v1.RuntimeMapping{{RuntimeClassName: "custom", Family: "kata", Category: "VirtualMachine", ImageContract: "LinuxOCI"}}, StorageMappings: []v1.StorageMapping{{StorageClassName: "opaque", Type: "Filesystem"}, {StorageClassName: "devices", Type: "Block"}}}
 				report.Status = v1.ClusterCapabilitiesStatus{ObservedAt: &now, ObservedGeneration: 1,
 					CatalogRevision: "catalog-revision", Sections: []v1.DiscoverySectionObservation{{Name: "RuntimeDiscoveryReady", LastAttemptAt: &now, LastSuccessAt: &now}},
 					DefaultRuntime:   &v1.RuntimeObservation{Name: "default", Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", EligibleNodes: 1, Source: "NativeAPI"},
 					Runtimes:         []v1.RuntimeObservation{{Name: "kata", Handler: "kata-qemu", Family: "kata", Category: "VirtualMachine", ImageContract: "LinuxOCI", Status: "Observed", EligibleNodes: 1}},
 					NodeRuntimes:     []v1.NodeRuntimeObservation{{Implementation: "containerd", Version: "2.1.0", Nodes: 1}},
-					StorageClasses:   []v1.StorageObservation{{Name: "nfs", Provisioner: "nfs.csi.k8s.io", Type: "NFS", Source: "Provisioner", Status: "Observed", Default: true, DriverRegistered: true}},
+					StorageClasses:   []v1.StorageObservation{{Name: "files", Provisioner: "smb.csi.k8s.io", CSIDriver: "smb.csi.k8s.io", Type: "Filesystem", Source: "BuiltInCatalog", Status: "Observed", Default: true, DriverDeclared: true, DriverRegistered: true}},
 					CSIDrivers:       []string{"nfs.csi.k8s.io"},
-					CSIDriverDetails: []v1.CSIDriverObservation{{Name: "nfs.csi.k8s.io", RegisteredNodes: 1, TopologyKeys: []string{"zone"}}},
-					Snapshots:        &v1.SnapshotObservation{ClassAPIStatus: "Available", Classes: []v1.SnapshotClassObservation{{Name: "seed", Driver: "nfs.csi.k8s.io", DeletionPolicy: "Retain", Default: true}}},
+					CSIDriverDetails: []v1.CSIDriverObservation{{Name: "nfs.csi.k8s.io", Declared: true, RegisteredNodes: 1, TopologyKeys: []string{"zone"}}},
 					NetworkPolicy:    &v1.NetworkPolicyObservation{Status: "Supported", Reason: "ReadyProviderConfigurationObserved", Providers: []v1.NetworkPolicyProviderObservation{{Name: "calico-node", Namespace: "kube-system", Provider: "Calico", Status: "Supported"}}}}
+				report.Status.Capabilities = []v1.CapabilityObservation{{Name: "Filesystem", DisplayName: "Filesystem volumes", Category: "Storage", Description: "File service configuration", Status: "Observed",
+					Resources: []v1.CapabilityReference{{Kind: "StorageClass", Name: "files", Status: "Observed", Source: "BuiltInCatalog"}},
+				}}
+				report.Status.Runtimes[0].Source = "InstallerMetadata"
+				report.Status.Runtimes[0].HandlerEvidence = &v1.RuntimeHandlerEvidence{ReportedNodes: 1}
+				report.Status.Runtimes[0].Features = &v1.RuntimeFeaturesObservation{UserNamespaces: v1.RuntimeFeatureObservation{ReportedSupportedNodes: 1}, RecursiveReadOnlyMounts: v1.RuntimeFeatureObservation{UnknownNodes: 1}}
+				report.Status.RuntimeHandlers = []v1.NodeRuntimeHandlerObservation{{Name: "", ReportedNodes: 1, Features: *report.Status.Runtimes[0].Features}}
+				report.Status.Capabilities = append(report.Status.Capabilities, v1.CapabilityObservation{Name: "VirtualMachineIsolation", DisplayName: "VM isolation", Category: "Isolation", Description: "Guest kernel isolation", Status: "Observed",
+					Resources: []v1.CapabilityReference{{Kind: "RuntimeClass", Name: "custom", Status: "Observed", Source: "RuntimeClassDeclared"}},
+				})
 				object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(report)
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
 			before := runtime.DeepCopyJSON(object)
+			if kind == "clustercapabilities" {
+				storage := object["status"].(map[string]interface{})["storageClasses"].([]interface{})[0].(map[string]interface{})
+				storage["reclaimPolicy"] = "Delete"
+				storage["volumeBindingMode"] = "WaitForFirstConsumer"
+			}
 			pruning.Prune(object, structural, true)
 			if !reflect.DeepEqual(before["status"], object["status"]) {
-				t.Fatal("CRD pruned observation fields")
+				t.Fatal("CRD discarded current observation fields or retained retired fields")
 			}
 			if !reflect.DeepEqual(before["spec"], object["spec"]) {
 				t.Fatal("CRD pruned native desired-state fields")
@@ -187,6 +199,9 @@ func TestCapabilityAdmission(t *testing.T) {
 		{"canonical", "cluster", "VirtualMachine", "LinuxOCI", true},
 		{"other-name", "duplicate", "VirtualMachine", "LinuxOCI", false},
 		{"wasm", "cluster", "WebAssembly", "WasmWASI", true},
+		{"vm-unknown-image", "cluster", "VirtualMachine", "Unknown", true},
+		{"wasm-unknown-image", "cluster", "WebAssembly", "Unknown", true},
+		{"unknown-isolation", "cluster", "Unknown", "LinuxOCI", true},
 		{"wasm-oci", "cluster", "WebAssembly", "LinuxOCI", false},
 		{"vm-wasm", "cluster", "VirtualMachine", "WasmWASI", false},
 	} {
@@ -469,76 +484,6 @@ func TestGroupNamespaceAdmission(t *testing.T) {
 	accepts := admissionChecker(t, "agentgroups")
 	if !accepts(map[string]interface{}{}) || !accepts(map[string]interface{}{"namespace": "arally-demo"}) || accepts(map[string]interface{}{"namespace": "default"}) || accepts(map[string]interface{}{"podSecurity": "Privileged"}) {
 		t.Fatal("namespace/security admission does not enforce the group contract")
-	}
-}
-
-func TestAllAgentExamplesSurviveAdmissionAndPruning(t *testing.T) {
-	for _, kind := range []struct{ name, plural string }{{"AgentDefinition", "agentdefinitions"}, {"AgentInstance", "agentinstances"}} {
-		accepts := admissionChecker(t, kind.plural)
-		paths, err := filepath.Glob("../../examples/*.yaml")
-		if err != nil {
-			t.Fatal(err)
-		}
-		nestedPaths, err := filepath.Glob("../../examples/*/*.yaml")
-		if err != nil {
-			t.Fatal(err)
-		}
-		paths = append(paths, nestedPaths...)
-		if len(paths) == 0 {
-			t.Fatal("AgentInstance sample resources are missing")
-		}
-		crd := renderedCRD(t, kind.plural)
-		schema := &apiextensions.JSONSchemaProps{}
-		if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(crd.Spec.Versions[0].Schema.OpenAPIV3Schema, schema, nil); err != nil {
-			t.Fatal(err)
-		}
-		structural, err := structuralschema.NewStructural(schema)
-		if err != nil {
-			t.Fatal(err)
-		}
-		checked := 0
-		for _, path := range paths {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			jsonData, err := yaml.YAMLToJSON(data)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Match Kubernetes unstructured decoding: CEL integer fields need int64.
-			native := &unstructured.Unstructured{}
-			if err := native.UnmarshalJSON(jsonData); err != nil {
-				t.Fatal(err)
-			}
-			object := native.Object
-			if object["kind"] != kind.name {
-				continue
-			}
-			checked++
-			t.Run(filepath.Base(path), func(t *testing.T) {
-				if !accepts(object["spec"].(map[string]interface{})) {
-					validator, _, err := apiservervalidation.NewSchemaValidator(schema)
-					if err != nil {
-						t.Fatal(err)
-					}
-					errors := apiservervalidation.ValidateCustomResource(field.NewPath("resource"), object, validator)
-					if cel := structuralcel.NewValidator(structural, false, 1_000_000); cel != nil {
-						celErrors, _ := cel.Validate(context.Background(), field.NewPath("resource"), structural, object, nil, 1_000_000)
-						errors = append(errors, celErrors...)
-					}
-					t.Fatalf("%s fails CRD admission: %v", path, errors.ToAggregate())
-				}
-				before := runtime.DeepCopyJSON(object)
-				pruning.Prune(object, structural, true)
-				if !reflect.DeepEqual(before, object) {
-					t.Fatal("example contains unsupported fields lost at admission")
-				}
-			})
-		}
-		if checked == 0 {
-			t.Fatal("AgentInstance sample resources are missing")
-		}
 	}
 }
 

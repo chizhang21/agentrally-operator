@@ -37,7 +37,7 @@ version: save-build-state ## Save the dev version or explicit VERSION; keep repo
 configure: save-build-state ## Save IMAGE_TAG_BASE and CHART_OCI_REPO without building or uploading.
 
 generate: controller-gen ## Generate DeepCopy code, chart CRDs and RBAC.
-	$(CONTROLLER_GEN) object paths="./..."
+	GOWORK=off $(CONTROLLER_GEN) object paths="./api/..."
 	CONTROLLER_GEN="$(CONTROLLER_GEN)" bash hack/generate-manifests.sh
 
 fmt: ## Format Go code.

@@ -1,4 +1,6 @@
-# Complete instance. Apply full-definition.yaml first. Replace placeholders and prepare every referenced dependency before applying.
+# Instance field reference.
+# Apply full-definition.yaml first.
+# Replace placeholders and prepare the referenced dependencies before applying.
 apiVersion: arally.io/v1alpha1
 kind: AgentInstance
 metadata:
@@ -9,6 +11,9 @@ spec:
     name: demo
   definitionRef:
     name: builtin-agent
+  # Optional: pin a published 64-character definition revision.
+  # Omitted selects the latest on first acceptance and explicit restart.
+  # revision: <published-revision-hash>
   operatingMode: Running
   workspace:
     mountPath: /workspace

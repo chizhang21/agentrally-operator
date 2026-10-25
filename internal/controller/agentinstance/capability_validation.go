@@ -107,8 +107,22 @@ func validateRuntimeEvidence(rc *nodev1.RuntimeClass, report *v1.ClusterCapabili
 	for _, observed := range report.Status.Runtimes {
 		if observed.Name == rc.Name && observed.Handler == rc.Handler {
 			// Counts in the report omit Pod-specific tolerations and affinity.
-			if observed.Family == "unknown" || observed.Family == "" {
-				v.add(metav1.ConditionUnknown, "RuntimeTypeUnrecognized", "Selected handler is not in the built-in runtime catalog")
+			if observed.Category == "Unknown" || observed.Category == "" {
+				reason := observed.Reason
+				if reason == "" {
+					reason = "RuntimeIsolationUnknown"
+				}
+				v.add(metav1.ConditionUnknown, reason, "Selected handler's isolation classification is unknown; inspect ClusterCapabilities")
+			}
+			if observed.ImageContract == "Unknown" || observed.ImageContract == "" {
+				v.add(metav1.ConditionUnknown, "RuntimeImageContractUnknown", "Selected handler's workload image contract is unknown")
+			} else if observed.ImageContract != "LinuxOCI" {
+				v.add(metav1.ConditionUnknown, "RuntimeImageCompatibilityUnverified", "Selected handler requires a specialized image contract; workload compatibility is not verified")
+			}
+			if evidence := observed.HandlerEvidence; evidence != nil && evidence.ReportedNodes == 0 && evidence.MissingFromReportedInventoryNodes > 0 {
+				v.add(metav1.ConditionUnknown, "RuntimeHandlerNotReported", "Candidate node inventories do not report the selected handler; nodes without inventories remain unknown")
+			} else if observed.Status == "Unknown" {
+				v.add(metav1.ConditionUnknown, "RuntimeEvidenceUnknown", "Runtime configuration evidence is uncertain; inspect ClusterCapabilities")
 			}
 			return
 		}

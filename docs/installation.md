@@ -10,8 +10,10 @@ Custom images for other architectures require a matching node selector.
 For the current source checkout, use the
 [local installation workflow](#local-development-and-testing).
 
-CI saves Chart archives as Actions artifacts; OCI Chart publication is a separate
-[`make chart-push` step](development.md#upload-image-and-chart).
+Version-tag releases publish both the Operator image and OCI Chart to GHCR after
+checks and E2E pass.
+PR and main-branch CI retain build artifacts without publishing them.
+See [CI and releases](ci.md) or [manual uploads](development.md#upload-image-and-chart).
 The OCI commands below require an accessible, published Chart version.
 
 ## Standard installation

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	v1 "arally/operator/api/v1alpha1"
+	"arally/operator/internal/capabilities"
 	"arally/operator/internal/controller/agentgroup"
 	"arally/operator/internal/controller/clustercapabilities"
 	"arally/operator/internal/podconfig"
@@ -24,6 +25,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -72,7 +74,9 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("example-admission", func(t *testing.T) { verifyExampleAdmission(t, k8s) })
 	verifyReportBootstrap(t, cfg, scheme, k8s)
+	t.Run("runtime-capability-admission", func(t *testing.T) { verifyRuntimeCapabilityAdmission(t, k8s) })
 	verifyPodAdmissionDefaults(t, k8s)
 	t.Run("group-limit-range", func(t *testing.T) { verifyGroupLimitRangeConvergence(t, k8s, scheme) })
 
@@ -98,6 +102,36 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(group), &v1.AgentGroup{}); err != nil {
 		t.Fatalf("adoption removed existing AgentGroup: %v", err)
 	}
+}
+
+func verifyExampleAdmission(t *testing.T, kube client.Client) {
+	t.Helper()
+	ctx := t.Context()
+	namespaces := map[string]bool{}
+	admitted := 0
+	for _, example := range exampleResources(t) {
+		object := example.object
+		// The source template belongs to upstream Extensions, whose CRD is
+		// not installed by this Operator-only Helm lifecycle fixture.
+		if object.GroupVersionKind().Group == "extensions.agents.x-k8s.io" {
+			continue
+		}
+		t.Run(example.path, func(t *testing.T) {
+			if namespace := object.GetNamespace(); namespace != "" && !namespaces[namespace] {
+				if err := kube.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}); err != nil && !apierrors.IsAlreadyExists(err) {
+					t.Fatal(err)
+				}
+				namespaces[namespace] = true
+			}
+			// Alternatives can share names. Dry-run exercises real admission
+			// without storing sample declarations or requiring controllers.
+			if err := kube.Create(ctx, object, client.DryRunAll); err != nil {
+				t.Fatalf("example API-server admission failed: %v", err)
+			}
+			admitted++
+		})
+	}
+	t.Logf("API-server dry-run admitted %d example resources", admitted)
 }
 
 func verifyGroupLimitRangeConvergence(t *testing.T, kube client.WithWatch, scheme *runtime.Scheme) {
@@ -377,5 +411,63 @@ func verifyReportBootstrap(t *testing.T, cfg *rest.Config, scheme *runtime.Schem
 	}
 	if err != nil {
 		t.Fatalf("controller did not bootstrap and refresh the default report: %v", err)
+	}
+}
+
+func verifyRuntimeCapabilityAdmission(t *testing.T, kube client.Client) {
+	t.Helper()
+	ctx := t.Context()
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "runtime-reports", Labels: map[string]string{corev1.LabelOSStable: "linux"}}}
+	if err := kube.Create(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = kube.Delete(context.Background(), node) }()
+	node.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+	node.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
+		{Name: "opaque", Features: &corev1.NodeRuntimeHandlerFeatures{UserNamespaces: ptr.To(true), RecursiveReadOnlyMounts: ptr.To(false)}},
+		{Name: ""},
+	}
+	if err := kube.Status().Update(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	rc := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "declared-runtime", Annotations: map[string]string{
+		"arally.io/runtime-classification": `{"version":"v1","family":"future-engine","category":"VirtualMachine","imageContract":"Unknown"}`,
+	}}, Handler: "opaque"}
+	if err := kube.Create(ctx, rc); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = kube.Delete(context.Background(), rc) }()
+	report := &v1.ClusterCapabilities{}
+	if err := kube.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		report.Spec.RuntimeMappings = nil
+		_ = kube.Update(context.Background(), report)
+	}()
+	(capabilities.Observer{Reader: kube}).Refresh(ctx, report, capabilities.Runtime, true)
+	if err := kube.Status().Update(ctx, report); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(report), report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Status.Runtimes) != 1 || len(report.Status.RuntimeHandlers) != 2 {
+		t.Fatal("schema discarded runtime inventories", report.Status)
+	}
+	observed := report.Status.Runtimes[0]
+	if observed.Source != "RuntimeClassDeclared" || observed.Category != "VirtualMachine" || observed.ImageContract != "Unknown" ||
+		observed.HandlerEvidence == nil || observed.HandlerEvidence.ReportedNodes != 1 || observed.Features == nil ||
+		observed.Features.UserNamespaces.ReportedSupportedNodes != 1 || observed.Features.RecursiveReadOnlyMounts.ReportedUnsupportedNodes != 1 {
+		t.Fatal("schema discarded partial classification or native reports", observed)
+	}
+	// The same independent Unknown contract must be accepted in the central mapping.
+	report.Spec.RuntimeMappings = []v1.RuntimeMapping{{RuntimeClassName: rc.Name, Family: "future-engine", Category: "VirtualMachine", ImageContract: "Unknown"}}
+	if err := kube.Update(ctx, report); err != nil {
+		t.Fatal("partial administrator classification was rejected", err)
+	}
+	report.Spec.RuntimeMappings[0].ImageContract = "WasmWASI"
+	if err := kube.Update(ctx, report); !apierrors.IsInvalid(err) {
+		t.Fatal("contradictory known contract was admitted", err)
 	}
 }

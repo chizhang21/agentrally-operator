@@ -182,3 +182,30 @@ func TestNetworkWatchFiltersUnrelatedActivity(t *testing.T) {
 		t.Fatal("CNI configuration change was ignored")
 	}
 }
+
+func TestNetworkWatchTracksRenamedProviderAndCustomConfiguration(t *testing.T) {
+	old := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "custom-agent"}, Spec: appsv1.DaemonSetSpec{
+		Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "cilium-agent"}}}},
+	}}
+	current := old.DeepCopy()
+	current.Spec.Template.Labels = map[string]string{"k8s-app": "cilium"}
+	if !networkDaemonChanges().Update(event.UpdateEvent{ObjectOld: old, ObjectNew: current}) || !networkDaemonChanges().Update(event.UpdateEvent{ObjectOld: current, ObjectNew: old}) {
+		t.Fatal("provider label transitions did not invalidate recognition")
+	}
+	unrelated := current.DeepCopy()
+	unrelated.Labels = map[string]string{"unrelated": "value"}
+	if networkDaemonChanges().Update(event.UpdateEvent{ObjectOld: current, ObjectNew: unrelated}) {
+		t.Fatal("unrelated metadata invalidated the same provider signature")
+	}
+	config := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "custom-config"}}
+	changed := config.DeepCopy()
+	changed.Data = map[string]string{"enable-policy": "never"}
+	if !networkConfigChanges().Update(event.UpdateEvent{ObjectOld: config, ObjectNew: changed}) {
+		t.Fatal("custom referenced configuration change was ignored")
+	}
+	changed = config.DeepCopy()
+	changed.BinaryData = map[string][]byte{"enable-k8s-networkpolicy": []byte("false")}
+	if !networkConfigChanges().Update(event.UpdateEvent{ObjectOld: config, ObjectNew: changed}) {
+		t.Fatal("binary configuration change did not invalidate previously observed settings")
+	}
+}

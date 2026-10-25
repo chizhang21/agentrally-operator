@@ -83,7 +83,8 @@ cd arally-operator
 
 make configure VERSION=0.0.0-dev \
   IMAGE_TAG_BASE=registry.example.com/your-team/arally-operator
-DOCKER_DEFAULT_PLATFORM=linux/amd64 make docker-build
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+make docker-build
 make docker-push
 make chart-package
 ```
@@ -157,7 +158,7 @@ See [Lifecycle](docs/usage.md#lifecycle) for commands and retention settings.
 | Inspect available cluster configuration | [Cluster capabilities](docs/cluster-capabilities.md) |
 | Understand resource ownership and reconciliation | [Architecture](docs/architecture.md) |
 | Build, test or package changes | [Development](docs/development.md) |
-| Understand CI and image publication | [CI](docs/ci.md) |
+| Understand CI and releases | [CI](docs/ci.md) |
 | Enable optional backend integration | [Outbound Connector](docs/outbound-connector.md) |
 
 ## Project status

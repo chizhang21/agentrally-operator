@@ -26,6 +26,11 @@ fi
 case "$E2E_CNI" in kindnet|cilium) ;; *) echo 'E2E_CNI must be kindnet or cilium.' >&2; exit 1 ;; esac
 case "$E2E_SNAPSHOTS" in true|false) ;; *) echo 'E2E_SNAPSHOTS must be true or false.' >&2; exit 1 ;; esac
 case "$E2E_OPENCLAW" in true|false) ;; *) echo 'E2E_OPENCLAW must be true or false.' >&2; exit 1 ;; esac
+chart=${E2E_CHART:-chart}
+if [[ ! -f "$chart" && ! -f "$chart/Chart.yaml" ]]; then
+  echo 'E2E_CHART must name a local Chart directory or archive.' >&2
+  exit 1
+fi
 
 cluster="arally-e2e-$(date +%s)-$$"
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/arally-e2e.XXXXXX")
@@ -128,7 +133,7 @@ kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controll
 # identical to a real chart install; Connector remains disabled by default.
 repository=${image%:*}
 tag=${image##*:}
-helm install arally-operator chart -n arally-system --create-namespace \
+helm install arally-operator "$chart" -n arally-system --create-namespace \
   --set-string image.repository="$repository" --set-string image.tag="$tag" \
   --set image.pullPolicy=IfNotPresent --wait --timeout=240s
 ARALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \

@@ -103,7 +103,16 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 							}
 						}
 					}
-					if resource == "gateways" || resource == "pods" || resource == "persistentvolumeclaims" || resource == "secrets" || resource == "serviceaccounts" || resource == "nodes" || resource == "configmaps" || resource == "daemonsets" || resource == "runtimeclasses" || resource == "storageclasses" || resource == "csidrivers" || resource == "csinodes" || resource == "volumesnapshotclasses" {
+					if resource == "ciliumnodeconfigs" && (!slices.Contains(rule.APIGroups, "cilium.io") || len(rule.Verbs) != 1 || rule.Verbs[0] != "list") {
+						t.Fatal("optional Cilium configuration discovery must remain list-only")
+					}
+					if resource == "volumesnapshotclasses" {
+						t.Fatal("global snapshot-class discovery permissions retained")
+					}
+					if resource == "volumesnapshots" && (len(rule.Verbs) != 1 || rule.Verbs[0] != "get") {
+						t.Fatal("workspace snapshot source preflight must remain get-only")
+					}
+					if resource == "gateways" || resource == "pods" || resource == "persistentvolumeclaims" || resource == "secrets" || resource == "serviceaccounts" || resource == "nodes" || resource == "configmaps" || resource == "daemonsets" || resource == "runtimeclasses" || resource == "storageclasses" || resource == "csidrivers" || resource == "csinodes" || resource == "volumesnapshots" || resource == "ciliumnodeconfigs" {
 						discoveryReads[resource] = true
 						for _, verb := range rule.Verbs {
 							if verb != "get" && verb != "list" && verb != "watch" {
@@ -124,7 +133,7 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 			}
 		}
 	}
-	for _, resource := range []string{"gateways", "pods", "persistentvolumeclaims", "secrets", "serviceaccounts", "nodes", "configmaps", "daemonsets", "runtimeclasses", "storageclasses", "csidrivers", "csinodes", "volumesnapshotclasses"} {
+	for _, resource := range []string{"gateways", "pods", "persistentvolumeclaims", "secrets", "serviceaccounts", "nodes", "configmaps", "daemonsets", "runtimeclasses", "storageclasses", "csidrivers", "csinodes", "volumesnapshots", "ciliumnodeconfigs"} {
 		if !discoveryReads[resource] {
 			t.Fatalf("discovery read permission missing: %s", resource)
 		}

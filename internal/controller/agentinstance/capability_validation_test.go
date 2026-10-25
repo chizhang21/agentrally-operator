@@ -31,8 +31,8 @@ func capabilityReport(network string) *v1.ClusterCapabilities {
 	return &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Name: "cluster", Generation: 1}, Status: v1.ClusterCapabilitiesStatus{
 		ObservedGeneration: 1, ObservedAt: &now,
 		Sections: []v1.DiscoverySectionObservation{{Name: "RuntimeDiscoveryReady", LastAttemptAt: &now, LastSuccessAt: &now}, {Name: "StorageDiscoveryReady", LastAttemptAt: &now, LastSuccessAt: &now}, {Name: "NetworkPolicyDiscoveryReady", LastAttemptAt: &now, LastSuccessAt: &now}}, NetworkPolicy: &v1.NetworkPolicyObservation{Status: network},
-		Runtimes:       []v1.RuntimeObservation{{Name: "kata", Handler: "kata-qemu", Family: "kata", Status: "Observed", EligibleNodes: 1}},
-		StorageClasses: []v1.StorageObservation{{Name: "nfs", Provisioner: "nfs.csi.k8s.io", Type: "NFS", Status: "Observed", DriverRegistered: true}},
+		Runtimes:       []v1.RuntimeObservation{{Name: "kata", Handler: "kata-qemu", Family: "kata", Category: "VirtualMachine", ImageContract: "LinuxOCI", Status: "Observed", EligibleNodes: 1}},
+		StorageClasses: []v1.StorageObservation{{Name: "nfs", Provisioner: "nfs.csi.k8s.io", Type: "Filesystem", Status: "Observed", DriverRegistered: true}},
 		Conditions: []metav1.Condition{
 			{Type: "RuntimeDiscoveryReady", Status: metav1.ConditionTrue, ObservedGeneration: 1},
 			{Type: "StorageDiscoveryReady", Status: metav1.ConditionTrue, ObservedGeneration: 1},
@@ -143,7 +143,7 @@ func TestNetworkEvidenceBlocksOnlyConfirmedUnsupportedNewSandbox(t *testing.T) {
 }
 
 func TestRuntimeValidationDefersSchedulingToKubernetes(t *testing.T) {
-	for _, scenario := range []string{"no-nodes", "selector-conflict", "custom-handler"} {
+	for _, scenario := range []string{"no-nodes", "selector-conflict", "custom-handler", "unknown-image-contract", "handler-not-reported"} {
 		t.Run(scenario, func(t *testing.T) {
 			g, ns, definition, w, source := testutil.Fixture()
 			source.Spec.RuntimeClassName = ptr.To("kata")
@@ -160,6 +160,14 @@ func TestRuntimeValidationDefersSchedulingToKubernetes(t *testing.T) {
 				rc.Handler = "custom"
 				report.Status.Runtimes[0].Handler = "custom"
 				report.Status.Runtimes[0].Family = "unknown"
+				report.Status.Runtimes[0].Category = "Unknown"
+				report.Status.Runtimes[0].ImageContract = "Unknown"
+			}
+			if scenario == "unknown-image-contract" {
+				report.Status.Runtimes[0].ImageContract = "Unknown"
+			}
+			if scenario == "handler-not-reported" {
+				report.Status.Runtimes[0].HandlerEvidence = &v1.RuntimeHandlerEvidence{MissingFromReportedInventoryNodes: 1}
 			}
 			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, w, rc, report)
 			r := &Reconciler{Client: c, Scheme: scheme}
@@ -168,7 +176,7 @@ func TestRuntimeValidationDefersSchedulingToKubernetes(t *testing.T) {
 			if scenario == "selector-conflict" {
 				want = metav1.ConditionFalse
 			}
-			if scenario == "custom-handler" {
+			if scenario == "custom-handler" || scenario == "unknown-image-contract" || scenario == "handler-not-reported" {
 				want = metav1.ConditionUnknown
 			}
 			testutil.Condition(t, getAgentInstance(t, c, w).Status.Conditions, "CapabilityValidated", want)

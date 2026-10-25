@@ -34,7 +34,7 @@ func TestMappingsPreserveNativeEvidenceAndDoNotInventCapabilities(t *testing.T) 
 	c := testClient(t, linuxNode("worker"), rc, sc, d, node)
 	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Generation: 1}, Spec: v1.ClusterCapabilitiesSpec{
 		RuntimeMappings: []v1.RuntimeMapping{{RuntimeClassName: rc.Name, Family: "custom-kata", Category: "VirtualMachine", ImageContract: "LinuxOCI"}, {RuntimeClassName: "missing", Family: "invented", Category: "Container", ImageContract: "LinuxOCI"}},
-		StorageMappings: []v1.StorageMapping{{StorageClassName: sc.Name, Type: "NFS"}},
+		StorageMappings: []v1.StorageMapping{{StorageClassName: sc.Name, Type: "Block"}},
 	}}
 	beforeRC, beforeSC := rc.DeepCopy(), sc.DeepCopy()
 	observer := Observer{Reader: c}
@@ -44,7 +44,7 @@ func TestMappingsPreserveNativeEvidenceAndDoNotInventCapabilities(t *testing.T) 
 	if len(report.Status.Runtimes) != 1 || r.Source != "AdministratorDeclared" || r.Family != "custom-kata" || !reflect.DeepEqual(r.Scheduling, rc.Scheduling) || !reflect.DeepEqual(r.Overhead, rc.Overhead.PodFixed) {
 		t.Fatal("runtime mapping lost native facts", r)
 	}
-	if s.Source != "AdministratorDeclared" || s.Type != "NFS" || s.AllowVolumeExpansion == nil || !*s.AllowVolumeExpansion || !reflect.DeepEqual(s.AllowedTopologies, sc.AllowedTopologies) {
+	if s.Source != "AdministratorDeclared" || s.Type != "Block" || s.AllowVolumeExpansion == nil || !*s.AllowVolumeExpansion || !reflect.DeepEqual(s.AllowedTopologies, sc.AllowedTopologies) {
 		t.Fatal("storage mapping lost native facts", s)
 	}
 	details := report.Status.CSIDriverDetails[0]
@@ -62,7 +62,7 @@ func TestMappingsPreserveNativeEvidenceAndDoNotInventCapabilities(t *testing.T) 
 	if !reflect.DeepEqual(beforeRC, rc) || !reflect.DeepEqual(beforeSC, sc) {
 		t.Fatal("discovery changed native configuration")
 	}
-	if err := c.Delete(context.Background(), d); err != nil {
+	if err := c.Delete(context.Background(), node); err != nil {
 		t.Fatal(err)
 	}
 	observer.Refresh(context.Background(), report, Storage, true)
@@ -71,52 +71,55 @@ func TestMappingsPreserveNativeEvidenceAndDoNotInventCapabilities(t *testing.T) 
 	}
 }
 
-func TestOptionalSnapshotAPIAndSectionFailureIsolation(t *testing.T) {
-	base := testClient(t, linuxNode("worker"))
-	snapshotState := "missing"
+func TestDiscoveryMigratesLegacyReportWithoutSnapshotReads(t *testing.T) {
+	base := testClient(t, linuxNode("worker"), csiRegistration("custom.example"))
+	snapshotReads := 0
 	reader := interceptor.NewClient(base, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 		if object, ok := list.(*unstructured.UnstructuredList); ok && object.GetKind() == "VolumeSnapshotClassList" {
-			switch snapshotState {
-			case "missing":
-				return &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "snapshot.storage.k8s.io", Kind: "VolumeSnapshotClass"}}
-			case "forbidden":
-				return apierrors.NewForbidden(schema.GroupResource{Group: "snapshot.storage.k8s.io", Resource: "volumesnapshotclasses"}, "", nil)
-			default:
-				object.Items = []unstructured.Unstructured{{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "seed", "annotations": map[string]interface{}{"snapshot.storage.kubernetes.io/is-default-class": "true"}}, "driver": "custom.example", "deletionPolicy": "Retain"}}}
-				return nil
-			}
+			snapshotReads++
+			return apierrors.NewForbidden(schema.GroupResource{Group: "snapshot.storage.k8s.io", Resource: "volumesnapshotclasses"}, "", nil)
 		}
 		return c.List(ctx, list, opts...)
 	}})
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
-	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
+	observed, expired := metav1.NewTime(now), metav1.NewTime(now.Add(-RefreshInterval))
+	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Generation: 1}, Status: v1.ClusterCapabilitiesStatus{
+		ObservedGeneration: 1, ObservedAt: &observed, CatalogRevision: "retired-catalog",
+		Capabilities: []v1.CapabilityObservation{{Name: "VolumeSnapshots", Category: "Storage", Status: "Observed"}},
+	}}
+	for _, name := range []string{Runtime.Condition(), Storage.Condition(), Network.Condition(), "SnapshotDiscoveryReady"} {
+		attempt := &observed
+		if name == "SnapshotDiscoveryReady" {
+			attempt = &expired
+		}
+		report.Status.Sections = append(report.Status.Sections, v1.DiscoverySectionObservation{Name: name, LastAttemptAt: attempt, LastSuccessAt: attempt})
+		meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{Type: name, Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: "ResourcesObserved", LastTransitionTime: observed})
+	}
+	meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{Type: "DiscoveryReady", Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: "ResourcesObserved", LastTransitionTime: observed})
+	meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{Type: "DiscoverySucceeded", Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: "ResourcesObserved", LastTransitionTime: observed})
 	observer := Observer{Reader: reader, Now: func() time.Time { return now }}
-	observer.Refresh(context.Background(), report, All, true)
-	if report.Status.Snapshots.ClassAPIStatus != "Unavailable" || !SectionCurrent(report, Storage.Condition(), now) {
-		t.Fatal("optional API prevented native discovery", report.Status)
-	}
-	snapshotState = "installed"
-	now = now.Add(RefreshInterval)
 	observer.Refresh(context.Background(), report, 0, false)
-	if report.Status.Snapshots.ClassAPIStatus != "Available" || len(report.Status.Snapshots.Classes) != 1 || !report.Status.Snapshots.Classes[0].Default {
-		t.Fatal("late installation did not recover", report.Status.Snapshots)
+	if snapshotReads != 0 || len(report.Status.Sections) != 3 || len(report.Status.Conditions) != 3 {
+		t.Fatal("retired snapshot discovery remained active", snapshotReads, report.Status)
 	}
-	snapshotState = "forbidden"
-	observer.Refresh(context.Background(), report, Snapshots, true)
-	if report.Status.Snapshots.ClassAPIStatus != "Unknown" || len(report.Status.Snapshots.Classes) != 0 || meta.FindStatusCondition(report.Status.Conditions, Snapshots.Condition()).Reason != "PermissionDenied" || !SectionCurrent(report, Runtime.Condition(), now) {
-		t.Fatal("snapshot failure leaked stale success or invalidated unrelated sections")
-	}
-	// A refreshed storage audit cannot renew runtime evidence.
-	now = now.Add(capabilityMaxAge + time.Second)
-	observer.Refresh(context.Background(), report, Storage, false)
-	// Refresh also audits overdue sections. Exercise consumer isolation explicitly.
-	for i := range report.Status.Sections {
-		if report.Status.Sections[i].Name == Runtime.Condition() {
-			report.Status.Sections[i].LastSuccessAt = ptr.To(metav1.NewTime(now.Add(-3 * time.Minute)))
+	for _, section := range []Section{Runtime, Storage, Network} {
+		if !SectionCurrent(report, section.Condition(), now) {
+			t.Fatal("section audit did not renew native evidence", section)
 		}
 	}
-	if SectionCurrent(report, Runtime.Condition(), now) || !SectionCurrent(report, Storage.Condition(), now) {
-		t.Fatal("another section's timestamp renewed stale runtime evidence")
+	for _, capability := range report.Status.Capabilities {
+		if capability.Name == "VolumeSnapshots" {
+			t.Fatal("retired snapshot capability survived the audit")
+		}
+	}
+	before := report.Status.DeepCopy()
+	observer.Reader = interceptor.NewClient(base, interceptor.Funcs{List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+		t.Fatal("a missing aggregate condition forced a repeated audit")
+		return nil
+	}})
+	observer.Refresh(t.Context(), report, 0, false)
+	if !reflect.DeepEqual(before, &report.Status) {
+		t.Fatal("an unchanged report renewed section evidence")
 	}
 }
 
@@ -143,5 +146,73 @@ func TestSectionTimeoutDoesNotStarveLaterSections(t *testing.T) {
 	}
 	if delay > retryInterval+time.Second {
 		t.Fatal("time spent scanning extended the failed section's retry delay", delay)
+	}
+}
+
+func TestNetworkCandidatesDoNotStartOptionalInformersOrRenewEvidence(t *testing.T) {
+	ds := generatedCiliumDaemon()
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cilium-config", Namespace: ds.Namespace}}
+	base := testClient(t, ds, cm)
+	optionalReads := 0
+	api := interceptor.NewClient(base, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+		if list.GetObjectKind().GroupVersionKind().Kind == "CiliumNodeConfigList" {
+			optionalReads++
+		}
+		return c.List(ctx, list, opts...)
+	}})
+	cache := interceptor.NewClient(base, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+		if _, optional := list.(*unstructured.UnstructuredList); optional {
+			t.Fatal("cache candidate attempted to start an optional component informer")
+		}
+		return c.List(ctx, list, opts...)
+	}})
+	now := time.Now().UTC().Truncate(time.Second)
+	report := &v1.ClusterCapabilities{}
+	observer := Observer{Reader: api, Cache: cache, Now: func() time.Time { return now }}
+	observer.Refresh(t.Context(), report, All, true)
+	observed := report.Status.ObservedAt.DeepCopy()
+	reads := optionalReads
+	now = now.Add(time.Second)
+	observer.Refresh(t.Context(), report, Network, false)
+	if optionalReads != reads+1 || !report.Status.ObservedAt.Equal(observed) || report.Status.NetworkPolicy.Status != "Supported" {
+		t.Fatal("unchanged network candidate renewed evidence or skipped optional override checks", report.Status.NetworkPolicy, optionalReads)
+	}
+}
+
+func TestRuntimeCandidatesIgnoreHandlerOrderButRefreshFeatures(t *testing.T) {
+	node := linuxNode("worker")
+	node.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{{Name: "runc", Features: &corev1.NodeRuntimeHandlerFeatures{UserNamespaces: ptr.To(true)}}, {Name: "opaque"}}
+	rc := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "standard"}, Handler: "runc"}
+	cache := testClient(t, node, rc)
+	reads := 0
+	api := interceptor.NewClient(cache, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+		switch list.(type) {
+		case *corev1.NodeList, *nodev1.RuntimeClassList:
+			reads++
+		}
+		return c.List(ctx, list, opts...)
+	}})
+	now := time.Now().UTC().Truncate(time.Second)
+	report := &v1.ClusterCapabilities{}
+	observer := Observer{Reader: api, Cache: cache, Now: func() time.Time { return now }}
+	observer.Refresh(t.Context(), report, All, true)
+	before, beforeReads := report.Status.DeepCopy(), reads
+	node.Status.RuntimeHandlers[0], node.Status.RuntimeHandlers[1] = node.Status.RuntimeHandlers[1], node.Status.RuntimeHandlers[0]
+	if err := cache.Status().Update(t.Context(), node); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	observer.Refresh(t.Context(), report, Runtime, false)
+	if reads != beforeReads || !reflect.DeepEqual(before, &report.Status) {
+		t.Fatal("handler ordering caused an API audit or renewed evidence")
+	}
+	node.Status.RuntimeHandlers[1].Features.UserNamespaces = ptr.To(false)
+	if err := cache.Status().Update(t.Context(), node); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	observer.Refresh(t.Context(), report, Runtime, false)
+	if reads != beforeReads+2 || findRuntime(t, report.Status, rc.Name).Features.UserNamespaces.ReportedUnsupportedNodes != 1 {
+		t.Fatal("handler feature change did not receive a direct audit")
 	}
 }

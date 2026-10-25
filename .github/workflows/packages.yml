@@ -1,0 +1,100 @@
+name: AgentRally Operator packages
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      image:
+        description: Full reference of the built image
+        value: ${{ jobs.identity.outputs.image }}:${{ jobs.identity.outputs.tag }}
+      version:
+        description: Chart version without the leading v
+        value: ${{ jobs.identity.outputs.version }}
+      chart_repository:
+        description: OCI parent for the Helm chart
+        value: ${{ jobs.identity.outputs.chart_repository }}
+permissions:
+  contents: read
+jobs:
+  identity:
+    name: Validate package identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image: ${{ steps.identity.outputs.image }}
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      chart_repository: ${{ steps.identity.outputs.chart_repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve package version and repositories
+        id: identity
+        run: python3 hack/ci-metadata.py >> "$GITHUB_OUTPUT"
+
+  image:
+    name: Build image archive
+    needs: [identity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: ${{ needs.identity.outputs.image }}:${{ needs.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build without registry publication
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.identity.outputs.version }}
+          cache-from: type=gha,scope=operator
+          cache-to: type=gha,mode=max,scope=operator
+      - name: Save the built image
+        run: |
+          mkdir -p dist
+          docker image save --platform=linux/amd64 --output dist/operator-image.tar "$IMAGE"
+      - name: Retain image for E2E and publication
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: operator-image
+          path: dist/operator-image.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  chart:
+    name: Package Helm chart
+    needs: [identity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.identity.outputs.version }}
+      IMG: ${{ needs.identity.outputs.image }}:${{ needs.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.0
+      - name: Package and validate the versioned chart
+        run: |
+          make chart-package
+          helm lint "dist/arally-operator-${VERSION}.tgz"
+          helm template arally-operator "dist/arally-operator-${VERSION}.tgz" -n arally-system >/dev/null
+      - name: Retain chart for E2E and publication
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: operator-chart
+          path: dist/*.tgz
+          if-no-files-found: error
+          retention-days: 30

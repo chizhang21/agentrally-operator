@@ -101,7 +101,7 @@ jobs:
             --tmpfs /workspace:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700 \
             "$IMAGE" --port 5900 --password smoke-test-only --no-open --no-tunnel --no-login)
           trap 'docker rm -f "$container" >/dev/null' EXIT
-          for attempt in $(seq 1 30); do
+          for ((attempt = 1; attempt <= 30; attempt++)); do
             if docker exec -i "$container" node < examples/codex-mobile/check-web.cjs; then
               echo 'Codex CLI and authenticated web UI checks passed.'
               exit 0
@@ -121,4 +121,4 @@ jobs:
           IMAGE: ${{ steps.identity.outputs.image }}
         run: |
           docker push "$IMAGE"
-          printf 'Published image: `%s`\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Published image: %s\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"

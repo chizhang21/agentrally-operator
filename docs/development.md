@@ -31,6 +31,16 @@ Go dependencies are recorded in `go.mod` and `go.sum`.
 
 `make check` runs `go vet`; `make lint` supplies the remaining static checks.
 
+For workflow changes, install `actionlint` and ShellCheck on your `PATH`, then run:
+
+```sh
+shellcheck --version
+actionlint
+```
+
+`actionlint` skips shell-script analysis when ShellCheck is absent.
+CI requires both tools.
+
 `build`, `test` and `run` do not regenerate or format files.
 Use `make fmt` to format code, and `make generate` after changing API types or RBAC
 markers.

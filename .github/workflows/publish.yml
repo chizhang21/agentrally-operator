@@ -59,4 +59,4 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USERNAME" --password-stdin
           docker image push "$IMAGE"
           helm push "dist/chart/arally-operator-${VERSION}.tgz" "$CHART_REPOSITORY"
-          printf 'Image: `%s`\nChart: `%s/arally-operator:%s`\n' "$IMAGE" "$CHART_REPOSITORY" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Image: %s\nChart: %s/arally-operator:%s\n' "$IMAGE" "$CHART_REPOSITORY" "$VERSION" >> "$GITHUB_STEP_SUMMARY"

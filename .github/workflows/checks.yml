@@ -24,6 +24,7 @@ jobs:
           version: v3.19.0
       - name: Validate Actions workflows
         run: |
+          shellcheck --version
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           actionlint
       - name: Download checked dependencies

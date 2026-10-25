@@ -193,7 +193,8 @@ Failures retain logs under `.cache/e2e/`; `E2E_LOG_DIR` selects another output
 directory.
 
 [AgentRally Operator E2E](../.github/workflows/e2e.yml) supports manual dispatch.
-Version-tag Release must pass it before image and Chart publication.
+Version-tag Release tests the built image and Chart archives with this workflow.
+Publication starts after packaging and does not wait for E2E.
 PR and main-branch CI compile the E2E tests and build packages without creating a cluster.
 
 The default profile uses kindnet and local-path storage.

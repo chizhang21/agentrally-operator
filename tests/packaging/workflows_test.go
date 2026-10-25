@@ -40,16 +40,14 @@ func readWorkflow(t *testing.T, name string) workflowContract {
 	return workflow
 }
 
-func TestReleaseRequiresChecksAndTheTestedArtifacts(t *testing.T) {
+func TestReleasePublishesBuiltArtifactsWithoutWaitingForValidation(t *testing.T) {
 	release := readWorkflow(t, "release")
 	if len(release.On) != 1 || !slices.Equal(release.On["push"].Tags, []string{"v*"}) {
 		t.Fatal("Operator publication must start from version-tag pushes")
 	}
 	publish := release.Jobs["publish"]
-	for _, gate := range []string{"checks", "security", "packages", "e2e"} {
-		if !slices.Contains(publish.Needs, gate) {
-			t.Fatalf("publication can bypass %s", gate)
-		}
+	if !slices.Equal(publish.Needs, []string{"packages"}) {
+		t.Fatal("publication must follow packaging without waiting for validation", publish.Needs)
 	}
 	e2e := release.Jobs["e2e"]
 	for _, gate := range []string{"checks", "security", "packages"} {
@@ -81,13 +79,13 @@ func TestReleaseRequiresChecksAndTheTestedArtifacts(t *testing.T) {
 		if strings.HasPrefix(step.Uses, "actions/download-artifact@") {
 			name, _ := step.With["name"].(string)
 			if !wanted[name] {
-				t.Fatalf("publication downloads an untested artifact: %s", name)
+				t.Fatalf("publication and E2E select different built artifacts: %s", name)
 			}
 			delete(wanted, name)
 		}
 	}
 	if len(wanted) != 0 {
-		t.Fatal("publication omits tested package artifacts", wanted)
+		t.Fatal("publication omits built package artifacts", wanted)
 	}
 }
 

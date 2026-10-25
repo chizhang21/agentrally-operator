@@ -23,7 +23,7 @@ jobs:
       image_artifact: operator-image
       chart_artifact: operator-chart
   publish:
-    needs: [checks, security, packages, e2e]
+    needs: [packages]
     uses: ./.github/workflows/publish.yml
     permissions:
       contents: read

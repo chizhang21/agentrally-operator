@@ -12,7 +12,7 @@ Both orchestrate reusable workflows for distinct responsibilities.
 | [security.yml](../.github/workflows/security.yml) | Gitleaks source/history scanning and reachable Go vulnerability scanning | Yes |
 | [packages.yml](../.github/workflows/packages.yml) | Validate package identity, build the image and package the Chart as Actions artifacts | Yes |
 | [e2e.yml](../.github/workflows/e2e.yml) | Real Core, Extensions and AgentRally lifecycle in disposable kind | Yes |
-| [publish.yml](../.github/workflows/publish.yml) | Upload tested image and Chart artifacts to GHCR after the release gates | Called by Release |
+| [publish.yml](../.github/workflows/publish.yml) | Upload built image and Chart artifacts to GHCR as soon as packaging succeeds | Called by Release |
 
 API integration uses isolated Kubernetes 1.34.1 API servers and checksum-pinned binaries.
 It checks Helm CRD lifecycle, example admission and Connector election/readiness.
@@ -22,7 +22,7 @@ See [local E2E profiles](development.md#real-lifecycle-release-gate) for optiona
 snapshot, OpenClaw and Kata checks.
 
 Dependabot configuration is removed.
-Security scanning remains part of CI and the release gate.
+Security scanning remains part of CI and the release workflow.
 
 ## Versions and destinations
 
@@ -30,7 +30,7 @@ Security scanning remains part of CI and the release gate.
 | --- | --- | --- | --- |
 | PR, including forks | `0.0.0-pr.<number>.g<12-character checked SHA>` | `v` + package version | No |
 | Branch push or manual branch packaging | `0.0.0-dev.g<12-character checked SHA>` | `v` + package version | No |
-| Version-tag push | Git tag without its leading `v` | Exact Git tag | Image and Chart after all gates pass |
+| Version-tag push | Git tag without its leading `v` | Exact Git tag | Image and Chart as soon as packaging succeeds |
 
 Use **`vMAJOR.MINOR.PATCH`** for releases, for example `v0.1.0` or `v1.2.3`.
 Prereleases such as `v0.1.0-rc.1` are supported.
@@ -43,7 +43,7 @@ The repository name is normalized to lowercase for the image address.
 The Chart is published beneath the owner's `helm` namespace.
 For this repository, tag `v0.1.0` produces:
 
-- Image: `ghcr.io/chizhang21/arally-operator:v0.1.0`
+- Image: `ghcr.io/chizhang21/agentrally-operator:v0.1.0`
 - Chart: `oci://ghcr.io/chizhang21/helm/arally-operator`, version `0.1.0`
 - Chart `appVersion`: `0.1.0`
 
@@ -60,13 +60,19 @@ No source version bump is required.
 Checks, security scanning and package builds run independently.
 Image and Chart builds have no registry credentials or package-write permission.
 
-After all three workflows succeed, E2E downloads the built image and Chart archives.
-It tests those artifacts in a temporary kind cluster and deletes the cluster afterward.
-
-Publication runs only after checks, security scanning, packaging and E2E succeed.
-It downloads the same artifacts, loads and pushes the image, then uploads the existing
+Publication starts as soon as packaging succeeds.
+It downloads the built artifacts, loads and pushes the image, then uploads the existing
 Chart archive with `helm push`.
 It does not rebuild either artifact.
+
+Checks and security scanning run independently of publication.
+E2E waits for checks, security scanning and packaging, then tests the same image and
+Chart archives in a temporary kind cluster.
+The cluster is deleted afterward.
+
+A validation failure still fails the release workflow.
+Packages already uploaded to GHCR remain available even if validation later fails.
+Publication does not wait for validation or remove those packages automatically.
 
 Only the publication job requests `packages: write` and logs in to GHCR.
 It uses `GITHUB_TOKEN`; no registry password Secret is needed.

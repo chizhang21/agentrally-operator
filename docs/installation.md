@@ -10,8 +10,9 @@ Custom images for other architectures require a matching node selector.
 For the current source checkout, use the
 [local installation workflow](#local-development-and-testing).
 
-Version-tag releases publish both the Operator image and OCI Chart to GHCR after
-checks and E2E pass.
+Version-tag releases publish both the Operator image and OCI Chart to GHCR as soon as
+packaging succeeds.
+Checks and E2E run independently of publication.
 PR and main-branch CI retain build artifacts without publishing them.
 See [CI and releases](ci.md) or [manual uploads](development.md#upload-image-and-chart).
 The OCI commands below require an accessible, published Chart version.

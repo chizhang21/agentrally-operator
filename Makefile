@@ -79,7 +79,7 @@ build: ## Compile the operator binary, including the optional Connector.
 	GOWORK=off go build -trimpath -o dist/operator ./cmd
 
 docker-build: save-build-state ## Build the operator image.
-	$(CONTAINER_TOOL) build -f Dockerfile -t "$(IMG)" .
+	$(CONTAINER_TOOL) build -f Containerfile -t "$(IMG)" .
 
 docker-push: save-build-state ## Push the operator image.
 	$(CONTAINER_TOOL) push "$(IMG)"

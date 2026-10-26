@@ -108,9 +108,5 @@ Install a published Chart using the [installation guide](installation.md#install
 
 For local builds and manual uploads, see [Development](development.md).
 
-## Optional agent image
-
-The separate [Build Codex Mobile image](../.github/workflows/codex-mobile.yml) workflow
-runs only on manual request.
-It builds an optional agent image and publishes to the user's selected registry.
-See [inputs, credentials and fork setup](../examples/codex-mobile/README.md).
+Application image build workflows live with their complete deployment projects in
+`agentrally-examples`.

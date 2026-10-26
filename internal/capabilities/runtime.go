@@ -72,6 +72,7 @@ func discoverRuntimes(ctx context.Context, reader client.Reader, status *v1.Clus
 	}
 	baseline := v1.RuntimeObservation{Name: "default", Family: "unknown", Category: "Unknown", ImageContract: "Unknown", Status: "Unknown", Reason: "DefaultRuntimeUnclassified", Source: "NativeAPI"}
 	indexed, handlers := indexRuntimeNodes(nodes.Items)
+	observeNodeInventory(indexed, status)
 	status.RuntimeHandlers = handlers
 	observeRuntimeNodes(&baseline, indexed, nil)
 	type criVersion struct{ implementation, version string }

@@ -42,7 +42,7 @@ class BuildStateTests(unittest.TestCase):
         selected = self.state()
         self.make("docker-push")
         calls = (self.root / "calls").read_text().splitlines()
-        self.assertEqual(calls, [f'build -f Dockerfile -t {selected["image"]} .',
+        self.assertEqual(calls, [f'build -f Containerfile -t {selected["image"]} .',
                                  f'push {selected["image"]}'])
         package = self.root / "hack/package-chart.sh"
         package.write_text('printf "%s %s\\n" "$VERSION" "$1" > packaged\n')

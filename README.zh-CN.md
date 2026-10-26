@@ -21,6 +21,10 @@ AgentRally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kuberne
 完成 Sandbox 分配和 Pod 管理。
 每个 Agent 保留自己的应用逻辑和 API。
 
+[examples](examples/README.md) 提供基础 CR 配置示例。
+完整 Agent 部署清单放在独立项目 `agentrally-examples` 的 `gitops/` 目录中。
+应用镜像构建配方放在该项目的 `images/` 目录中。
+
 ## 运行时隔离
 
 选用的 RuntimeClass 决定 Agent 所在 Pod 的隔离机制：

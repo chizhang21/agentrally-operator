@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strings"
 
 	v1 "agentrally/operator/api/v1alpha1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -37,13 +38,26 @@ func storageDriverName(c storagev1.StorageClass) string {
 		return ""
 	}
 	if rule.DriverFromParameter {
-		value := c.Parameters[rule.Parameter]
-		if _, known := rule.ParameterTypes[value]; known {
-			return value
-		}
-		return ""
+		return c.Parameters[rule.Parameter]
 	}
 	return c.Provisioner
+}
+
+// external-provisioner accepts the standard key or a case-insensitive legacy
+// fstype key, but rejects multiple occurrences even when their values agree.
+// Report configuration intent without guessing which filesystem a driver supports.
+func filesystemParameter(parameters map[string]string) string {
+	key, value, count := "", "", 0
+	for name, configured := range parameters {
+		if name == "csi.storage.k8s.io/fstype" || strings.ToLower(name) == "fstype" {
+			key, value = name, configured
+			count++
+		}
+	}
+	if count == 1 && strings.TrimSpace(value) != "" {
+		return key
+	}
+	return ""
 }
 
 func discoverStorage(ctx context.Context, reader client.Reader, status *v1.ClusterCapabilitiesStatus) error {
@@ -111,14 +125,23 @@ func discoverStorage(ctx context.Context, reader client.Reader, status *v1.Clust
 		}
 		kind := classify(class)
 		driverName := storageDriverName(class)
-		_, known := storageRule(class.Provisioner)
-		if !known && declared[driverName] == nil && registeredNodes[driverName] == 0 {
+		rule, known := storageRule(class.Provisioner)
+		knownDriver := known
+		if rule.DriverFromParameter {
+			_, knownDriver = rule.ParameterTypes[driverName]
+		}
+		if !knownDriver && declared[driverName] == nil && registeredNodes[driverName] == 0 {
 			driverName = ""
 		}
 		c := v1.StorageObservation{Name: class.Name, Provisioner: class.Provisioner, Type: kind, Source: "NativeAPI", Default: isDefault(class),
 			CSIDriver: driverName, DriverDeclared: declared[driverName] != nil, DriverRegistered: registeredNodes[driverName] > 0, AllowVolumeExpansion: class.AllowVolumeExpansion}
 		if known {
 			c.Source, c.Rule = "BuiltInCatalog", "storage/"+class.Provisioner
+		}
+		if c.Type == "Unknown" && c.CSIDriver != "" {
+			if parameter := filesystemParameter(class.Parameters); parameter != "" {
+				c.Type, c.Source, c.Rule = "Filesystem", "NativeAPI", "storageclass.parameters/"+parameter
+			}
 		}
 		for _, term := range class.AllowedTopologies {
 			c.AllowedTopologies = append(c.AllowedTopologies, *term.DeepCopy())
@@ -130,11 +153,17 @@ func discoverStorage(ctx context.Context, reader client.Reader, status *v1.Clust
 }
 
 func storageEvidenceStatus(c *v1.StorageObservation) {
-	c.Status, c.Reason = "Observed", ""
+	c.Status, c.Reason = "Unknown", "StorageProvisionerUnrecognized"
+	if c.Type == "Unknown" {
+		c.Reason = "StorageTypeUnrecognized"
+	}
 	switch {
-	case c.Type == "Unknown":
-		c.Status, c.Reason = "Unknown", "StorageTypeUnrecognized"
-	case !c.DriverRegistered && !nonCSIProvisioner(c.Provisioner):
-		c.Status, c.Reason = "Unknown", "CSIDriverNotRegistered"
+	case c.DriverRegistered, nonCSIProvisioner(c.Provisioner) && c.Type != "Unknown":
+		c.Status = "Observed"
+		if c.Type != "Unknown" {
+			c.Reason = ""
+		}
+	case c.CSIDriver != "":
+		c.Reason = "CSIDriverNotRegistered"
 	}
 }

@@ -7,8 +7,60 @@ deployment checks.
 
 ## Reading status
 
+`spec` contains administrator-supplied classification overrides.
+`status` contains controller-owned observations.
+This follows the Kubernetes [spec and status convention](https://kubernetes.io/docs/concepts/overview/working-with-objects/#object-spec-and-status).
+
+| Read | Purpose |
+| --- | --- |
+| `status.capabilities` | User-facing capability summary and the native choices behind each capability |
+| `status.runtimes`, `status.storageClasses`, `status.networkPolicy` | Detailed runtime, storage and network evidence |
+| `status.platforms`, `status.extendedResources` | Node-reported OS/CPU architecture and extended resource totals |
+| `status.conditions`, `status.sections` | Discovery success and freshness for each domain |
+| `spec.runtimeMappings`, `spec.storageMappings` | Administrator input for classifying existing resources |
+
+For a quick scan overview:
+
+```sh
+kubectl get arcap cluster
+```
+
+Example output:
+
+```text
+NAME      RUNTIMESCAN   STORAGESCAN   NETWORKSCAN   NETWORKPOLICY   OBSERVED
+cluster   True          True          True          Unknown         8s
+```
+
+The three `Scan` columns report successful reads of native inventory.
+`True` can accompany an empty inventory or unknown capability support.
+`NetworkPolicy` separately shows provider support evidence.
+`Observed` is the age of the latest direct attempt, including failures.
+
+To list all capability families without inspecting raw inventories:
+
+```sh
+kubectl get arcap cluster -o jsonpath='{range .status.capabilities[*]}{.category}{"\t"}{.displayName}{"\t"}{.status}{"\n"}{end}'
+```
+
+To inspect storage choices:
+
+```sh
+kubectl get arcap cluster -o jsonpath='{range .status.storageClasses[*]}{.name}{"\t"}{.type}{"\t"}{.status}{"\t"}{.reason}{"\n"}{end}'
+```
+
+For API consumers, start with `status.capabilities` and follow each entry's
+`resources` references into the detailed inventories.
+Use the stable capability `name` for programmatic selection and `displayName` for display.
+Check section freshness as described below before making deployment decisions.
+`Unknown` means evidence is incomplete; it does not mean storage or a runtime is unavailable.
+
+For the complete report or field descriptions:
+
 ```sh
 kubectl get clustercapabilities cluster -o yaml
+kubectl explain clustercapabilities.status
+kubectl explain clustercapabilities.status.capabilities
 ```
 
 Discovery is always enabled.
@@ -115,6 +167,8 @@ Failed sections cannot retain their previous positive resource references.
 | `defaultRuntime`, `nodeRuntimes` | Default executor stays Unknown; kubelet CRI names and versions do not identify its isolation or image contract. |
 | `runtimes` | RuntimeClass classification, scheduling, Pod overhead, candidate-node handler coverage and feature reports. These do not prove that the handler works. |
 | `runtimeHandlers` | Handler configurations reported by non-terminating Nodes, including handlers without a RuntimeClass. An empty name denotes the default handler without identifying its executor. |
+| `platforms` | Node-reported OS/CPU architecture and node counts. Missing values stay empty; these counts do not establish scheduling eligibility. |
+| `extendedResources` | Node-advertised extended resource names, reporting-node counts and summed capacity/allocatable. Allocatable includes assigned resources and is not current free capacity. |
 | `storageClasses` | Provisioner, actual CSI driver identity, declaration/registration flags, volume interface, expansion intent and allowed topologies. Expansion intent does not prove resize support. |
 | `csiDrivers`, `csiDriverDetails` | Union of declared and node-registered drivers, with declaration flag, attach requirement, fsGroup policy, volume lifecycle modes and CSINode registration counts/topology keys. Driver-specific node IDs are omitted. Registration does not establish health or optional CSI RPC support. |
 | `networkPolicy` | Recognized provider configuration and readiness. `enforcementVerified` stays false even after a separately run traffic test. |
@@ -122,6 +176,43 @@ Failed sections cannot retain their previous positive resource references.
 The Operator reads these APIs without touching host sockets or creating probe Pods.
 Denied section reads set that section's discovery condition False with reason
 `PermissionDenied`.
+
+### Platforms and extended resources
+
+`platforms` groups the OS and architecture from each Node's `status.nodeInfo`.
+The report uses these native values without guessing from node names or labels.
+For example, `linux/amd64` and `linux/arm64` help users choose an application image.
+The Operator does not inspect image manifests or automatically select a platform.
+
+`extendedResources` retains qualified resource names such as `nvidia.com/gpu`,
+`amd.com/gpu` or administrator-advertised resources.
+It excludes built-in CPU, memory, hugepages and reserved Kubernetes resource names.
+New vendor names need no catalog entry.
+Discovery is limited to resources advertised in Node capacity or allocatable;
+devices exposed only through other APIs are outside this inventory.
+
+Both inventories include all non-terminating nodes, including unready and cordoned
+nodes or nodes with scheduling taints.
+`nodes` counts inventory reports, not placement candidates.
+Quantities are native declarations; zero reports stay visible.
+Missing capacity or allocatable values contribute zero to that total.
+Allocatable is not inferred from capacity when absent.
+The totals do not account for current Pod allocations or guarantee compatibility with
+the selected RuntimeClass.
+
+These fields reuse the runtime scan and its `RuntimeDiscoveryReady` condition.
+They require no additional API reads, permissions or hardware probes.
+They are informational and do not add AgentInstance admission checks.
+
+```sh
+kubectl get arcap cluster -o jsonpath='{range .status.platforms[*]}{.os}{"/"}{.architecture}{"\t"}{.nodes}{"\n"}{end}'
+kubectl get arcap cluster -o jsonpath='{range .status.extendedResources[*]}{.name}{"\t"}{.nodes}{"\t"}{.capacity}{"\t"}{.allocatable}{"\n"}{end}'
+```
+
+See the Kubernetes [Node API](https://kubernetes.io/docs/reference/kubernetes-api/core/node-v1/)
+and [extended resource declarations](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#extended-resources).
+
+### Workspace snapshot references
 
 Global discovery does not query snapshot APIs or inventory snapshot classes.
 When a workspace explicitly uses a VolumeSnapshot source, the instance controller
@@ -261,18 +352,53 @@ Session lifetime is independent of the volume interface.
 Local-path remains Filesystem whether its directories are local or shared.
 The classification makes no durability, sharing or cross-node availability promise.
 
-The catalog covers AWS, Azure, GCP, Alibaba, Tencent, Huawei, OCI and IBM storage,
-alongside Ceph, Longhorn, OpenEBS, OpenStack, Synology and local provisioners.
+Recognition uses several independent signals:
+
+| Signal | Result | Limit |
+| --- | --- | --- |
+| Exact StorageClass provisioner matched to CSIDriver or CSINode | Identifies native CSI configuration, including custom driver names | Registration does not identify the volume interface or verify I/O |
+| Verified catalog identity or bounded Ceph CSI namespace suffix | Classifies a known directory-mount interface | The class may also support raw Block use |
+| One non-empty CSI `csi.storage.k8s.io/fstype` or legacy `fstype` parameter | Classifies Filesystem intent for an identified CSI driver | Does not validate the filesystem name or prove a successful mount |
+| A recognized aggregate provisioner's driver-selection parameter | Associates the class with the selected node driver | An unknown selection requires an exact native driver match |
+| `spec.storageMappings` | Supplies the administrator's intended interface | Does not invent driver registration or change PVC volumeMode |
+
+The standard filesystem parameter is defined by
+[CSI external-provisioner](https://kubernetes-csi.github.io/docs/external-provisioner.html#storageclass-parameters).
+The legacy key is case-insensitive, matching
+[upstream parameter handling](https://github.com/kubernetes-csi/external-provisioner/blob/master/pkg/controller/controller.go).
+Multiple recognized keys are ambiguous even when their values agree.
+They do not supply a generic filesystem classification.
+An empty value also supplies no classification.
+Native parameter recognition requires an identified CSI driver; arbitrary parameters
+on an unidentified external provisioner are not interpreted as CSI configuration.
+
+Administrator mappings take precedence over automatic classification.
+Otherwise the catalog supplies a known interface.
+When that interface is Unknown, an explicit CSI filesystem parameter can supply
+Filesystem intent with `source: NativeAPI`.
+Its `rule` identifies the parameter key without publishing parameter values.
+Custom and future CSI driver names therefore need no catalog entry when these native
+signals are sufficient.
+
+The catalog covers AWS, Azure, GCP, Alibaba, Tencent, Huawei, OCI and IBM storage.
+Enterprise identities also include Dell PowerMax, PowerStore, PowerScale, Unity and
+PowerFlex, HPE CSI and GreenLake File Storage, Huawei Storage CSI, IBM Storage Scale,
+Hitachi, Nutanix and Portworx.
+Distributed storage includes Ceph, Longhorn, OpenEBS, OpenStack, Synology, LINSTOR,
+JuiceFS, BeeGFS, WEKA, SeaweedFS, bucket mounts and local provisioners.
 Synology's iSCSI and NFS mounts share the Filesystem classification.
 Azure Files has the same classification for SMB and NFS.
 Huawei Everest uses `csi.storage.k8s.io/csi-driver-name` to identify the actual node
 driver instead of treating its aggregate provisioner name as a CSI driver.
+New Everest driver names retain their native registration without inheriting another
+selected driver's interface classification.
 
 vSphere, Trident and recognized bucket-mount drivers expose Filesystem interfaces
 regardless of the selected backing store.
 `kubernetes.io/no-provisioner` remains Unknown because static provisioning does not
 identify the eventual PV's interface.
-Unrecognized provisioner identities also remain Unknown.
+An unrecognized provisioner without a usable native filesystem hint retains Unknown
+classification.
 StorageClass names do not determine classification.
 
 `driverDeclared` means a CSIDriver object exists.
@@ -281,6 +407,51 @@ The CSIDriver object is optional, so registration can be observed without a decl
 Known non-CSI provisioners do not require CSI registration.
 Recognized CSI classes without node registration remain Unknown.
 The report lists all classes without ranking them.
+
+`type` and `status` answer different questions.
+A class can have `type: Unknown`, `status: Observed` and
+`reason: StorageTypeUnrecognized` when node registration is present but the interface
+is not classified.
+It remains in the `UnclassifiedStorage` capability group with the same evidence.
+Losing node registration removes that positive status, even if an administrator
+mapping still classifies the interface.
+
+Native `volumeLifecycleModes` describe PV/PVC versus inline CSI volumes.
+`Ephemeral` does not describe whether AgentRally retains a workspace on suspend.
+These modes, `fsGroupPolicy` and `attachRequired` do not establish a class's
+Filesystem/Block interface.
+Mount options and backend parameters such as `protocol`, `volumeType` or `type` are
+not generic interface signals.
+The Operator adds no global PV/PVC inventory, storage-controller credentials,
+CSI socket access or provisioning probes for classification.
+Instance validation already checks the selected PVC's actual volumeMode.
+
+Maintainer references for the expanded identities:
+
+- Dell [PowerStore](https://dell.github.io/csm-docs/v3/deployment/helm/drivers/installation/powerstore/),
+  [PowerScale](https://github.com/dell/csi-powerscale/blob/main/samples/storageclass/isilon.yaml),
+  [Unity](https://dell.github.io/csm-docs/docs/concepts/csidriver/features/unity/),
+  [PowerMax](https://github.com/dell/csi-powermax/tree/main/samples/storageclass)
+  and [PowerFlex](https://dell.github.io/csm-docs/docs/concepts/csidriver/features/powerflex/).
+- HPE [CSI](https://scod.hpedev.io/csi_driver/using.html) and
+  [GreenLake File Storage](https://scod.hpedev.io/filex_csi_driver/using.html),
+  [Huawei volume modes](https://huawei.github.io/css-docs/docs/basic-services/persistent-volume-management/configuring-pvs/managing-pvs/),
+  IBM [Block CSI](https://github.com/IBM/ibm-block-csi-driver/blob/master/deploy/kubernetes/examples/demo-storageclass.yaml)
+  and [Storage Scale](https://www.ibm.com/docs/en/spectrum-scale-csi?topic=configurations-storage-class).
+- [Hitachi](https://docs.hitachivantara.com/r/en-us/mk-92adptr142/latest/usage/storageclass-settings),
+  [Nutanix](https://opendocs.nutanix.com/openshift/operators/csi/)
+  and [Portworx](https://docs.portworx.com/portworx-enterprise/reference/storageclass).
+- [LINSTOR](https://github.com/piraeusdatastore/linstor-csi/blob/master/README.md),
+  [JuiceFS](https://juicefs.com/docs/csi/guide/pv),
+  [BeeGFS](https://github.com/ThinkParQ/beegfs-csi-driver/blob/master/docs/usage.md),
+  [WEKA](https://github.com/weka/csi-wekafs/blob/main/README.md),
+  [SeaweedFS](https://github.com/seaweedfs/seaweedfs-csi-driver/blob/master/README.md)
+  and [Yandex S3 mounts](https://yandex.cloud/en/docs/managed-kubernetes/operations/volumes/s3-csi-integration).
+
+[KubeVirt CDI](https://github.com/kubevirt/containerized-data-importer/blob/main/pkg/storagecapabilities/storagecapabilities.go)
+also combines provisioner identities, selected StorageClass parameters and
+administrator-supplied profiles.
+AgentRally retains its smaller interface classification and native registration model.
 
 ### NetworkPolicy recognition
 
@@ -457,7 +628,8 @@ execution or traffic probe.
 See [status and diagnostics](usage.md#status-and-diagnostics).
 
 Inventory and condition changes enqueue consumers.
-A timestamp-only refresh does not enqueue every AgentInstance or Group; their periodic
+Timestamp-only refreshes and informational platform/resource changes do not enqueue
+every AgentInstance or Group; their periodic
 reconciliation still checks freshness, so a refreshed unchanged report can unblock a
 consumer on its next poll.
 

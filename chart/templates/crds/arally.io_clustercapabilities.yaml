@@ -25,15 +25,32 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.networkPolicy.status
+    - description: Runtime discovery read succeeded; execution is not verified
+      jsonPath: .status.conditions[?(@.type=='RuntimeDiscoveryReady')].status
+      name: RuntimeScan
+      type: string
+    - description: Storage discovery read succeeded; volume I/O is not verified
+      jsonPath: .status.conditions[?(@.type=='StorageDiscoveryReady')].status
+      name: StorageScan
+      type: string
+    - description: Network discovery read succeeded; traffic enforcement is not verified
+      jsonPath: .status.conditions[?(@.type=='NetworkPolicyDiscoveryReady')].status
+      name: NetworkScan
+      type: string
+    - description: Observed NetworkPolicy provider support
+      jsonPath: .status.networkPolicy.status
       name: NetworkPolicy
       type: string
-    - jsonPath: .status.observedAt
+    - description: Latest direct scan attempt, including failures
+      jsonPath: .status.observedAt
       name: Observed
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: |-
+          ClusterCapabilities is the cluster-scoped discovery report named cluster.
+          Spec contains administrator input; status contains controller-owned observations.
         properties:
           apiVersion:
             description: |-
@@ -53,6 +70,8 @@ spec:
           metadata:
             type: object
           spec:
+            description: Spec supplies optional classification overrides for existing
+              native classes.
             properties:
               runtimeMappings:
                 description: RuntimeMappings apply only to the named classes. Missing
@@ -101,6 +120,9 @@ spec:
                 - runtimeClassName
                 x-kubernetes-list-type: map
               storageMappings:
+                description: |-
+                  StorageMappings classifies named StorageClasses without changing their
+                  provisioning behavior or proving that a volume can be mounted.
                 items:
                   properties:
                     storageClassName:
@@ -126,10 +148,14 @@ spec:
                 x-kubernetes-list-type: map
             type: object
           status:
+            description: Status publishes capability summaries, native inventories
+              and discovery freshness.
             properties:
               capabilities:
-                description: Capabilities is a derived view of the section inventories
-                  below.
+                description: |-
+                  Capabilities is the entry point for reading user-facing configuration families.
+                  It is derived from the inventories below; consult the corresponding section
+                  condition and lastSuccessAt before relying on its evidence.
                 items:
                   description: |-
                     CapabilityObservation groups configuration evidence into user-facing concepts.
@@ -143,12 +169,19 @@ spec:
                       - Networking
                       type: string
                     description:
+                      description: Description explains the capability and limits
+                        of its configuration evidence.
                       type: string
                     displayName:
+                      description: DisplayName is the human-readable capability label.
                       type: string
                     name:
+                      description: Name is the capability identifier used for programmatic
+                        selection.
                       type: string
                     resources:
+                      description: Resources identifies native choices and retains
+                        each choice's uncertainty.
                       items:
                         description: CapabilityReference links a user-facing capability
                           to its native evidence.
@@ -189,6 +222,9 @@ spec:
                       - name
                       x-kubernetes-list-type: map
                     status:
+                      description: |-
+                        Status is Observed when at least one resource has positive configuration
+                        evidence. Unknown does not mean the capability is unavailable.
                       enum:
                       - Observed
                       - Unknown
@@ -209,6 +245,9 @@ spec:
                   rules.
                 type: string
               conditions:
+                description: |-
+                  Conditions reports whether each discovery section read its inputs successfully.
+                  A successful scan does not establish that the discovered capability works.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -268,6 +307,8 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               csiDriverDetails:
+                description: CSIDriverDetails retains native driver declarations and
+                  node registration counts.
                 items:
                   description: |-
                     CSIDriverObservation reports native driver behavior and node registration.
@@ -314,13 +355,15 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               csiDrivers:
+                description: CSIDrivers contains driver names declared by CSIDriver
+                  or registered by CSINode.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
               defaultRuntime:
-                description: RuntimeObservation is configuration evidence, not a successful
-                  runtime probe.
+                description: DefaultRuntime describes the node default without inferring
+                  its executor.
                 properties:
                   category:
                     type: string
@@ -509,7 +552,57 @@ spec:
                 - name
                 - status
                 type: object
+              extendedResources:
+                description: |-
+                  ExtendedResources inventories node-advertised resources such as GPUs, with
+                  RuntimeDiscoveryReady freshness. Totals are not current free capacity and
+                  do not establish compatibility with a selected RuntimeClass.
+                items:
+                  description: |-
+                    NodeResourceObservation aggregates a native extended resource across non-terminating
+                    nodes. Resource names are retained without inferring device type or runtime support.
+                  properties:
+                    allocatable:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        Allocatable sums reported allocatable, including allocated resources and reports
+                        from unready or unschedulable nodes. It is not current free capacity.
+                        Missing values contribute zero; capacity is not used as a fallback.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    capacity:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: Capacity sums reported capacity; missing values
+                        contribute zero.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    name:
+                      description: ResourceName is the name identifying various resources
+                        in a ResourceList.
+                      type: string
+                    nodes:
+                      description: Nodes counts reports in capacity or allocatable,
+                        including zero quantities.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - allocatable
+                  - capacity
+                  - name
+                  - nodes
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               networkPolicy:
+                description: NetworkPolicy reports recognized provider configuration,
+                  not tested traffic enforcement.
                 properties:
                   enforcementVerified:
                     description: EnforcementVerified remains false; discovery does
@@ -565,6 +658,8 @@ spec:
                 - status
                 type: object
               nodeRuntimes:
+                description: NodeRuntimes lists reported CRI implementations and versions,
+                  not isolation types.
                 items:
                   description: NodeRuntimeObservation reports kubelet CRI versions
                     without inferring executors.
@@ -592,8 +687,41 @@ spec:
                 format: date-time
                 type: string
               observedGeneration:
+                description: ObservedGeneration identifies the spec generation processed
+                  by discovery.
                 format: int64
                 type: integer
+              platforms:
+                description: |-
+                  Platforms groups node-reported OS/CPU architecture, with RuntimeDiscoveryReady
+                  freshness. It does not establish scheduling eligibility or image compatibility.
+                items:
+                  description: |-
+                    NodePlatformObservation groups non-terminating nodes by their reported platform.
+                    Counts include unready and unschedulable nodes, without asserting image compatibility.
+                  properties:
+                    architecture:
+                      description: Architecture is status.nodeInfo.architecture; empty
+                        means unreported.
+                      type: string
+                    nodes:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    os:
+                      description: OS is status.nodeInfo.operatingSystem; empty means
+                        unreported.
+                      type: string
+                  required:
+                  - architecture
+                  - nodes
+                  - os
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - os
+                - architecture
+                x-kubernetes-list-type: map
               runtimeHandlers:
                 description: RuntimeHandlers includes node-reported configurations
                   without inventing classes.
@@ -670,6 +798,8 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               runtimes:
+                description: Runtimes inventories selectable RuntimeClasses and their
+                  configuration evidence.
                 items:
                   description: RuntimeObservation is configuration evidence, not a
                     successful runtime probe.
@@ -866,6 +996,8 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               sections:
+                description: Sections records successful and attempted API audits
+                  independently per domain.
                 items:
                   properties:
                     lastAttemptAt:
@@ -890,6 +1022,9 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               storageClasses:
+                description: |-
+                  StorageClasses inventories provisioning choices and their classification evidence.
+                  Unknown evidence is not a negative storage availability result.
                 items:
                   properties:
                     allowVolumeExpansion:
@@ -960,6 +1095,9 @@ spec:
                     source:
                       type: string
                     status:
+                      description: |-
+                        Status reports native driver registration or recognized non-CSI configuration,
+                        independently of Type. Observed does not establish driver health or volume I/O.
                       enum:
                       - Observed
                       - Unknown
@@ -967,8 +1105,9 @@ spec:
                     type:
                       description: |-
                         Type classifies a known Kubernetes volume interface, not its backing store.
-                        Catalog entries describe directory mounts; the same class may also support
-                        raw Block volumes. Actual use follows the PVC's volumeMode.
+                        Catalog entries and CSI filesystem parameters describe directory mounts;
+                        the same class may also support raw Block volumes. Actual use follows the
+                        PVC's volumeMode. Unknown type can coexist with Observed registration.
                       enum:
                       - Filesystem
                       - Block

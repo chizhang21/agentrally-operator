@@ -26,6 +26,11 @@ AgentRally builds on
 for Sandbox allocation and Pod management.
 Each agent keeps its own application logic and API.
 
+The [examples](examples/README.md) cover basic CR configuration.
+Complete Agent deployments live under `gitops/` in the separate `agentrally-examples`
+project.
+Application image recipes live under its `images/` directory.
+
 ## Runtime isolation
 
 The selected RuntimeClass determines how an agent's Pod is isolated:

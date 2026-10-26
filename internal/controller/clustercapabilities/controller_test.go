@@ -16,6 +16,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -167,6 +168,14 @@ func TestNodeDiscoveryIgnoresHeartbeats(t *testing.T) {
 		}, true},
 		{"readiness", func(n *corev1.Node) { n.Status.Conditions[0].Status = corev1.ConditionFalse }, true},
 		{"runtime", func(n *corev1.Node) { n.Status.NodeInfo.ContainerRuntimeVersion = "containerd://2.1.0" }, true},
+		{"os", func(n *corev1.Node) { n.Status.NodeInfo.OperatingSystem = "linux" }, true},
+		{"architecture", func(n *corev1.Node) { n.Status.NodeInfo.Architecture = "arm64" }, true},
+		{"capacity", func(n *corev1.Node) {
+			n.Status.Capacity = corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("4")}
+		}, true},
+		{"allocatable", func(n *corev1.Node) {
+			n.Status.Allocatable = corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("0")}
+		}, true},
 		{"handler", func(n *corev1.Node) { n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{{Name: "opaque"}} }, true},
 		{"handler-feature", func(n *corev1.Node) {
 			supported := true

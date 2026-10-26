@@ -8,7 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// CapabilityChanges avoids waking every Agent for a report's timestamp refresh.
+// CapabilityChanges ignores audit timestamps and informational node inventories.
 // Periodic reconciliation still checks freshness and recovers missed events.
 func CapabilityChanges() predicate.Predicate {
 	return predicate.Funcs{UpdateFunc: func(update event.UpdateEvent) bool {
@@ -20,6 +20,8 @@ func CapabilityChanges() predicate.Predicate {
 		left, right := before.Status.DeepCopy(), after.Status.DeepCopy()
 		left.ObservedAt, right.ObservedAt = nil, nil
 		left.Sections, right.Sections = nil, nil
+		left.Platforms, right.Platforms = nil, nil
+		left.ExtendedResources, right.ExtendedResources = nil, nil
 		return before.Generation != after.Generation || !equality.Semantic.DeepEqual(left, right)
 	}}
 }

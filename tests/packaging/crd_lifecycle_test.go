@@ -75,8 +75,9 @@ func TestHelmCRDLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Run("example-admission", func(t *testing.T) { verifyExampleAdmission(t, k8s) })
-	verifyReportBootstrap(t, cfg, scheme, k8s)
+	verifyReportBootstrap(t, cfg, scheme, k8s, kubeconfig)
 	t.Run("runtime-capability-admission", func(t *testing.T) { verifyRuntimeCapabilityAdmission(t, k8s) })
+	t.Run("storage-capability-admission", func(t *testing.T) { verifyStorageCapabilityAdmission(t, k8s) })
 	verifyPodAdmissionDefaults(t, k8s)
 	t.Run("group-limit-range", func(t *testing.T) { verifyGroupLimitRangeConvergence(t, k8s, scheme) })
 
@@ -380,7 +381,7 @@ func runHelm(t *testing.T, kubeconfig string, args ...string) {
 	}
 }
 
-func verifyReportBootstrap(t *testing.T, cfg *rest.Config, scheme *runtime.Scheme, k8s client.Client) {
+func verifyReportBootstrap(t *testing.T, cfg *rest.Config, scheme *runtime.Scheme, k8s client.Client, kubeconfig string) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0"})
 	if err != nil {
@@ -412,6 +413,22 @@ func verifyReportBootstrap(t *testing.T, cfg *rest.Config, scheme *runtime.Schem
 	if err != nil {
 		t.Fatalf("controller did not bootstrap and refresh the default report: %v", err)
 	}
+	// Successful discovery with no policy provider must display independently
+	// from capability support, using the API server's generated table columns.
+	out, err := exec.Command("kubectl", "--kubeconfig", kubeconfig, "get", "arcap", "cluster").CombinedOutput()
+	if err != nil {
+		t.Fatalf("read capability table: %v\n%s", err, out)
+	}
+	rows := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(rows) != 2 || strings.Join(strings.Fields(rows[0]), " ") != "NAME RUNTIMESCAN STORAGESCAN NETWORKSCAN NETWORKPOLICY OBSERVED" ||
+		!strings.HasPrefix(strings.Join(strings.Fields(rows[1]), " "), "cluster True True True Unknown ") {
+		t.Fatalf("discovery success and provider support are not readable independently:\n%s", out)
+	}
+	query := `{range .status.capabilities[*]}{.category}{"\t"}{.displayName}{"\t"}{.status}{"\n"}{end}`
+	out, err = exec.Command("kubectl", "--kubeconfig", kubeconfig, "get", "arcap", "cluster", "-o", "jsonpath="+query).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "Isolation\tNode default runtime\tUnknown") || !strings.Contains(string(out), "Networking\tPod network policies\tUnknown") {
+		t.Fatalf("read capability summary: %v\n%s", err, out)
+	}
 }
 
 func verifyRuntimeCapabilityAdmission(t *testing.T, kube client.Client) {
@@ -423,6 +440,9 @@ func verifyRuntimeCapabilityAdmission(t *testing.T, kube client.Client) {
 	}
 	defer func() { _ = kube.Delete(context.Background(), node) }()
 	node.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+	node.Status.NodeInfo.OperatingSystem, node.Status.NodeInfo.Architecture = "linux", "arm64"
+	node.Status.Capacity = corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("4")}
+	node.Status.Allocatable = corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("3")}
 	node.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
 		{Name: "opaque", Features: &corev1.NodeRuntimeHandlerFeatures{UserNamespaces: ptr.To(true), RecursiveReadOnlyMounts: ptr.To(false)}},
 		{Name: ""},
@@ -455,6 +475,11 @@ func verifyRuntimeCapabilityAdmission(t *testing.T, kube client.Client) {
 	if len(report.Status.Runtimes) != 1 || len(report.Status.RuntimeHandlers) != 2 {
 		t.Fatal("schema discarded runtime inventories", report.Status)
 	}
+	if len(report.Status.Platforms) != 1 || report.Status.Platforms[0].OS != "linux" || report.Status.Platforms[0].Architecture != "arm64" || report.Status.Platforms[0].Nodes != 1 ||
+		len(report.Status.ExtendedResources) != 1 || report.Status.ExtendedResources[0].Name != "nvidia.com/gpu" ||
+		report.Status.ExtendedResources[0].Capacity.Cmp(resource.MustParse("4")) != 0 || report.Status.ExtendedResources[0].Allocatable.Cmp(resource.MustParse("3")) != 0 {
+		t.Fatal("schema discarded node platforms or declared resources", report.Status)
+	}
 	observed := report.Status.Runtimes[0]
 	if observed.Source != "RuntimeClassDeclared" || observed.Category != "VirtualMachine" || observed.ImageContract != "Unknown" ||
 		observed.HandlerEvidence == nil || observed.HandlerEvidence.ReportedNodes != 1 || observed.Features == nil ||
@@ -469,5 +494,40 @@ func verifyRuntimeCapabilityAdmission(t *testing.T, kube client.Client) {
 	report.Spec.RuntimeMappings[0].ImageContract = "WasmWASI"
 	if err := kube.Update(ctx, report); !apierrors.IsInvalid(err) {
 		t.Fatal("contradictory known contract was admitted", err)
+	}
+}
+
+func verifyStorageCapabilityAdmission(t *testing.T, kube client.Client) {
+	t.Helper()
+	ctx := t.Context()
+	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "future-storage"}, Provisioner: "future.csi.example"}
+	node := &storagev1.CSINode{ObjectMeta: metav1.ObjectMeta{Name: "storage-reports"}, Spec: storagev1.CSINodeSpec{
+		Drivers: []storagev1.CSINodeDriver{{Name: sc.Provisioner, NodeID: "private-node-id"}},
+	}}
+	for _, object := range []client.Object{sc, node} {
+		if err := kube.Create(ctx, object); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = kube.Delete(context.Background(), object) }()
+	}
+	report := &v1.ClusterCapabilities{}
+	if err := kube.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
+		t.Fatal(err)
+	}
+	// No vendor catalog, CSIDriver object or filesystem hint is required to
+	// persist native registration independently of an unknown volume interface.
+	(capabilities.Observer{Reader: kube}).Refresh(ctx, report, capabilities.Storage, true)
+	if err := kube.Status().Update(ctx, report); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(report), report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Status.StorageClasses) != 1 {
+		t.Fatal("schema discarded native storage inventory", report.Status.StorageClasses)
+	}
+	observed := report.Status.StorageClasses[0]
+	if observed.Type != "Unknown" || observed.Status != "Observed" || !observed.DriverRegistered || observed.DriverDeclared || observed.Reason != "StorageTypeUnrecognized" {
+		t.Fatal("schema conflated native registration with volume classification", observed)
 	}
 }

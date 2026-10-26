@@ -54,6 +54,27 @@ storage:
       - csi.vsphere.vmware.com
       - csi.trident.netapp.io
       - blob.csi.azure.com
+      # Enterprise CSI defaults. Sources are linked in docs/cluster-capabilities.md.
+      - csi-powermax.dellemc.com
+      - csi-powerstore.dellemc.com
+      - csi-isilon.dellemc.com
+      - csi-unity.dellemc.com
+      - csi-vxflexos.dellemc.com
+      - csi.hpe.com
+      - filex.csi.hpe.com
+      - csi.huawei.com
+      - block.csi.ibm.com
+      - spectrumscale.csi.ibm.com
+      - hspc.csi.hitachi.com
+      - csi.nutanix.com
+      - pxd.portworx.com
+      # Distributed filesystems and software-defined storage.
+      - linstor.csi.linbit.com
+      - csi.juicefs.com
+      - beegfs.csi.netapp.com
+      - csi.weka.io
+      - seaweedfs-csi-driver
+      - ru.yandex.s3.csi
     suffixes: [.cephfs.csi.ceph.com, .rbd.csi.ceph.com]
   # Everest delegates to a named CSI driver, not its aggregate provisioner ID.
   - type: Unknown

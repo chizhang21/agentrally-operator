@@ -26,6 +26,20 @@ fi
 case "$E2E_CNI" in kindnet|cilium) ;; *) echo 'E2E_CNI must be kindnet or cilium.' >&2; exit 1 ;; esac
 case "$E2E_SNAPSHOTS" in true|false) ;; *) echo 'E2E_SNAPSHOTS must be true or false.' >&2; exit 1 ;; esac
 case "$E2E_OPENCLAW" in true|false) ;; *) echo 'E2E_OPENCLAW must be true or false.' >&2; exit 1 ;; esac
+if [[ "$E2E_OPENCLAW" == true ]]; then
+  if [[ -z ${E2E_OPENCLAW_DIR:-} ]]; then
+    echo 'Set E2E_OPENCLAW_DIR to the openclaw directory in an agentrally-examples checkout.' >&2
+    exit 1
+  fi
+  for manifest in group.yaml definition.yaml instance.yaml workspace.yaml; do
+    if [[ ! -f "$E2E_OPENCLAW_DIR/$manifest" ]]; then
+      echo "Missing OpenClaw manifest: $E2E_OPENCLAW_DIR/$manifest" >&2
+      exit 1
+    fi
+  done
+  E2E_OPENCLAW_DIR=$(cd "$E2E_OPENCLAW_DIR" && pwd)
+  export E2E_OPENCLAW_DIR
+fi
 chart=${E2E_CHART:-chart}
 if [[ ! -f "$chart" && ! -f "$chart/Chart.yaml" ]]; then
   echo 'E2E_CHART must name a local Chart directory or archive.' >&2
@@ -58,14 +72,14 @@ finish() {
 trap finish EXIT
 
 # Supplying an image tests an already built local release candidate. Otherwise
-# build the production Dockerfile from this checkout, without publishing it.
+# build the production Containerfile from this checkout, without publishing it.
 image=${E2E_IMAGE:-agentrally-operator:e2e}
 if [[ "$image" == *@* || ${image##*/} != *:* ]]; then
   echo 'E2E_IMAGE must name a locally built image with an explicit tag.' >&2
   exit 1
 fi
 if [[ -z ${E2E_IMAGE:-} ]]; then
-  docker build --tag "$image" .
+  docker build -f Containerfile --tag "$image" .
 else
   docker image inspect "$image" >/dev/null
 fi
@@ -117,7 +131,7 @@ export E2E_DIGEST_IMAGE
 E2E_DIGEST_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/library/busybox:1.37.0)
 load_image docker.io/library/busybox:1.37.0
 if [[ "$E2E_OPENCLAW" == true ]]; then
-  openclaw_image=$(awk '$1 == "image:" { print $2; exit }' examples/openclaw/definition.yaml)
+  openclaw_image=$(awk '$1 == "image:" { print $2; exit }' "$E2E_OPENCLAW_DIR/definition.yaml")
   test -n "$openclaw_image"
   docker pull --platform="$platform" "$openclaw_image"
   load_image "$openclaw_image"

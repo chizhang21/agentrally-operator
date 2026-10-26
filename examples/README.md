@@ -1,5 +1,10 @@
 # Examples
 
+These examples demonstrate the Operator's CRs and Kubernetes resource references.
+Complete application deployments live under `gitops/` in the separate
+`agentrally-examples` project.
+Application image recipes live under its `images/` directory.
+
 Install [Core, Extensions and AgentRally](../docs/installation.md) first.
 Replace image names and other placeholders before applying a file.
 
@@ -17,13 +22,11 @@ Apply that file before the instance.
 | [base/agent.yaml](base/agent.yaml) | Minimal generic agent | Your image |
 | [group-policy.yaml](group-policy.yaml) | LimitRange, allocation pause and declarative prewarming | Administrator permissions; applications safe to start before allocation |
 | [snapshot-workspace-definition.yaml](snapshot-workspace-definition.yaml) / [snapshot-workspace.yaml](snapshot-workspace.yaml) | Private workspace initialized from a snapshot | Ready namespaced VolumeSnapshot, snapshot controller and compatible CSI StorageClass |
+| [retained-workspace.yaml](retained-workspace.yaml) | External PVC retained across instance replacement | Base Group and definition; filesystem StorageClass |
 | [cluster-capabilities.yaml](cluster-capabilities.yaml) | Administrator classifications for custom runtime/storage classes | Existing native classes and administrator permissions |
 | [full-definition.yaml](full-definition.yaml) / [full.yaml](full.yaml) | Built-in configuration and instance field references | Secrets, ConfigMap, RuntimeClass, ServiceAccount, pull credentials, filesystem StorageClass and Gateway |
 | [custom-template.yaml](custom-template.yaml) / [custom-definition.yaml](custom-definition.yaml) / [custom.yaml](custom.yaml) | Native SandboxTemplate reference | Apply template, then definition, then instance |
 | [httproute-definition.yaml](httproute-definition.yaml) / [httproute.yaml](httproute.yaml) | HTTP endpoint through Gateway API | Image serving port 8080; Group defaults or a unique eligible Gateway with a wildcard domain |
-| [http-api-agent/](http-api-agent/README.md) | Ordered deployment with Secret environment variables, pull credentials and HTTPRoute | Agent image, model settings, API keys and Gateway |
-| [openclaw/](openclaw/README.md) | Resident assistant with state retained across upgrades | External PVC and per-user credentials |
-| [codex-mobile/](codex-mobile/README.md) | Build a Codex Mobile image locally or through a manual workflow | Docker, or a GitHub fork with Actions enabled |
 | [rbac/editor.yaml](rbac/editor.yaml) | Namespace-scoped deployer access | Administrator applies the [RoleBinding](rbac/README.md) |
 
 Apply one instance example at a time.

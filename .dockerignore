@@ -1,6 +1,6 @@
-# Only send inputs used by Dockerfile to the builder.
+# Only send inputs used by Containerfile to the builder.
 **
-!Dockerfile
+!Containerfile
 !go.mod
 !go.sum
 !cmd/

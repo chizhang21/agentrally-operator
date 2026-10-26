@@ -200,7 +200,8 @@ AgentRally checks references without publishing values and reads Secrets without
 watching or caching them.
 Periodic reconciliation detects version changes; use a new restart token to apply them
 to the process.
-See the [ordered HTTP Agent example](../examples/http-api-agent/README.md).
+The separate `agentrally-examples/gitops/http-api-agent` directory contains a complete
+application deployment.
 
 ## Model and workspace
 
@@ -245,7 +246,8 @@ workspace:
 
 The Operator records its UID without adoption or deletion and enforces zero spares.
 Use one PVC per resident assistant; a retained volume is not a backup.
-See [OpenClaw](../examples/openclaw/README.md) for paths, probes and upgrades.
+See the [retained workspace CR example](../examples/retained-workspace.yaml).
+Application paths, probes and upgrade steps belong to each project in `agentrally-examples`.
 
 ### Initialize from a VolumeSnapshot
 

@@ -182,6 +182,7 @@ func applySection(target *v1.ClusterCapabilitiesStatus, source v1.ClusterCapabil
 	case Runtime:
 		target.DefaultRuntime, target.Runtimes, target.NodeRuntimes = source.DefaultRuntime, source.Runtimes, source.NodeRuntimes
 		target.RuntimeHandlers = source.RuntimeHandlers
+		target.Platforms, target.ExtendedResources = source.Platforms, source.ExtendedResources
 	case Storage:
 		target.StorageClasses, target.CSIDrivers, target.CSIDriverDetails = source.StorageClasses, source.CSIDrivers, source.CSIDriverDetails
 	case Network:

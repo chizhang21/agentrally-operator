@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	v1 "agentrally/operator/api/v1alpha1"
@@ -33,38 +34,46 @@ type exampleResource struct {
 
 func exampleResources(t *testing.T) []exampleResource {
 	t.Helper()
-	const root = "../../examples"
+	roots := []string{"../../examples"}
+	if directory := os.Getenv("AGENTRALLY_EXAMPLES_DIR"); directory != "" {
+		roots = append(roots, directory)
+	}
 	var examples []exampleResource
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		decoder := yamlutil.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
-		for document := 1; ; document++ {
-			object := &unstructured.Unstructured{}
-			if err := decoder.Decode(object); err == io.EOF {
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
+				return filepath.SkipDir
+			}
+			if entry.IsDir() || filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
 				return nil
-			} else if err != nil {
-				return fmt.Errorf("%s document %d: %w", path, document, err)
 			}
-			if len(object.Object) != 0 {
-				examples = append(examples, exampleResource{path: fmt.Sprintf("%s/%d", relative, document), object: object})
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
 			}
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			decoder := yamlutil.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
+			for document := 1; ; document++ {
+				object := &unstructured.Unstructured{}
+				if err := decoder.Decode(object); err == io.EOF {
+					return nil
+				} else if err != nil {
+					return fmt.Errorf("%s document %d: %w", path, document, err)
+				}
+				if len(object.Object) != 0 {
+					examples = append(examples, exampleResource{path: fmt.Sprintf("%s/%d", relative, document), object: object})
+				}
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	if len(examples) == 0 {
 		t.Fatal("example resources are missing")

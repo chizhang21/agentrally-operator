@@ -6,6 +6,7 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
@@ -21,6 +22,11 @@ func TestCapabilityEventsIgnoreAuditTimestamps(t *testing.T) {
 	filter := CapabilityChanges()
 	if filter.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}) {
 		t.Fatal("timestamp-only refresh woke consumers")
+	}
+	after.Status.Platforms = []v1.NodePlatformObservation{{OS: "linux", Architecture: "arm64", Nodes: 1}}
+	after.Status.ExtendedResources = []v1.NodeResourceObservation{{Name: "nvidia.com/gpu", Nodes: 1, Capacity: resource.MustParse("4"), Allocatable: resource.MustParse("3")}}
+	if filter.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}) {
+		t.Fatal("informational node inventory woke consumers")
 	}
 	after.Status.Conditions = []metav1.Condition{{Type: "StorageDiscoveryReady", Status: metav1.ConditionFalse, Reason: "DiscoveryFailed"}}
 	if !filter.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}) {

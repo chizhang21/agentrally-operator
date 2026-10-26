@@ -63,7 +63,7 @@ func summarize(status v1.ClusterCapabilitiesStatus) []v1.CapabilityObservation {
 		}
 	}
 	for _, storage := range status.StorageClasses {
-		name, title, description := "UnclassifiedStorage", "Unclassified storage", "The Kubernetes volume interface has not been classified."
+		name, title, description := "UnclassifiedStorage", "Unclassified storage", "The Kubernetes volume interface is unknown; positive driver registration can still be observed."
 		switch storage.Type {
 		case "Block":
 			name, title, description = "BlockStorage", "Raw block volumes", "PVC volumeMode Block exposes a raw device; no filesystem, sharing or durability is implied."

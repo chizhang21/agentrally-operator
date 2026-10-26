@@ -105,8 +105,8 @@ External named pools must also have zero spares.
 Each user assistant needs its own PVC and credentials; do not attach one retained
 workspace to multiple independent instances.
 
-The [OpenClaw example](../examples/openclaw/README.md) shows a resident assistant whose
-files survive application upgrades.
+The [retained workspace example](../examples/retained-workspace.yaml) binds an external PVC.
+The separate `agentrally-examples` project contains complete resident assistant deployments.
 
 Application conversations, scheduled jobs and channel identity remain application
 concerns.

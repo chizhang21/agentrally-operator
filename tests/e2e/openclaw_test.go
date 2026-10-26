@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,13 +26,17 @@ import (
 
 func TestOpenClawLifecycle(t *testing.T) {
 	if os.Getenv("E2E_OPENCLAW") != "true" {
-		t.Skip("enable with E2E_OPENCLAW=true make e2e")
+		t.Skip("set E2E_OPENCLAW=true and E2E_OPENCLAW_DIR to run the external project")
+	}
+	exampleDir := os.Getenv("E2E_OPENCLAW_DIR")
+	if exampleDir == "" {
+		t.Fatal("set E2E_OPENCLAW_DIR to the openclaw directory in an agentrally-examples checkout")
 	}
 	kube, kubeconfig := e2eClient(t)
 	ctx := context.Background()
 	load := func(name string, object client.Object) {
 		t.Helper()
-		data, err := os.ReadFile("../../examples/openclaw/" + name)
+		data, err := os.ReadFile(filepath.Join(exampleDir, name))
 		if err != nil {
 			t.Fatal(err)
 		}

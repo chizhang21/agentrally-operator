@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/capabilities"
 	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/controller/agentgroup"
 	"agentrally/operator/internal/sandbox"
@@ -87,6 +88,29 @@ func TestCapabilitiesRejectRawBlockWorkspaceWithoutWaitingForBinding(t *testing.
 			}
 		})
 	}
+}
+
+func TestWorkspaceAcceptsUnclassifiedRegisteredStorage(t *testing.T) {
+	g, ns, definition, instance, source := testutil.Fixture()
+	instance.Spec.Workspace = &v1.WorkspaceMount{VolumeClaimTemplate: ptr.To(workspaceVolumeSpec()), MountPath: "/workspace"}
+	instance.Spec.Workspace.VolumeClaimTemplate.StorageClassName = ptr.To("future-storage")
+	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "future-storage"}, Provisioner: "future.csi.example"}
+	node := &storagev1.CSINode{ObjectMeta: metav1.ObjectMeta{Name: "worker"}, Spec: storagev1.CSINodeSpec{
+		Drivers: []storagev1.CSINodeDriver{{Name: sc.Provisioner, NodeID: "private-node-id"}},
+	}}
+	report := capabilityReport("Supported")
+	c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), g, ns, instance, sc, node, report)
+	(capabilities.Observer{Reader: c}).Refresh(t.Context(), report, capabilities.Storage, true)
+	if len(report.Status.StorageClasses) != 1 || report.Status.StorageClasses[0].Type != "Unknown" || report.Status.StorageClasses[0].Status != "Observed" {
+		t.Fatal("fixture did not retain unknown interface with native registration", report.Status.StorageClasses)
+	}
+	if err := c.Status().Update(t.Context(), report); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &Reconciler{Client: c, Scheme: scheme}
+	reconcileWithUpstreamSimulation(t, reconciler, instance)
+	testutil.Condition(t, getAgentInstance(t, c, instance).Status.Conditions, "CapabilityValidated", metav1.ConditionTrue)
+	getSandbox(t, c, instance)
 }
 
 func TestNetworkEvidenceBlocksOnlyConfirmedUnsupportedNewSandbox(t *testing.T) {

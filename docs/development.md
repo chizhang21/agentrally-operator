@@ -151,7 +151,7 @@ Packaging tests live in `tests/packaging`; see [packaging sources](../chart/READ
 ### Real lifecycle release gate
 
 Run `make e2e` with Docker 28 or later, kubectl, Helm, Go and curl available.
-Make selects the pinned kind version; the driver builds the production Dockerfile,
+Make selects the pinned kind version; the driver builds the production Containerfile,
 creates an isolated Kubernetes 1.34.0 cluster, and installs agent-sandbox
 Core/Extensions v1.0.5 and the local chart.
 
@@ -206,10 +206,12 @@ E2E_SNAPSHOTS=true make e2e
 E2E_CNI=cilium E2E_SNAPSHOTS=true make e2e
 ```
 
-To test the real OpenClaw example in isolation:
+To test the real OpenClaw project from a separate `agentrally-examples` checkout:
 
 ```sh
-E2E_OPENCLAW=true E2E_TEST='^TestOpenClawLifecycle$' make e2e
+E2E_OPENCLAW=true \
+E2E_OPENCLAW_DIR=/path/to/agentrally-examples/gitops/openclaw \
+E2E_TEST='^TestOpenClawLifecycle$' make e2e
 ```
 
 This opt-in profile pulls the example's fixed OpenClaw image, uses a temporary Gateway
@@ -218,7 +220,15 @@ suspend/resume and explicit configuration replacement.
 External channels and model providers are not configured.
 
 `E2E_TEST` selects Go tests; without it the usual lifecycle suite runs.
-See the [OpenClaw example](../examples/openclaw/README.md).
+The external project supplies the application manifests.
+Default checks and E2E runs do not require that checkout.
+
+To also validate complete application manifests against this checkout's CRD schemas:
+
+```sh
+AGENTRALLY_EXAMPLES_DIR=/path/to/agentrally-examples/gitops \
+go test ./tests/packaging -run '^Test(AllExamplesSurviveAdmissionAndPruning|ExampleReferencesResolveWithinTheSameGroup)$'
+```
 
 Runtime policy tests reject missing RuntimeClasses before allocation, accept a digest-pinned image, and exercise activity-driven suspension and wake-up.
 They check retained files, version binding, explicit suspension and maximum lifetime cleanup.

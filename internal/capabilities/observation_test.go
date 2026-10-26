@@ -25,6 +25,7 @@ import (
 func TestMappingsPreserveNativeEvidenceAndDoNotInventCapabilities(t *testing.T) {
 	rc := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "custom"}, Handler: "opaque", Scheduling: &nodev1.Scheduling{NodeSelector: map[string]string{"pool": "agents"}}, Overhead: &nodev1.Overhead{PodFixed: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")}}}
 	sc := class("workspace", "custom.example")
+	sc.Parameters = map[string]string{"csi.storage.k8s.io/fstype": "ext4"}
 	sc.AllowVolumeExpansion = ptr.To(true)
 	sc.AllowedTopologies = []corev1.TopologySelectorTerm{{MatchLabelExpressions: []corev1.TopologySelectorLabelRequirement{{Key: "zone", Values: []string{"a"}}}}}
 	d := driver(sc.Provisioner)
@@ -68,6 +69,13 @@ func TestMappingsPreserveNativeEvidenceAndDoNotInventCapabilities(t *testing.T) 
 	observer.Refresh(context.Background(), report, Storage, true)
 	if s := findStorage(t, report.Status, sc.Name); s.Status != "Unknown" || s.DriverRegistered {
 		t.Fatal("mapping bypassed missing native registration", s)
+	}
+	if err := c.Delete(t.Context(), d); err != nil {
+		t.Fatal(err)
+	}
+	observer.Refresh(t.Context(), report, Storage, true)
+	if s := findStorage(t, report.Status, sc.Name); s.Status != "Unknown" || s.Type != "Block" || s.CSIDriver != "" || s.Reason == "" {
+		t.Fatal("administrator classification invented a driver or lost its uncertainty reason", s)
 	}
 }
 

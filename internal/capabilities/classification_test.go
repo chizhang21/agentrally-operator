@@ -54,6 +54,11 @@ func TestStorageClassificationUsesKubernetesMountInterface(t *testing.T) {
 		{"s3.csi.aws.com", "", "", "Filesystem"},
 		{"csi.vsphere.vmware.com", "", "", "Filesystem"},
 		{"csi.trident.netapp.io", "", "", "Filesystem"},
+		{"csi-powerstore.dellemc.com", "protocol", "fc", "Filesystem"},
+		{"csi.hpe.com", "accessProtocol", "iscsi", "Filesystem"},
+		{"csi.huawei.com", "volumeType", "lun", "Filesystem"},
+		{"spectrumscale.csi.ibm.com", "", "", "Filesystem"},
+		{"ru.yandex.s3.csi", "mounter", "geesefs", "Filesystem"},
 		{"everest-csi-provisioner", "csi.storage.k8s.io/csi-driver-name", "disk.csi.everest.io", "Filesystem"},
 		{"everest-csi-provisioner", "csi.storage.k8s.io/csi-driver-name", "obs.csi.everest.io", "Filesystem"},
 		{"everest-csi-provisioner", "", "", "Unknown"},
@@ -86,17 +91,25 @@ func TestAggregateStorageProvisionerUsesSelectedNodeDriver(t *testing.T) {
 	if observed.Type != "Unknown" || observed.CSIDriver != "" || observed.DriverRegistered {
 		t.Fatal("unrecognized driver selection inherited a different backend's evidence", observed)
 	}
+	// New aggregate selections need an exact native identity, not a catalog update.
+	sc.Parameters["csi.storage.k8s.io/csi-driver-name"] = "future.csi.everest.io"
+	registration.Spec.Drivers[0].Name = "future.csi.everest.io"
+	observed = findStorage(t, Discover(t.Context(), testClient(t, sc, registration)), sc.Name)
+	if observed.CSIDriver != "future.csi.everest.io" || !observed.DriverRegistered || observed.Type != "Unknown" || observed.Status != "Observed" {
+		t.Fatal("new aggregate driver registration was hidden or borrowed an interface", observed)
+	}
 }
 
 func TestStorageDistinguishesDriverDeclarationAndNodeRegistration(t *testing.T) {
 	for _, test := range []struct {
-		name                 string
+		name, provisioner    string
 		declared, registered bool
 	}{
-		{"declaration only", true, false}, {"registration only", false, true}, {"both", true, true},
+		{"declaration only", "nfs.csi.k8s.io", true, false}, {"registration only", "nfs.csi.k8s.io", false, true}, {"both", "nfs.csi.k8s.io", true, true},
+		{"unknown declaration only", "future.csi.example", true, false}, {"unknown registration only", "future.csi.example", false, true}, {"unknown both", "future.csi.example", true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			sc := class("workspace", "nfs.csi.k8s.io")
+			sc := class("workspace", test.provisioner)
 			objects := []client.Object{sc}
 			if test.declared {
 				objects = append(objects, driver(sc.Provisioner))
@@ -104,13 +117,26 @@ func TestStorageDistinguishesDriverDeclarationAndNodeRegistration(t *testing.T) 
 			if test.registered {
 				objects = append(objects, csiRegistration(sc.Provisioner))
 			}
-			status := Discover(t.Context(), testClient(t, objects...))
+			kube := testClient(t, objects...)
+			status := Discover(t.Context(), kube)
 			observed := findStorage(t, status, sc.Name)
 			if observed.DriverDeclared != test.declared || observed.DriverRegistered != test.registered || (observed.Status == "Observed") != test.registered {
 				t.Fatalf("declaration/registration conflated: %+v", observed)
 			}
 			if len(status.CSIDriverDetails) != 1 || status.CSIDriverDetails[0].Declared != test.declared {
 				t.Fatalf("node-only driver inventory lost: %+v", status.CSIDriverDetails)
+			}
+			if test.provisioner == "future.csi.example" && (observed.Type != "Unknown" || observed.Source != "NativeAPI") {
+				t.Fatal("native registration invented a volume interface", observed)
+			}
+			if test.registered {
+				if err := kube.Delete(t.Context(), csiRegistration(sc.Provisioner)); err != nil {
+					t.Fatal(err)
+				}
+				observed = findStorage(t, Discover(t.Context(), kube), sc.Name)
+				if observed.Status != "Unknown" || observed.DriverRegistered {
+					t.Fatal("removed registration retained positive evidence", observed)
+				}
 			}
 		})
 	}

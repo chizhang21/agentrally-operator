@@ -135,6 +135,7 @@ func TestClusterCapabilities(t *testing.T) {
 		}
 		return report.Status.ObservedGeneration == report.Generation && runtimeOK && storageOK && grouped, nil
 	})
+	verifyNativeStorageEvidence(t, ctx, kube)
 	// This is a real runc execution check, scoped to this handler and image.
 	group := readyGroup(t, ctx, kube, "runtime-probe")
 	definition, claim := testAgent(group, "runtime", "sleep 3600")
@@ -162,6 +163,59 @@ func TestClusterCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDeleted(t, ctx, kube, group)
+}
+
+// Synthetic CSI declarations exercise API watches and report semantics in this
+// disposable cluster; they do not stand in for an installed storage driver.
+func verifyNativeStorageEvidence(t *testing.T, ctx context.Context, kube client.Client) {
+	t.Helper()
+	provisioner := "e2e.registered.example.com"
+	unknown := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "e2e-native-storage"}, Provisioner: provisioner}
+	filesystem := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "e2e-native-filesystem"}, Provisioner: provisioner,
+		Parameters: map[string]string{"csi.storage.k8s.io/fstype": "ext4"}}
+	node := &storagev1.CSINode{ObjectMeta: metav1.ObjectMeta{Name: "e2e-storage-reports"}, Spec: storagev1.CSINodeSpec{
+		Drivers: []storagev1.CSINodeDriver{{Name: provisioner, NodeID: "e2e-configuration-only"}},
+	}}
+	for _, object := range []client.Object{unknown, filesystem, node} {
+		create(t, ctx, kube, object)
+		t.Cleanup(func() { _ = kube.Delete(ctx, object) })
+	}
+	report := &v1.ClusterCapabilities{}
+	await(t, "native storage registration with independent interface classification", func() (bool, error) {
+		if err := kube.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
+			return false, err
+		}
+		unknownOK, filesystemOK := false, false
+		for _, observed := range report.Status.StorageClasses {
+			if observed.Source != "NativeAPI" || !observed.DriverRegistered || observed.DriverDeclared || observed.Status != "Observed" {
+				continue
+			}
+			switch observed.Name {
+			case unknown.Name:
+				unknownOK = observed.Type == "Unknown" && observed.Reason == "StorageTypeUnrecognized"
+			case filesystem.Name:
+				filesystemOK = observed.Type == "Filesystem" && observed.Rule == "storageclass.parameters/csi.storage.k8s.io/fstype"
+			}
+		}
+		return unknownOK && filesystemOK, nil
+	})
+	if err := kube.Delete(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	await(t, "CSI registration deletion invalidates positive storage evidence", func() (bool, error) {
+		if err := kube.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
+			return false, err
+		}
+		unknownOK, filesystemOK := false, false
+		for _, observed := range report.Status.StorageClasses {
+			if observed.DriverRegistered || observed.Status != "Unknown" {
+				continue
+			}
+			unknownOK = unknownOK || observed.Name == unknown.Name
+			filesystemOK = filesystemOK || observed.Name == filesystem.Name
+		}
+		return unknownOK && filesystemOK, nil
+	})
 }
 
 // Compare with real Node status, rather than assuming a particular CRI version

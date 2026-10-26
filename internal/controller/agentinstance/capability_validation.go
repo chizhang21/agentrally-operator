@@ -180,16 +180,16 @@ func validateStorageClass(ctx context.Context, reader client.Reader, name string
 		v.add(metav1.ConditionUnknown, "StorageEvidenceUnavailable", fmt.Sprintf("StorageClass for PVC %q could not be read; static or bound storage may remain usable", name))
 		return
 	}
-	known := false
+	hasEvidence := false
 	if capabilities.SectionCurrent(report, "StorageDiscoveryReady", time.Now()) {
 		for _, observed := range report.Status.StorageClasses {
 			if observed.Name == sc.Name && observed.Provisioner == sc.Provisioner && observed.Status == "Observed" {
-				known = true
+				hasEvidence = true
 				break
 			}
 		}
 	}
-	if !known {
-		v.add(metav1.ConditionUnknown, "StorageEvidenceUnavailable", fmt.Sprintf("Storage type/driver evidence for PVC %q is unknown or stale", name))
+	if !hasEvidence {
+		v.add(metav1.ConditionUnknown, "StorageEvidenceUnavailable", fmt.Sprintf("Storage configuration evidence for PVC %q is incomplete or stale; volume usability is not determined", name))
 	}
 }

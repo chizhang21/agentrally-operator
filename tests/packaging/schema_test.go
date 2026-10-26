@@ -38,7 +38,7 @@ func renderedCRD(t *testing.T, plural string) *apiextensionsv1.CustomResourceDef
 
 // Fake clients do not apply CRD pruning. Exercise the API-server's pruning code
 // so labels, annotations and native scheduling/container fields survive admission.
-func TestNativeSampleSurvivesStructuralPruning(t *testing.T) {
+func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
 	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "agent.yaml"}, {"clustercapabilities", "clustercapabilities", ""}} {
 		kind := sampleType.kind
 		t.Run(kind, func(t *testing.T) {

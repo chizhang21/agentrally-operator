@@ -210,7 +210,7 @@ To test the real OpenClaw project from a separate `agentrally-examples` checkout
 
 ```sh
 E2E_OPENCLAW=true \
-E2E_OPENCLAW_DIR=/path/to/agentrally-examples/gitops/openclaw \
+E2E_OPENCLAW_DIR=/path/to/agentrally-examples/operator/openclaw \
 E2E_TEST='^TestOpenClawLifecycle$' make e2e
 ```
 
@@ -223,11 +223,14 @@ External channels and model providers are not configured.
 The external project supplies the application manifests.
 Default checks and E2E runs do not require that checkout.
 
-To also validate complete application manifests against this checkout's CRD schemas:
+Default packaging tests validate the CR examples in `examples/`.
+The task lifecycle test constructs its own native template.
+Complete application examples live in the separate examples repository.
+To also validate those manifests against this checkout's CRD schemas:
 
 ```sh
-AGENTRALLY_EXAMPLES_DIR=/path/to/agentrally-examples/gitops \
-go test ./tests/packaging -run '^Test(AllExamplesSurviveAdmissionAndPruning|ExampleReferencesResolveWithinTheSameGroup)$'
+AGENTRALLY_EXAMPLES_DIR=/path/to/agentrally-examples/operator \
+go test ./tests/packaging -run 'AdmissionAndPruning|ReferencesResolveWithinTheSameGroup'
 ```
 
 Runtime policy tests reject missing RuntimeClasses before allocation, accept a digest-pinned image, and exercise activity-driven suspension and wake-up.

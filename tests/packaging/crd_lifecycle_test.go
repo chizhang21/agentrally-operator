@@ -74,7 +74,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Run("example-admission", func(t *testing.T) { verifyExampleAdmission(t, k8s) })
+	t.Run("manifest-admission", func(t *testing.T) { verifyManifestAdmission(t, k8s) })
 	verifyReportBootstrap(t, cfg, scheme, k8s, kubeconfig)
 	t.Run("runtime-capability-admission", func(t *testing.T) { verifyRuntimeCapabilityAdmission(t, k8s) })
 	t.Run("storage-capability-admission", func(t *testing.T) { verifyStorageCapabilityAdmission(t, k8s) })
@@ -105,12 +105,12 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	}
 }
 
-func verifyExampleAdmission(t *testing.T, kube client.Client) {
+func verifyManifestAdmission(t *testing.T, kube client.Client) {
 	t.Helper()
 	ctx := t.Context()
 	namespaces := map[string]bool{}
 	admitted := 0
-	for _, example := range exampleResources(t) {
+	for _, example := range manifestResources(t) {
 		object := example.object
 		// The source template belongs to upstream Extensions, whose CRD is
 		// not installed by this Operator-only Helm lifecycle fixture.

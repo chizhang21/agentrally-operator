@@ -4,27 +4,23 @@ package e2e_test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/sandbox"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/yaml"
 )
 
 func TestTaskCompletionPolicies(t *testing.T) {
 	kube, _ := e2eClient(t)
 	ctx := t.Context()
 	group := readyGroup(t, ctx, kube, "task-policies")
-	data, err := os.ReadFile("../../examples/custom-template.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		name           string
 		exitCode       int
@@ -37,22 +33,29 @@ func TestTaskCompletionPolicies(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			template := sandbox.ExtensionObject("SandboxTemplate")
-			if err := yaml.Unmarshal(data, template); err != nil {
-				t.Fatal(err)
-			}
 			template.SetName(tc.name)
 			template.SetNamespace(group.Status.Namespace)
-			podSpec, _, err := unstructured.NestedMap(template.Object, "spec", "podTemplate", "spec")
+			template.SetLabels(map[string]string{"arally.io/category": "generic"})
+			pod := &corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false),
+				NodeSelector:    map[string]string{corev1.LabelOSStable: "linux"},
+				SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
+				Containers: []corev1.Container{{
+					Name: "agent", Image: "docker.io/library/busybox:1.37.0",
+					Command:   []string{"sh", "-c", fmt.Sprintf("echo task-result; exit %d", tc.exitCode)},
+					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("16Mi")}},
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: ptr.To(false), Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+					},
+				}},
+			}}
+			podTemplate, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
 			if err != nil {
 				t.Fatal(err)
 			}
-			podSpec["restartPolicy"] = "Never"
-			container := podSpec["containers"].([]interface{})[0].(map[string]interface{})
-			container["image"] = "docker.io/library/busybox:1.37.0"
-			container["command"] = []interface{}{"sh", "-c", fmt.Sprintf("echo task-result; exit %d", tc.exitCode)}
-			container["resources"] = map[string]interface{}{"requests": map[string]interface{}{"cpu": "10m", "memory": "16Mi"}}
-			if err := unstructured.SetNestedMap(template.Object, podSpec, "spec", "podTemplate", "spec"); err != nil {
-				t.Fatal(err)
+			template.Object["spec"] = map[string]interface{}{
+				"networkPolicyManagement": "Unmanaged", "envVarsInjectionPolicy": "Disallowed",
+				"volumeClaimTemplatesPolicy": "Disallowed", "service": true, "podTemplate": podTemplate,
 			}
 			create(t, ctx, kube, template)
 			definition, instance := testAgent(group, tc.name, "")

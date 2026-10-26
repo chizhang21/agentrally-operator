@@ -1,19 +1,27 @@
-# Examples
+# AgentRally Operator examples
 
-These examples demonstrate the Operator's CRs and Kubernetes resource references.
-Complete application deployments live under `gitops/` in the separate
-`agentrally-examples` project.
-Application image recipes live under its `images/` directory.
+Minimal CRs, configuration references and deployer RBAC for AgentRally Operator.
+Complete application deployments live in the separate
+[agentrally-examples repository](https://github.com/chizhang21/agentrally-examples/tree/main/operator).
 
 Install [Core, Extensions and AgentRally](../docs/installation.md) first.
-Replace image names and other placeholders before applying a file.
+Run the commands below from this repository's root.
+Replace placeholder images and cluster-specific settings before applying a file.
 
-Follow the [minimal deployment sequence](../docs/usage.md) to create a Group and wait
-for its namespace, publish its AgentDefinition, then create AgentInstances.
+## Minimal deployment
 
-Each standalone instance example has a corresponding `*-definition.yaml`; the base uses
-[base/definition.yaml](base/definition.yaml).
-Apply that file before the instance.
+Replace the placeholder image in [base/definition.yaml](base/definition.yaml).
+Then create the Group, wait for its namespace and apply the definition and instance:
+
+```sh
+kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
+```
+
+## Configuration examples
+
+Apply the definition listed for an example before creating its instance.
+The minimal and retained-workspace examples use [base/definition.yaml](base/definition.yaml).
 
 | File | Use | Prerequisites |
 | --- | --- | --- |
@@ -51,7 +59,9 @@ For an endpoint, declare the Agent's HTTP port and set `interaction.type`.
 HTTPRoute uses Group defaults or Gateway discovery.
 See [interaction setup](../docs/usage.md#interaction-endpoint).
 
-`make check` validates every AgentRally YAML example against the current CRD schema,
-including CEL rules and field pruning.
-It also checks Group, definition and native template references across files.
-Images, credentials, Gateways and storage dependencies still need to match your cluster.
+## Validate manifests
+
+Run `make check` from the repository root to validate Operator CRs against the
+CRD schemas, CEL rules and field-pruning behavior.
+It also checks references between the resources.
+To include external application examples, see [Development](../docs/development.md).

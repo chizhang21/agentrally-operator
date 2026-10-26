@@ -27,18 +27,20 @@ import (
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
 
-type exampleResource struct {
+type manifestResource struct {
 	path   string
 	object *unstructured.Unstructured
 }
 
-func exampleResources(t *testing.T) []exampleResource {
+// Always check this repository's CR examples. Selecting an external checkout
+// adds application manifests without becoming a default CI dependency.
+func manifestResources(t *testing.T) []manifestResource {
 	t.Helper()
 	roots := []string{"../../examples"}
 	if directory := os.Getenv("AGENTRALLY_EXAMPLES_DIR"); directory != "" {
 		roots = append(roots, directory)
 	}
-	var examples []exampleResource
+	var manifests []manifestResource
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -67,7 +69,7 @@ func exampleResources(t *testing.T) []exampleResource {
 					return fmt.Errorf("%s document %d: %w", path, document, err)
 				}
 				if len(object.Object) != 0 {
-					examples = append(examples, exampleResource{path: fmt.Sprintf("%s/%d", relative, document), object: object})
+					manifests = append(manifests, manifestResource{path: fmt.Sprintf("%s/%d", relative, document), object: object})
 				}
 			}
 		})
@@ -75,13 +77,13 @@ func exampleResources(t *testing.T) []exampleResource {
 			t.Fatal(err)
 		}
 	}
-	if len(examples) == 0 {
-		t.Fatal("example resources are missing")
+	if len(manifests) == 0 {
+		t.Fatal("manifest resources are missing")
 	}
-	return examples
+	return manifests
 }
 
-func TestAllExamplesSurviveAdmissionAndPruning(t *testing.T) {
+func TestAllManifestsSurviveAdmissionAndPruning(t *testing.T) {
 	checks := map[string]func(*testing.T, *unstructured.Unstructured){}
 	counts := map[string]int{}
 	for _, plural := range []string{"agentgroups", "agentdefinitions", "agentinstances", "clustercapabilities"} {
@@ -118,7 +120,7 @@ func TestAllExamplesSurviveAdmissionAndPruning(t *testing.T) {
 			}
 		}
 	}
-	for _, example := range exampleResources(t) {
+	for _, example := range manifestResources(t) {
 		object := example.object
 		if object.GroupVersionKind().Group != v1.GroupVersion.Group {
 			continue
@@ -140,10 +142,10 @@ func TestAllExamplesSurviveAdmissionAndPruning(t *testing.T) {
 	}
 }
 
-func TestExampleReferencesResolveWithinTheSameGroup(t *testing.T) {
+func TestManifestReferencesResolveWithinTheSameGroup(t *testing.T) {
 	type identity struct{ kind, namespace, name string }
 	index := map[identity]*unstructured.Unstructured{}
-	examples := exampleResources(t)
+	examples := manifestResources(t)
 	for _, example := range examples {
 		object := example.object
 		index[identity{object.GetKind(), object.GetNamespace(), object.GetName()}] = object

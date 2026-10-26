@@ -26,10 +26,10 @@ AgentRally builds on
 for Sandbox allocation and Pod management.
 Each agent keeps its own application logic and API.
 
-The [examples](examples/README.md) cover basic CR configuration.
-Complete Agent deployments live under `gitops/` in the separate `agentrally-examples`
-project.
-Application image recipes live under its `images/` directory.
+Basic CR configuration, field references and deployer RBAC are documented in
+[examples](examples/README.md).
+Complete Agent deployments live under `operator/` in the separate
+[agentrally-examples](https://github.com/chizhang21/agentrally-examples) repository.
 
 ## Runtime isolation
 
@@ -107,20 +107,17 @@ helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
 
 ### 3. Deploy an agent
 
-Replace the placeholder image in [definition.yaml](examples/base/definition.yaml) with
-your agent image.
+From a local Operator checkout, replace the placeholder image in
+[definition.yaml](examples/base/definition.yaml) with your agent image.
 It must support the built-in environment's [non-root defaults](docs/agent-templates.md).
+Run the following commands from the repository root.
 
 Create the Group, wait for its namespace to be ready, then publish the definition and
 create the AgentInstance:
 
 ```sh
-kubectl apply -f examples/base/group.yaml
-kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/definition.yaml
-kubectl -n agentrally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/agent.yaml
-kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
+kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
 ```
 
 For credentials, persistent storage and HTTP access, follow the

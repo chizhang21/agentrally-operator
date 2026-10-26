@@ -4,17 +4,14 @@ This guide covers Agent configuration and day-to-day operations after
 [installing the controllers](installation.md).
 Build and test instructions are in [Development](development.md).
 
-From a local checkout, replace the image in
+From a local Operator checkout, replace the image in
 [definition.yaml](../examples/base/definition.yaml), then create the Group, definition
-and instance in order:
+and instance in order.
+Run the commands below from the repository root:
 
 ```sh
-kubectl apply -f examples/base/group.yaml
-kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/definition.yaml
-kubectl -n agentrally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/agent.yaml
-kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
+kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
 ```
 
 ## Users and permissions
@@ -167,9 +164,9 @@ The access Service uses port 80.
 Allow its traffic through Group NetworkPolicy and provide application authentication in
 the agent or ingress infrastructure.
 
+Read the endpoint URL once `InteractionReady=True`:
+
 ```sh
-kubectl -n agentrally-demo wait agentinstance/demo-agent \
-  --for=condition=InteractionReady --timeout=120s
 kubectl -n agentrally-demo get agentinstance demo-agent \
   -o jsonpath='{.status.interaction.url}{"\n"}'
 ```
@@ -200,7 +197,7 @@ AgentRally checks references without publishing values and reads Secrets without
 watching or caching them.
 Periodic reconciliation detects version changes; use a new restart token to apply them
 to the process.
-The separate `agentrally-examples/gitops/http-api-agent` directory contains a complete
+The separate `agentrally-examples/operator/http-api-agent` directory contains a complete
 application deployment.
 
 ## Model and workspace
@@ -361,17 +358,12 @@ More detail is in
 
 ## Lifecycle
 
-Suspend, wait for the Pod to disappear, then resume:
+Instances run by default.
+Suspend, wait for the Pod to disappear, then remove the explicit mode to resume:
 
 ```sh
-kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
-  -p '{"spec":{"operatingMode":"Suspended"}}'
-kubectl -n agentrally-demo wait agentinstance/demo-agent \
-  --for=condition=Suspended --timeout=120s
-kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
-  -p '{"spec":{"operatingMode":"Running"}}'
-kubectl -n agentrally-demo wait agentinstance/demo-agent \
-  --for=condition=Ready --timeout=5m
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":"Suspended"}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Suspended --timeout=120s
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":null}}'
 ```
 
 Core removes and recreates the Pod.

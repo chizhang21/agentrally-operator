@@ -26,8 +26,7 @@ Install both using the
 [official combined manifest](https://github.com/kubernetes-sigs/agent-sandbox/tree/v1.0.5#installation):
 
 ```sh
-kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml
-kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
+kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
 ```
 
 This creates the `agent-sandbox-system` namespace, four CRDs, RBAC and one controller

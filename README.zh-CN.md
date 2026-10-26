@@ -21,9 +21,9 @@ AgentRally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kuberne
 完成 Sandbox 分配和 Pod 管理。
 每个 Agent 保留自己的应用逻辑和 API。
 
-[examples](examples/README.md) 提供基础 CR 配置示例。
-完整 Agent 部署清单放在独立项目 `agentrally-examples` 的 `gitops/` 目录中。
-应用镜像构建配方放在该项目的 `images/` 目录中。
+基础 CR、字段参考和部署者 RBAC 放在本仓库的 [examples](examples/README.md) 中。
+完整 Agent 部署示例放在独立的
+[agentrally-examples](https://github.com/chizhang21/agentrally-examples) 仓库的 `operator/` 目录中。
 
 ## 运行时隔离
 
@@ -97,18 +97,16 @@ helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
 
 ### 3. 部署 Agent
 
+在 Operator 仓库的本地副本中，
 将 [definition.yaml](examples/base/definition.yaml) 中的占位镜像替换为你的 Agent 镜像，
 确保它兼容内置环境的[非 root 默认配置](docs/agent-templates.md)。
+后续命令在该仓库的根目录执行。
 
 先创建 Group，等待其命名空间就绪，再发布 Definition 和创建 AgentInstance：
 
 ```sh
-kubectl apply -f examples/base/group.yaml
-kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/definition.yaml
-kubectl -n agentrally-demo wait agentdefinition/demo-agent --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/agent.yaml
-kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=5m
+kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
 ```
 
 凭据、持久存储和 HTTP 入口配置见[专题示例](examples/README.md)。

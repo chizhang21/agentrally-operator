@@ -22,6 +22,7 @@ var (
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(GroupVersion,
+		&AgentWorkspace{}, &AgentWorkspaceList{},
 		&AgentDefinition{}, &AgentDefinitionList{},
 		&AgentGroup{}, &AgentGroupList{},
 		&AgentInstance{}, &AgentInstanceList{},

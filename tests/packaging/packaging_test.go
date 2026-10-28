@@ -101,12 +101,12 @@ connector:
 		tag  string
 		uid  int64
 	}{
-		{name: "kubernetes", tag: chart.AppVersion},
+		{name: "kubernetes", args: []string{"--set", "connector.enabled=false"}, tag: chart.AppVersion},
 		{name: "custom-image", args: []string{"--set-string", "image.tag=custom-build"}, tag: "custom-build"},
 		{name: "explicit-namespace-uid", args: []string{"--set", "podSecurityContext.runAsUser=1001010000"}, tag: chart.AppVersion, uid: 1001010000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			objects := renderObjects(t, append([]string{"-f", filename}, tc.args...)...)
+			objects := renderObjects(t, append([]string{"-f", filename, "--set", "replicaCount=2"}, tc.args...)...)
 			name := "agentrally-operator"
 			var dep appsv1.Deployment
 			if err := yaml.Unmarshal(objects["Deployment/"+name], &dep); err != nil {
@@ -145,7 +145,21 @@ connector:
 			if len(pod.Containers) != 1 {
 				t.Fatalf("expected one operator container, got %d", len(pod.Containers))
 			}
+			if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 2 {
+				t.Fatal("replica count constrained")
+			}
 			container := pod.Containers[0]
+			if len(container.Env) != 2 || container.Env[0].Name != "OPERATOR_RELEASE" || container.Env[0].ValueFrom.FieldRef.FieldPath != "metadata.labels['app.kubernetes.io/instance']" || container.Env[1].Name != "POD_NAMESPACE" {
+				t.Fatal("Operator identity environment lost")
+			}
+			if !strings.Contains(strings.Join(container.Args, " "), "--leader-elect=true") {
+				t.Fatal("leader election disabled")
+			}
+			for _, port := range container.Ports {
+				if port.ContainerPort != 8080 && port.ContainerPort != 8081 {
+					t.Fatal("unexpected listener")
+				}
+			}
 			if container.Image != "registry.example.com/agentrally-operator:"+tc.tag {
 				t.Fatalf("image version not resolved: %s", container.Image)
 			}

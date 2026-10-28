@@ -14,7 +14,7 @@ Version-tag releases publish both the Operator image and OCI Chart to GHCR as so
 packaging succeeds.
 Checks and E2E run independently of publication.
 PR and main-branch CI retain build artifacts without publishing them.
-See [CI and releases](ci.md) or [manual uploads](development.md#upload-image-and-chart).
+See the [release workflow](../.github/workflows/release.yml) or [manual uploads](development.md#upload-image-and-chart).
 The OCI commands below require an accessible, published Chart version.
 
 ## Standard installation
@@ -47,7 +47,7 @@ The readiness probe does not verify upstream controller health.
 ### Install AgentRally
 
 For an OCI installation, replace `x.y.z` with an accessible, published Chart version.
-See [CI packaging](ci.md) for the current distribution workflow.
+See the [packaging workflow](../.github/workflows/packages.yml) for the current distribution workflow.
 
 ```sh
 CHART_VERSION=x.y.z
@@ -78,6 +78,9 @@ See [chart values](../chart/values.yaml) for available settings, and
 Continue with [deploying an agent](usage.md).
 
 ### Upgrade AgentRally
+
+If the installed version supports Activity Leases, complete the
+[activity migration](activity-migration.md) before upgrading its CRDs.
 
 For an OCI installation, select the published Chart version to install.
 For a local archive, use [Updating a dev build](#updating-a-dev-build).

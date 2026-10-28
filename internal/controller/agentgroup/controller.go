@@ -39,9 +39,10 @@ const GroupFinalizer = "arally.io/agent-group-cleanup"
 // Reconciler handles AgentGroup namespace policy and shared capacity cleanup.
 type Reconciler struct {
 	client.Client
-	Reader   client.Reader
-	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
+	Reader         client.Reader
+	Scheme         *runtime.Scheme
+	Recorder       events.EventRecorder
+	InvocationPeer controller.InvocationPeer
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {
@@ -71,6 +72,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	}
 	var capacityErr error
 	if ready {
+
 		pools := allocation.Manager{Client: r.Client, Reader: r.Reader, Scheme: r.Scheme}
 		_, capacityErr = pools.Prune(ctx, group)
 	}
@@ -96,7 +98,10 @@ func (r *Reconciler) status(ctx context.Context, group *v1.AgentGroup, ready boo
 		capacity.Status, capacity.Reason, capacity.Message = metav1.ConditionFalse, "CapacityReconcileFailed", diagnostics.SafeError(capacityErr).Error()
 	}
 	meta.SetStatusCondition(&group.Status.Conditions, capacity)
-	if group.Spec.NetworkPolicy != nil && group.DeletionTimestamp == nil {
+	if err := r.invocationStatus(ctx, group, ready); err != nil {
+		return err
+	}
+	if (group.Spec.NetworkPolicy != nil || controller.ManagedInvocation(group)) && group.DeletionTimestamp == nil {
 		reader := r.Reader
 		if reader == nil {
 			reader = r.Client
@@ -141,8 +146,19 @@ func (r *Reconciler) finalize(ctx context.Context, group *v1.AgentGroup) (ctrl.R
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := controller.CheckOwner(ns, group); err != nil {
+	if err := controller.CheckGroupNamespace(ns, group); err != nil && !bootstrapNamespace(ns, group) {
 		return ctrl.Result{}, err
+	}
+	if group.Spec.PersistentWorkspaces {
+		workspaces := &v1.AgentWorkspaceList{}
+		if err := reader.List(ctx, workspaces); err != nil {
+			return ctrl.Result{}, err
+		}
+		for _, workspace := range workspaces.Items {
+			if workspace.Spec.GroupUID == group.UID {
+				return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "WorkspaceRetained", "Persistent workspaces prevent Group cleanup", nil)
+			}
+		}
 	}
 	pools := allocation.Manager{Client: r.Client, Reader: r.Reader, Scheme: r.Scheme}
 	if pending, err := pools.Prune(ctx, group); err != nil {
@@ -165,7 +181,7 @@ func (r *Reconciler) finalize(ctx context.Context, group *v1.AgentGroup) (ctrl.R
 		message := fmt.Sprintf("Remove definitions, instances, allocation Claims, Sandboxes and PVCs from %s before deleting the group", ns.Name)
 		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "GroupInUse", message, nil)
 	}
-	done, err := controller.DeleteOwned(ctx, r.Client, ns, group)
+	done, err := r.deleteNamespace(ctx, ns, group)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -186,7 +202,7 @@ func (r *Reconciler) mapCapabilities(ctx context.Context, object client.Object) 
 	}
 	var requests []reconcile.Request
 	for _, group := range groups.Items {
-		if group.Spec.NetworkPolicy != nil {
+		if group.Spec.NetworkPolicy != nil || controller.ManagedInvocation(&group) {
 			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&group)})
 		}
 	}
@@ -199,6 +215,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Recorder = mgr.GetEventRecorder("agentrally-agentgroup")
 	return ctrl.NewControllerManagedBy(mgr).For(&v1.AgentGroup{}).
 		Owns(&corev1.Namespace{}).Owns(&corev1.ResourceQuota{}).Owns(&corev1.LimitRange{}).Owns(&networkingv1.NetworkPolicy{}).
+		Watches(&networkingv1.NetworkPolicy{}, handler.EnqueueRequestsFromMapFunc(r.mapNamespacePolicy)).
 		Watches(&v1.AgentInstance{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember), builder.WithPredicates(groupMemberChanges())).
 		Watches(&v1.AgentDefinition{}, handler.EnqueueRequestsFromMapFunc(r.mapGroupMember), builder.WithPredicates(groupMemberChanges())).
 		Watches(&v1.ClusterCapabilities{}, handler.EnqueueRequestsFromMapFunc(r.mapCapabilities), builder.WithPredicates(controller.CapabilityChanges())).Complete(r)
@@ -215,9 +232,36 @@ func groupMemberChanges() predicate.Predicate {
 		before, oldInstance := old.(*v1.AgentInstance)
 		after, newInstance := next.(*v1.AgentInstance)
 		if !oldInstance || !newInstance {
-			return false
+			before, oldDefinition := old.(*v1.AgentDefinition)
+			after, newDefinition := next.(*v1.AgentDefinition)
+			return oldDefinition && newDefinition && (before.Status.CurrentRevision != after.Status.CurrentRevision ||
+				!allocation.SamePreparationSelection(before.Status.Prewarming, after.Status.Prewarming))
 		}
-		return !equality.Semantic.DeepEqual(before.Status.Provisioning, after.Status.Provisioning) ||
+		return !equality.Semantic.DeepEqual(before.Status.Interaction, after.Status.Interaction) ||
+			!equality.Semantic.DeepEqual(before.Status.Provisioning, after.Status.Provisioning) ||
 			controller.SummarizeInstances([]v1.AgentInstance{*before}) != controller.SummarizeInstances([]v1.AgentInstance{*after})
 	}}
+}
+
+func (r *Reconciler) deleteNamespace(ctx context.Context, ns *corev1.Namespace, group *v1.AgentGroup) (bool, error) {
+	if !group.Spec.PersistentWorkspaces {
+		return controller.DeleteOwned(ctx, r.Client, ns, group)
+	}
+	if ns.DeletionTimestamp != nil {
+		return false, nil
+	}
+	uid, rv := ns.UID, ns.ResourceVersion
+	return false, client.IgnoreNotFound(r.Delete(ctx, ns, &client.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid, ResourceVersion: &rv}}))
+}
+
+// bootstrapNamespace permits cleanup of initialization interrupted by deletion.
+// Allocation must continue to require the fully detached, pinned namespace.
+func bootstrapNamespace(ns *corev1.Namespace, group *v1.AgentGroup) bool {
+	if !group.Spec.PersistentWorkspaces || ns.Name != group.NamespaceName() || len(ns.OwnerReferences) != 1 ||
+		(group.Status.NamespaceUID != "" && group.Status.NamespaceUID != ns.UID) {
+		return false
+	}
+	owner := metav1.GetControllerOf(ns)
+	return owner != nil && owner.APIVersion == v1.GroupVersion.String() && owner.Kind == "AgentGroup" &&
+		owner.Name == group.Name && owner.UID == group.UID
 }

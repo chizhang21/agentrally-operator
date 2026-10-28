@@ -3,7 +3,8 @@ kind: AgentGroup
 metadata:
   name: capacity
 spec:
-  # Pause new allocations without stopping existing agents or spares.
+  # Pause new allocations; explicit Definition prewarming targets also drain to zero.
+  # Allocated agents continue running.
   allocationPaused: false
   # Each distinct resolved configuration receives its own spare capacity.
   # Applications start with their real credentials before allocation.

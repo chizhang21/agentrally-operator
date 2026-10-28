@@ -11,6 +11,12 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.template) || !has(self.agentContainer) || size(self.agentContainer) == 0 || self.agentContainer == 'agent'",message="built-in templates use the agent container"
 type AgentDefinitionSpec struct {
 	AgentGroupRef AgentGroupReference `json:"agentGroupRef"`
+	// Prewarming requests capacity before any Instance exists. Enabling it asserts
+	// that this application can safely run without instance identity or data.
+	// Group prewarming supplies the per-pool cap and optional shared budget.
+	// This policy is excluded from immutable application revisions.
+	// +optional
+	Prewarming *DefinitionPrewarmingPolicy `json:"prewarming,omitempty"`
 	// +kubebuilder:validation:Enum=generic;assistant;coding
 	// +optional
 	Template string `json:"template,omitempty"`
@@ -21,18 +27,46 @@ type AgentDefinitionSpec struct {
 	TemplateRef *SandboxTemplateReference `json:"templateRef,omitempty"`
 	// +optional
 	AgentContainer string `json:"agentContainer,omitempty"`
+	// InvocationProtocol declares the application's HTTP contract. It does not
+	// enable transport or establish application readiness.
+	// +kubebuilder:validation:Enum=HTTPJSONSSEV1
+	// +optional
+	InvocationProtocol string `json:"invocationProtocol,omitempty"`
 	// +optional
 	Security *AgentSecurity `json:"security,omitempty"`
 	// +optional
 	ModelProvider *ModelProvider `json:"modelProvider,omitempty"`
 	// Workspace provides a private PVC-template default. Existing user PVCs are
 	// bound separately on each AgentInstance.
-	// +kubebuilder:validation:XValidation:rule="!has(self.existingClaimRef)",message="existing workspaces belong to AgentInstance, not a reusable definition"
+	// +kubebuilder:validation:XValidation:rule="!has(self.existingClaimRef) && !has(self.persistence)",message="existing workspaces belong to AgentInstance, not a reusable definition"
 	// +optional
 	Workspace *WorkspaceMount `json:"workspace,omitempty"`
 }
 
+type DefinitionPrewarmingPolicy struct {
+	// Replicas is the requested number of ready, unassigned Sandboxes. Zero disables
+	// proactive preparation; only probe-checked, stateless applications are eligible.
+	// +kubebuilder:validation:Minimum=0
+	Replicas int32 `json:"replicas"`
+}
+
+// DefinitionPrewarmingStatus separates application publication, requested capacity,
+// the Group's desired allocation and upstream readiness observations.
+type DefinitionPrewarmingStatus struct {
+	ObservedGeneration    int64  `json:"observedGeneration"`
+	Revision              string `json:"revision"`
+	ConfigurationRevision string `json:"configurationRevision,omitempty"`
+	PoolName              string `json:"poolName,omitempty"`
+	TemplateName          string `json:"templateName,omitempty"`
+	RequestedReplicas     int32  `json:"requestedReplicas"`
+	DesiredReplicas       int32  `json:"desiredReplicas"`
+	ReadyReplicas         int32  `json:"readyReplicas"`
+}
+
 type AgentDefinitionStatus struct {
+	// StandaloneRevisions is set before publishing revisions in a persistent Group.
+	// +optional
+	StandaloneRevisions bool `json:"standaloneRevisions,omitempty"`
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// CurrentRevision identifies the latest published immutable configuration.
@@ -40,6 +74,9 @@ type AgentDefinitionStatus struct {
 	CurrentRevision string `json:"currentRevision,omitempty"`
 	// +optional
 	TemplateName string `json:"templateName,omitempty"`
+	// Prewarming pins the proactive selection before creating shared capacity.
+	// +optional
+	Prewarming *DefinitionPrewarmingStatus `json:"prewarming,omitempty"`
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -59,6 +96,7 @@ type AgentDefinitionReference struct {
 // +kubebuilder:printcolumn:name="Group",type=string,JSONPath=".spec.agentGroupRef.name"
 // +kubebuilder:printcolumn:name="Revision",type=string,JSONPath=".status.currentRevision"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Prepared",type=string,JSONPath=".status.conditions[?(@.type=='Prepared')].status"
 type AgentDefinition struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

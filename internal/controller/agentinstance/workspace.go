@@ -8,7 +8,9 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/podconfig"
 	"agentrally/operator/internal/sandbox"
+	managedworkspace "agentrally/operator/internal/workspace"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,11 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.AgentInstance, resolved *resolvedTemplate, container *corev1.Container) error {
-	workspace := workload.Spec.Workspace
-	if workspace == nil {
-		return nil
-	}
+func validateWorkspaceMount(workspace *v1.WorkspaceMount, resolved *resolvedTemplate) error {
 	if !path.IsAbs(workspace.MountPath) || workspace.MountPath == "/" || path.Clean(workspace.MountPath) != workspace.MountPath {
 		return diagnostics.New("InvalidConfiguration", "workspace requires a clean absolute mountPath below /", nil)
 	}
@@ -32,18 +30,48 @@ func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.Agen
 			return diagnostics.New("InvalidConfiguration", "workspace volume name agentrally-workspace is already used in SandboxTemplate", nil)
 		}
 	}
-	for _, mount := range container.VolumeMounts {
+	for _, claim := range resolved.VolumeClaimTemplates {
+		if claim.Name == "agentrally-workspace" {
+			return diagnostics.New("InvalidConfiguration", "workspace volume name agentrally-workspace is already used in volumeClaimTemplates", nil)
+		}
+	}
+	index := podconfig.AgentIndex(resolved.PodTemplate.Spec.Containers, resolved.AgentContainer)
+	if index < 0 {
+		return diagnostics.New("InvalidConfiguration", "Workspace Agent container is missing", nil)
+	}
+	for _, mount := range resolved.PodTemplate.Spec.Containers[index].VolumeMounts {
 		if mount.MountPath == workspace.MountPath {
 			return diagnostics.New("InvalidConfiguration", "workspace mountPath is already used in SandboxTemplate", nil)
 		}
 	}
-	if ref := workspace.ExistingClaimRef; ref != nil {
+	return nil
+}
+
+func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.AgentInstance, resolved *resolvedTemplate, container *corev1.Container) error {
+	workspace := workload.Spec.Workspace
+	if workspace == nil {
+		return nil
+	}
+	if err := validateWorkspaceMount(workspace, resolved); err != nil {
+		return err
+	}
+	if workspace.Persistence != nil {
+		binding, err := managedworkspace.Binding(ctx, reader, workload)
+		if err != nil {
+			return err
+		}
+		resolved.Workspace = binding
+		resolved.PodTemplate.Spec.Volumes = append(resolved.PodTemplate.Spec.Volumes, corev1.Volume{Name: "agentrally-workspace", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: binding.ClaimName, ReadOnly: workspace.ReadOnly}}})
+	} else if ref := workspace.ExistingClaimRef; ref != nil {
 		if len(validation.IsDNS1123Subdomain(ref.Name)) != 0 {
 			return diagnostics.New("InvalidConfiguration", "workspace.existingClaimRef requires a PVC name in the instance namespace", nil)
 		}
 		pvc := &corev1.PersistentVolumeClaim{}
 		if err := reader.Get(ctx, client.ObjectKey{Namespace: workload.Namespace, Name: ref.Name}, pvc); err != nil {
 			return diagnostics.ReferenceError("PersistentVolumeClaim", workload.Namespace, ref.Name, err)
+		}
+		if pvc.Annotations[managedworkspace.UIDAnnotation] != "" {
+			return diagnostics.New("WorkspaceOwnershipConflict", "Platform workspaces cannot be attached as external PVCs", nil)
 		}
 		if pvc.DeletionTimestamp != nil || pvc.Status.Phase == corev1.ClaimLost {
 			return diagnostics.New("WorkspaceUnavailable", "The external workspace PVC is terminating or lost", nil)
@@ -68,13 +96,13 @@ func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.Agen
 		})
 	}
 	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: "agentrally-workspace", MountPath: workspace.MountPath, ReadOnly: workspace.ReadOnly})
-	setEnv(container, corev1.EnvVar{Name: "AGENTRALLY_WORKSPACE_PATH", Value: workspace.MountPath})
+	podconfig.SetEnv(container, corev1.EnvVar{Name: "AGENTRALLY_WORKSPACE_PATH", Value: workspace.MountPath})
 	return nil
 }
 
 func (r *Reconciler) bindWorkspace(ctx context.Context, instance *v1.AgentInstance, binding *v1.WorkspaceBinding) error {
 	if current := instance.Status.Workspace; current != nil {
-		if binding == nil || *current != *binding {
+		if binding == nil || *current != *binding && !(current.UID == "" && current.WorkspaceUID != "" && current.WorkspaceUID == binding.WorkspaceUID && current.ClaimName == binding.ClaimName) {
 			return diagnostics.New("WorkspaceBindingChanged", "The external workspace identity changed; create a new instance to bind different storage", nil)
 		}
 	}
@@ -86,7 +114,7 @@ func (r *Reconciler) bindWorkspace(ctx context.Context, instance *v1.AgentInstan
 			return err
 		}
 	}
-	if instance.Status.Workspace == nil {
+	if instance.Status.Workspace == nil || instance.Status.Workspace.UID == "" {
 		base := instance.DeepCopy()
 		instance.Status.Workspace = binding.DeepCopy()
 		if err := r.Status().Patch(ctx, instance, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
@@ -101,7 +129,7 @@ func (r *Reconciler) bindWorkspace(ctx context.Context, instance *v1.AgentInstan
 }
 
 // Validate the shared storage blueprint before starting any warm instances.
-// Core still owns provisioning, binding and all PVC writes.
+// Core owns provisioning and binding for these execution-scoped templates.
 func validateVolumeClaimTemplates(claims []corev1.PersistentVolumeClaimTemplate, pod *corev1.PodSpec) error {
 	names := map[string]bool{}
 	for _, volume := range pod.Volumes {

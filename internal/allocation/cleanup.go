@@ -33,6 +33,7 @@ func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID
 		reader = m.Client
 	}
 	workloads := &v1.AgentInstanceList{}
+	definitions := &v1.AgentDefinitionList{}
 	claims, pools, templates := sandbox.ExtensionList("SandboxClaim"), sandbox.ExtensionList("SandboxWarmPool"), sandbox.ExtensionList("SandboxTemplate")
 	for _, list := range []*unstructured.UnstructuredList{pools, templates} {
 		if err := reader.List(ctx, list, client.InNamespace(group.NamespaceName())); err != nil {
@@ -47,8 +48,25 @@ func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID
 	if err := reader.List(ctx, claims, client.InNamespace(group.NamespaceName())); err != nil {
 		return false, err
 	}
+	if err := reader.List(ctx, definitions, client.InNamespace(group.NamespaceName())); err != nil {
+		return false, err
+	}
+	byUID := map[string]*v1.AgentDefinition{}
 	used := map[string]bool{}
 	remainingTemplates := map[string]bool{}
+	for i := range definitions.Items {
+		definition := &definitions.Items[i]
+		if definition.Spec.AgentGroupRef.Name != group.Name {
+			continue
+		}
+		byUID[string(definition.UID)] = definition
+		if definitionUID == "" {
+			if state := activePreparation(definition, group); state != nil {
+				used[state.PoolName] = true
+				remainingTemplates[state.TemplateName] = true
+			}
+		}
+	}
 	for _, w := range workloads.Items {
 		if w.DeletionTimestamp == nil && (w.Status.Lifecycle == nil || w.Status.Lifecycle.ExpiredAt == nil) && w.Status.Provisioning != nil && w.Status.Provisioning.TimedOutAt == nil {
 			used[w.Status.Provisioning.PoolName] = true
@@ -62,7 +80,7 @@ func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID
 	if definitionUID == "" {
 		// Keep the Group as the sole writer of the shared budget. Definition
 		// retirement only drains its own resources, without scaling siblings.
-		if err := m.reconcileSpareBudget(ctx, group, pools.Items); err != nil {
+		if err := m.reconcileSpareBudget(ctx, group, pools.Items, byUID); err != nil {
 			return false, err
 		}
 	}
@@ -74,7 +92,7 @@ func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID
 		if !managedByGroup(pool, group) || (definitionUID != "" && pool.GetLabels()[definitionUIDLabel] != string(definitionUID)) {
 			continue
 		}
-		if err := m.reconcilePoolPolicy(ctx, pool, group, used[pool.GetName()]); err != nil {
+		if err := m.reconcilePoolUsage(ctx, pool, group, used[pool.GetName()]); err != nil {
 			return false, err
 		}
 		if used[pool.GetName()] {

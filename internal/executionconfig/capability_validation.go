@@ -1,4 +1,4 @@
-package agentinstance
+package executionconfig
 
 import (
 	"context"
@@ -43,8 +43,8 @@ func (v *capabilityValidation) add(status metav1.ConditionStatus, reason, messag
 	v.condition.Message = strings.Join(v.messages, "; ")
 }
 
-func validateCapabilities(ctx context.Context, reader client.Reader, w *v1.AgentInstance, group *v1.AgentGroup, pod *corev1.PodSpec, claims []corev1.PersistentVolumeClaimTemplate) metav1.Condition {
-	v := newCapabilityValidation(w.Generation)
+func ValidateCapabilities(ctx context.Context, reader client.Reader, namespace string, generation int64, group *v1.AgentGroup, pod *corev1.PodSpec, claims []corev1.PersistentVolumeClaimTemplate) metav1.Condition {
+	v := newCapabilityValidation(generation)
 	validateExecutionPolicy(pod, group.Spec.ExecutionPolicy, &v)
 	var report *v1.ClusterCapabilities
 	if pod.RuntimeClassName != nil || len(pod.Volumes) > 0 || len(claims) > 0 || group.Spec.NetworkPolicy != nil {
@@ -53,12 +53,12 @@ func validateCapabilities(ctx context.Context, reader client.Reader, w *v1.Agent
 	if pod.RuntimeClassName != nil {
 		validateRuntime(ctx, reader, pod, report, &v)
 	}
-	validateStorage(ctx, reader, w.Namespace, pod, report, &v)
+	validateStorage(ctx, reader, namespace, pod, report, &v)
 	for _, claim := range claims {
 		validateStorageClass(ctx, reader, claim.Name, claim.Spec.StorageClassName, report, &v)
 	}
 	if group.Spec.NetworkPolicy != nil {
-		c := capabilities.NetworkCondition(report, w.Generation)
+		c := capabilities.NetworkCondition(report, generation)
 		v.add(c.Status, c.Reason, c.Message)
 	}
 	return v.condition

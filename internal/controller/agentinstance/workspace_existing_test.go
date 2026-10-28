@@ -46,6 +46,11 @@ func TestExistingWorkspaceSurvivesExecutionReplacement(t *testing.T) {
 	}
 	definition.Spec.Container.Image = "example/assistant:v2"
 	saveDefinition(t, c, definition)
+	testutil.PublishDefinitions(t, c, scheme)
+	if err := c.Get(ctx, client.ObjectKeyFromObject(definition), definition); err != nil {
+		t.Fatal(err)
+	}
+	state.Spec.Revision = definition.Status.CurrentRevision
 	state.Spec.RestartToken = "upgrade"
 	if err := c.Update(ctx, state); err != nil {
 		t.Fatal(err)

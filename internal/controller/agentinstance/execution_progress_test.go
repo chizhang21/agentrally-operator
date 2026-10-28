@@ -110,6 +110,21 @@ func TestExecutionDiagnosticsPreserveConditionTransitionTimes(t *testing.T) {
 	if state.ResourceVersion != version {
 		t.Fatal("unchanged execution failure rewrote status; condition transitions must be applied once")
 	}
+	if err := r.blockedStatus(ctx, state, "SecretNotFound", "Credential reference is unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	state = getAgentInstance(t, r.Client, w)
+	meta.FindStatusCondition(state.Status.Conditions, "PodScheduled").LastTransitionTime = old
+	if err := r.Status().Update(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	version = state.ResourceVersion
+	if err := r.blockedStatus(ctx, state, "SecretNotFound", "Credential reference is unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	if state = getAgentInstance(t, r.Client, w); state.ResourceVersion != version {
+		t.Fatal("blocked but observable execution rewrote stable conditions")
+	}
 }
 
 func TestExecutionStallThresholdAndCoreReadiness(t *testing.T) {

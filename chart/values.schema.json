@@ -160,6 +160,9 @@
         },
         "caFile": {
           "type": "string"
+        },
+        "invocationPreview": {
+          "type": "boolean"
         }
       },
       "allOf": [

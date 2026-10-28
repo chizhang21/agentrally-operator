@@ -10,9 +10,11 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/connector"
+	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/controller/agentdefinition"
 	"agentrally/operator/internal/controller/agentgroup"
 	"agentrally/operator/internal/controller/agentinstance"
+	"agentrally/operator/internal/controller/agentworkspace"
 	"agentrally/operator/internal/controller/clustercapabilities"
 	"agentrally/operator/internal/metrics"
 	"agentrally/operator/internal/sandbox"
@@ -63,7 +65,9 @@ func run() error {
 	flag.StringVar(&connectorConfig.ID, "connector-id", "", "Stable backend cluster/connector id")
 	flag.StringVar(&connectorConfig.TokenFile, "connector-token-file", "/var/run/agentrally-connector/token", "Mounted backend credential file")
 	flag.StringVar(&connectorConfig.CAFile, "connector-ca-file", "", "Optional backend private CA PEM file")
+	flag.BoolVar(&connectorConfig.InvocationPreview, "connector-invocation-preview", false, "Enable experimental invocation transport")
 	flag.Parse()
+	connectorConfig.InvocationPeer = controller.InvocationPeer{Namespace: os.Getenv("POD_NAMESPACE"), ReleaseName: os.Getenv("OPERATOR_RELEASE")}
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewTextHandler(os.Stderr, nil)))
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
@@ -73,10 +77,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := (&agentgroup.Reconciler{}).SetupWithManager(mgr); err != nil {
+	if err := (&agentgroup.Reconciler{InvocationPeer: connectorConfig.InvocationPeer}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&agentdefinition.Reconciler{}).SetupWithManager(mgr); err != nil {
+		return err
+	}
+	if err := (&agentworkspace.Reconciler{}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	observations := metrics.New(mgr.GetClient())

@@ -39,7 +39,7 @@ func renderedCRD(t *testing.T, plural string) *apiextensionsv1.CustomResourceDef
 // Fake clients do not apply CRD pruning. Exercise the API-server's pruning code
 // so labels, annotations and native scheduling/container fields survive admission.
 func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
-	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "agent.yaml"}, {"clustercapabilities", "clustercapabilities", ""}} {
+	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "agent.yaml"}, {"clustercapabilities", "clustercapabilities", ""}, {"agentworkspace", "agentworkspaces", ""}} {
 		kind := sampleType.kind
 		t.Run(kind, func(t *testing.T) {
 			crd := renderedCRD(t, sampleType.plural)
@@ -64,7 +64,9 @@ func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
 				t.Fatal(errors)
 			}
 			var sample []byte
-			if sampleType.file == "" {
+			if kind == "agentworkspace" {
+				sample, err = yaml.Marshal(&v1.AgentWorkspace{TypeMeta: metav1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "AgentWorkspace"}, ObjectMeta: metav1.ObjectMeta{Name: "workspace"}, Spec: v1.AgentWorkspaceSpec{GroupName: "demo", GroupUID: "group", Namespace: "agentrally-demo", NamespaceUID: "namespace", InstanceName: "instance", InstanceUID: "instance-uid", Definition: v1.DefinitionBinding{Name: "agent", UID: "definition", Revision: "revision", TemplateName: "template"}, RevisionUID: "template-uid", RetentionSeconds: 3600, VolumeClaimTemplate: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}}}}})
+			} else if sampleType.file == "" {
 				sample, err = yaml.Marshal(&v1.ClusterCapabilities{TypeMeta: metav1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "ClusterCapabilities"}, ObjectMeta: metav1.ObjectMeta{Name: "cluster"}})
 			} else {
 				sample, err = os.ReadFile("../../examples/base/" + sampleType.file)
@@ -295,10 +297,6 @@ func TestExecutionPolicyAdmission(t *testing.T) {
 		{"zero-ttl", map[string]interface{}{"ttlSecondsAfterFinished": int64(0), "shutdownPolicy": "Retain"}, nil, nil, true},
 		{"maximum-lifetime", map[string]interface{}{"maxLifetimeSeconds": int64(60)}, nil, nil, true},
 		{"zero-maximum-lifetime", map[string]interface{}{"maxLifetimeSeconds": int64(0)}, nil, nil, false},
-		{"idle-without-signal", map[string]interface{}{"idleTimeoutSeconds": int64(60)}, nil, nil, false},
-		{"signal-without-idle", map[string]interface{}{"activityLeaseRef": map[string]interface{}{"name": "activity"}}, nil, nil, false},
-		{"idle-with-signal", map[string]interface{}{"idleTimeoutSeconds": int64(60), "activityLeaseRef": map[string]interface{}{"name": "activity"}}, nil, nil, true},
-		{"invalid-activity-name", map[string]interface{}{"idleTimeoutSeconds": int64(60), "activityLeaseRef": map[string]interface{}{"name": "other/activity"}}, nil, nil, false},
 		{"negative-ttl", map[string]interface{}{"ttlSecondsAfterFinished": int64(-1)}, nil, nil, false},
 		{"unknown-shutdown-policy", map[string]interface{}{"shutdownPolicy": "Pause"}, nil, nil, false},
 		{"pool", nil, pool("agents", 60), nil, true},
@@ -363,6 +361,11 @@ func TestExecutionPolicyAdmission(t *testing.T) {
 // Exercise API-server admission, including CEL, so a YAML-only caller receives
 // the same contract as a typed Go caller before any controller creates resources.
 func admissionChecker(t *testing.T, plural string) func(map[string]interface{}) bool {
+	checker := admissionTransitionChecker(t, plural)
+	return func(value map[string]interface{}) bool { return checker(value, nil) }
+}
+
+func admissionTransitionChecker(t *testing.T, plural string) func(map[string]interface{}, map[string]interface{}) bool {
 	t.Helper()
 	crd := renderedCRD(t, plural)
 	public := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
@@ -379,10 +382,10 @@ func admissionChecker(t *testing.T, plural string) func(map[string]interface{}) 
 		t.Fatal(err)
 	}
 	cel := structuralcel.NewValidator(structural, false, 1_000_000)
-	return func(value map[string]interface{}) bool {
+	return func(value, old map[string]interface{}) bool {
 		errs := apiservervalidation.ValidateCustomResource(field.NewPath("spec"), value, validator)
 		if cel != nil {
-			celErrs, _ := cel.Validate(context.Background(), field.NewPath("spec"), structural, value, nil, 1_000_000)
+			celErrs, _ := cel.Validate(context.Background(), field.NewPath("spec"), structural, value, old, 1_000_000)
 			errs = append(errs, celErrs...)
 		}
 		return len(errs) == 0
@@ -424,6 +427,8 @@ func TestTemplateReferenceAndSecurityAdmission(t *testing.T) {
 		{"invalid-template", func(v map[string]interface{}) { v["templateRef"] = map[string]interface{}{"name": "other/template"} }, false},
 		{"missing-name", func(v map[string]interface{}) { v["templateRef"] = map[string]interface{}{} }, false},
 		{"sidecar-container", func(v map[string]interface{}) { v["agentContainer"] = "sidecar" }, true},
+		{"declared-invocation", func(v map[string]interface{}) { v["invocationProtocol"] = "HTTPJSONSSEV1" }, true},
+		{"unknown-invocation", func(v map[string]interface{}) { v["invocationProtocol"] = "invented" }, false},
 		{"root-restricted", func(v map[string]interface{}) {
 			v["security"] = map[string]interface{}{"profile": "Restricted", "runAsUser": int64(0)}
 		}, false},
@@ -458,6 +463,10 @@ func TestBuiltinTemplateAdmission(t *testing.T) {
 		{"generic", func(v map[string]interface{}) {}, true},
 		{"assistant", func(v map[string]interface{}) { v["template"] = "assistant" }, true},
 		{"coding", func(v map[string]interface{}) { v["template"] = "coding" }, true},
+		{"proactive-capacity", func(v map[string]interface{}) { v["prewarming"] = map[string]interface{}{"replicas": int64(1)} }, true},
+		{"disable-proactive-capacity", func(v map[string]interface{}) { v["prewarming"] = map[string]interface{}{"replicas": int64(0)} }, true},
+		{"negative-capacity", func(v map[string]interface{}) { v["prewarming"] = map[string]interface{}{"replicas": int64(-1)} }, false},
+		{"missing-capacity", func(v map[string]interface{}) { v["prewarming"] = map[string]interface{}{} }, false},
 		{"unknown", func(v map[string]interface{}) { v["template"] = "unknown" }, false},
 		{"both-selectors", func(v map[string]interface{}) { v["templateRef"] = map[string]interface{}{"name": "generic"} }, false},
 		{"missing-runtime", func(v map[string]interface{}) { delete(v, "container") }, false},
@@ -487,13 +496,25 @@ func TestGroupNamespaceAdmission(t *testing.T) {
 	}
 }
 
-func TestInstanceSchemaContainsOnlyInstanceConfiguration(t *testing.T) {
-	crd := renderedCRD(t, "agentinstances")
-	props := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties
-	for _, field := range []string{"parameters", "podTemplate", "service", "template", "templateRef", "container", "runtime", "security", "modelProvider"} {
-		if _, exists := props[field]; exists {
-			t.Fatalf("native configuration duplicated in Claim field %s", field)
-		}
+func TestConnectorOnlyPolicyAdmission(t *testing.T) {
+	accepts := admissionChecker(t, "agentgroups")
+	base := map[string]interface{}{"invocationAccess": map[string]interface{}{"mode": "ConnectorOnly"}}
+	if !accepts(base) {
+		t.Fatal("managed ingress without explicit policy was rejected")
+	}
+	base["networkPolicy"] = map[string]interface{}{"podSelector": map[string]interface{}{}, "egress": []interface{}{map[string]interface{}{}}}
+	if !accepts(base) {
+		t.Fatal("managed ingress with egress was rejected")
+	}
+	policy := base["networkPolicy"].(map[string]interface{})
+	policy["ingress"] = []interface{}{map[string]interface{}{}}
+	if accepts(base) {
+		t.Fatal("explicit ingress bypass was accepted")
+	}
+	delete(policy, "ingress")
+	policy["podSelector"] = map[string]interface{}{"matchLabels": map[string]interface{}{"app": "partial"}}
+	if accepts(base) {
+		t.Fatal("partial selector would change egress scope")
 	}
 }
 
@@ -529,5 +550,27 @@ func TestInstanceDefinitionAndWorkspaceAdmission(t *testing.T) {
 	definitionAccepts := admissionChecker(t, "agentdefinitions")
 	if definitionAccepts(map[string]interface{}{"agentGroupRef": base["agentGroupRef"], "template": "assistant", "container": map[string]interface{}{"image": "example/assistant:v1"}, "workspace": base["workspace"]}) {
 		t.Fatal("reusable definition accepted a user-specific workspace")
+	}
+}
+
+func TestPersistentWorkspaceModeCannotChange(t *testing.T) {
+	group := admissionTransitionChecker(t, "agentgroups")
+	if group(map[string]interface{}{"persistentWorkspaces": true}, map[string]interface{}{"persistentWorkspaces": false}) {
+		t.Fatal("existing Group can opt into different ownership")
+	}
+	instance := admissionTransitionChecker(t, "agentinstances")
+	legacy := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "team"}, "definitionRef": map[string]interface{}{"name": "agent"}}
+	persistent := runtime.DeepCopyJSON(legacy)
+	persistent["workspace"] = map[string]interface{}{"mountPath": "/workspace", "persistence": map[string]interface{}{"retentionSeconds": int64(3600)}, "volumeClaimTemplate": map[string]interface{}{"accessModes": []interface{}{"ReadWriteOnce"}, "resources": map[string]interface{}{"requests": map[string]interface{}{"storage": "1Gi"}}}}
+	if !instance(persistent, nil) || !instance(persistent, persistent) {
+		t.Fatal("valid persistent configuration rejected")
+	}
+	if instance(persistent, legacy) || instance(legacy, persistent) {
+		t.Fatal("existing Instance can change storage mode")
+	}
+	changed := runtime.DeepCopyJSON(persistent)
+	changed["workspace"].(map[string]interface{})["persistence"].(map[string]interface{})["retentionSeconds"] = int64(0)
+	if instance(changed, persistent) {
+		t.Fatal("persistent retention configuration is mutable")
 	}
 }

@@ -29,6 +29,7 @@ The minimal and retained-workspace examples use [base/definition.yaml](base/defi
 | [base/definition.yaml](base/definition.yaml) | Minimal reusable generic definition | Your image |
 | [base/agent.yaml](base/agent.yaml) | Minimal generic agent | Your image |
 | [group-policy.yaml](group-policy.yaml) | LimitRange, allocation pause and declarative prewarming | Administrator permissions; applications safe to start before allocation |
+| [prewarming.yaml](prewarming.yaml) | Prepare stateless capacity before the first Instance | Apply the included Group first; safe application with a readiness probe |
 | [snapshot-workspace-definition.yaml](snapshot-workspace-definition.yaml) / [snapshot-workspace.yaml](snapshot-workspace.yaml) | Private workspace initialized from a snapshot | Ready namespaced VolumeSnapshot, snapshot controller and compatible CSI StorageClass |
 | [retained-workspace.yaml](retained-workspace.yaml) | External PVC retained across instance replacement | Base Group and definition; filesystem StorageClass |
 | [cluster-capabilities.yaml](cluster-capabilities.yaml) | Administrator classifications for custom runtime/storage classes | Existing native classes and administrator permissions |

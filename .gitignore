@@ -53,3 +53,4 @@ values.*.local.yaml
 /.ssh/
 /AGENT.md
 /docs/backlogs.md
+/docs/planning/

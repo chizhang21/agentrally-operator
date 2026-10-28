@@ -142,6 +142,17 @@ func hasInteraction(w *v1.AgentInstance) bool {
 
 func (r *Reconciler) reconcileInteraction(ctx context.Context, w *v1.AgentInstance, core *sandbox.Sandbox, generation int64) (interactionState, error) {
 	state := interactionState{}
+	if w.Spec.Interaction != nil {
+		group := &v1.AgentGroup{}
+		if err := r.referenceReader().Get(ctx, client.ObjectKey{Name: w.Spec.AgentGroupRef.Name}, group); err != nil {
+			return state, err
+		}
+		if controller.ManagedInvocation(group) {
+			_, err := r.cleanupInteraction(ctx, w, "")
+			state.pending(w, "InvocationAccessConflict", "ConnectorOnly does not allow external interaction routes")
+			return state, err
+		}
+	}
 	if !hasInteraction(w) {
 		// A previous attempt may have created access resources before its status
 		// write failed. Disabling must not depend only on recorded status history.

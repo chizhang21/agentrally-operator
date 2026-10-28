@@ -68,11 +68,12 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 		t.Fatal("invalid connector role")
 	}
 	expected := []rbacv1.PolicyRule{
+		{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"get", "list"}},
 		{APIGroups: []string{"arally.io"}, Resources: []string{"agentgroups", "agentdefinitions"}, Verbs: []string{"create", "delete"}},
 		{APIGroups: []string{"arally.io"}, Resources: []string{"agentinstances"}, Verbs: []string{"create"}},
 	}
 	if !reflect.DeepEqual(role.Rules, expected) {
-		t.Fatal("connector must only add the missing CR write permissions")
+		t.Fatal("connector must only add EndpointSlice reads and missing CR write permissions")
 	}
 	var binding rbacv1.ClusterRoleBinding
 	if err := yaml.Unmarshal(connected["ClusterRoleBinding/agentrally-operator-agentrally-system-connector"], &binding); err != nil {
@@ -85,6 +86,7 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 
 func TestConnectorChartRequiresConfigurationOnlyWhenEnabled(t *testing.T) {
 	for _, overrides := range [][]string{
+		{"--set-string", "connector.invocationPreview=false"},
 		{"--set", "connector.enabled=true"},
 		{"--set", "connector.enabled=true", "--set", "connector.endpoint=http://backend.example"},
 		{"--set", "connector.enabled=true", "--set", "connector.endpoint=https://backend.example", "--set", "connector.id=cluster"},

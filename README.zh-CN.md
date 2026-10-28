@@ -123,14 +123,17 @@ kubectl -n agentrally-demo describe agentinstance demo-agent
 
 - **暂停和恢复：** 删除并重建 Pod。
   PVC 数据保留，进程内存和临时文件不会保留。
-- **空闲管理：** 通过调用方维护的可选[活动 Lease](docs/activity.md)，自动暂停和唤醒执行。
 - **配置更新：** 已分配的 Agent 继续使用当前 Pod 配置，直到你设置新的 `restartToken`。
-  定义更新不会自动改变已固定的实例版本。
+  普通重启保留已接受的 Definition Revision。
+  升级时需要同时选择目标 `spec.revision` 并设置新 token。
 - **工作区保留：** 私有 PVC 随 Sandbox 替换，引用的外部工作区 PVC 则保留数据。
+  可选的[持久工作区预览](docs/usage.md#platform-managed-persistent-workspaces-preview)也能保护平台 PVC，避免普通父资源删除引发级联清理。
+  删除后恢复和自动 GC 尚不可用。
 - **到期回收：** 通过可选的最长执行时间、关闭期限和完成后 TTL，控制何时回收执行资源。
   关闭策略决定是否保留 AgentInstance。
 
 操作命令和保留策略见[生命周期说明](docs/usage.md#lifecycle)。
+使用过 Activity Lease 的安装需要先[迁移显式意图](docs/activity-migration.md)，再升级。
 
 ## 文档
 
@@ -140,14 +143,14 @@ kubectl -n agentrally-demo describe agentinstance demo-agent
 | --- | --- |
 | 安装或升级 Operator | [安装指南](docs/installation.md) |
 | 配置 Helm Release | [Chart 配置](chart/README.md) |
-| 复用配置、固定版本和保留工作区 | [定义与实例](docs/agent-definitions.md) |
+| 固定版本和管理工作区生命周期 | [生命周期](docs/usage.md#lifecycle) |
 | 部署 Agent、配置入口和日常运维 | [使用指南](docs/usage.md) |
 | 尝试凭据、存储和访问配置 | [示例](examples/README.md) |
 | 定制运行环境和池 | [Agent 模板](docs/agent-templates.md) |
 | 查看集群现有配置 | [集群能力](docs/cluster-capabilities.md) |
 | 了解资源归属和协调过程 | [架构](docs/architecture.md) |
 | 构建、测试或打包改动 | [开发指南](docs/development.md) |
-| 了解 CI 和镜像发布流程 | [CI](docs/ci.md) |
+| 查看 CI 和发布流程 | [GitHub Workflows](.github/workflows) |
 | 启用可选的后端集成 | [出站 Connector](docs/outbound-connector.md) |
 
 ## 项目状态

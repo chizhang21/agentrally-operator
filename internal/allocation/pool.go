@@ -41,6 +41,7 @@ type Selection struct {
 	exists                      bool
 	source, namespace, revision string
 	allocationToken             string
+	proactive                   bool
 }
 
 func (m *Manager) reader() client.Reader {
@@ -53,6 +54,17 @@ func (m *Manager) reader() client.Reader {
 // ManagedLabel identifies AgentRally-generated group-owned allocation resources.
 const ManagedLabel = "arally.io/managed-allocation"
 const lastAllocationAnnotation = "arally.io/last-allocation"
+const proactiveAnnotation = "arally.io/definition-prewarming"
+
+func automaticNames(group *v1.AgentGroup, source, revision string, service bool) (string, string) {
+	key, _ := json.Marshal(struct {
+		Group, Source, Revision string
+		Service                 bool
+	}{string(group.UID), source, revision, service})
+	sum := sha256.Sum256(key)
+	suffix := hex.EncodeToString(sum[:16])
+	return "agentrally-pool-" + suffix, "agentrally-template-" + suffix
+}
 
 // Select reads the requested or generated pool without writing Claim status or resources.
 // The caller must persist its returned names before calling Ensure.
@@ -68,16 +80,7 @@ func (m *Manager) Select(ctx context.Context, w *v1.AgentInstance, config Config
 	if group.DeletionTimestamp != nil || group.NamespaceName() != w.Namespace {
 		return nil, poolDiagnostic("GroupNotReady", "The pool requires an active AgentGroup in the same namespace")
 	}
-	key, err := json.Marshal(struct {
-		Group, Source, Revision string
-		Service                 bool
-	}{string(group.UID), w.Spec.TemplateSource(), revision, service})
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(key)
-	suffix := hex.EncodeToString(sum[:16])
-	poolName, templateName := "agentrally-pool-"+suffix, "agentrally-template-"+suffix
+	poolName, templateName := automaticNames(group, w.Spec.TemplateSource(), revision, service)
 	if selected := PoolName(w); selected != "" {
 		poolName = selected
 	}
@@ -128,11 +131,19 @@ func (m *Manager) Select(ctx context.Context, w *v1.AgentInstance, config Config
 		}
 	}
 
+	proactive := pool.GetAnnotations()[proactiveAnnotation] == "true"
+	if config.Definition != nil {
+		definition := &v1.AgentDefinition{}
+		if err := m.reader().Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: config.Definition.Name}, definition); err != nil {
+			return nil, diagnostics.ReferenceError("AgentDefinition", w.Namespace, config.Definition.Name, err)
+		}
+		proactive = proactive || definition.Spec.Prewarming != nil
+	}
 	allocationID := sha256.Sum256([]byte(string(w.UID) + "/" + w.Spec.RestartToken))
 	return &Selection{PoolName: poolName, TemplateName: templateName,
 		group: group, pool: pool, exists: getErr == nil,
 		source: w.Spec.TemplateSource(), namespace: w.Namespace,
-		revision: revision, allocationToken: hex.EncodeToString(allocationID[:])}, nil
+		revision: revision, allocationToken: hex.EncodeToString(allocationID[:]), proactive: proactive}, nil
 }
 
 // Ensure creates group-owned immutable templates and capacity after Claim selection
@@ -172,6 +183,11 @@ func (m *Manager) Ensure(ctx context.Context, selection *Selection, config Confi
 	// restart policy or storage; administrators can scale the native pool explicitly.
 	pool.SetLabels(allocationLabels(config))
 	pool.SetAnnotations(map[string]string{"arally.io/source-template": selection.source})
+	if selection.proactive {
+		annotations := pool.GetAnnotations()
+		annotations[proactiveAnnotation] = "true"
+		pool.SetAnnotations(annotations)
+	}
 	if config.Workspace != nil {
 		annotations := pool.GetAnnotations()
 		annotations[existingWorkspaceAnnotation] = "true"
@@ -179,12 +195,27 @@ func (m *Manager) Ensure(ctx context.Context, selection *Selection, config Confi
 	}
 	pool.Object["spec"] = map[string]interface{}{"sandboxTemplateRef": map[string]interface{}{"name": templateName}, "replicas": int64(0), "updateStrategy": map[string]interface{}{"type": "Recreate"}}
 	if selection.exists {
+		if selection.proactive && selection.pool.GetAnnotations()[proactiveAnnotation] != "true" {
+			base := selection.pool.DeepCopy()
+			annotations := selection.pool.GetAnnotations()
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			annotations[proactiveAnnotation] = "true"
+			selection.pool.SetAnnotations(annotations)
+			if err := m.patchPool(ctx, selection.pool, base); err != nil {
+				return err
+			}
+		}
 		if err := m.protectAllocation(ctx, selection.pool, selection.allocationToken); err != nil {
 			return err
 		}
+		if selection.proactive {
+			return nil
+		}
 		return m.reconcilePoolPolicy(ctx, selection.pool, group, true)
 	}
-	if group.Spec.Prewarming != nil && group.Spec.Prewarming.MaxTotalReplicas == nil && config.Workspace == nil {
+	if !selection.proactive && group.Spec.Prewarming != nil && group.Spec.Prewarming.MaxTotalReplicas == nil && config.Workspace == nil {
 		pool.Object["spec"].(map[string]interface{})["replicas"] = int64(group.Spec.Prewarming.Replicas)
 	}
 	return m.createAllocationResource(ctx, pool, group, selection.allocationToken)

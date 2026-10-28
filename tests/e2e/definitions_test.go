@@ -59,6 +59,18 @@ func TestDefinitionRevisionsAndDeletion(t *testing.T) {
 		}
 	}
 
+	t.Log("Ordinary restart preserves the accepted revision after a new publication")
+	first.Spec.RestartToken = "same-revision"
+	update(t, ctx, kube, first)
+	await(t, "replacement on original revision", func() (bool, error) {
+		err := kube.Get(ctx, client.ObjectKeyFromObject(first), first)
+		return first.Status.PodUID != oldPod && conditionTrue(first.Status.Conditions, "Ready", first.Generation), err
+	})
+	if first.Status.Definition.Revision != oldRevision || execPod(t, kubeconfig, first.Namespace, first.Status.PodName, "printenv", "RELEASE") != "v1" {
+		t.Fatal("ordinary restart implicitly upgraded the accepted definition")
+	}
+	oldPod = first.Status.PodUID
+
 	t.Log("Selecting a revision preserves availability until an explicit restart")
 	first.Spec.Revision = newRevision
 	update(t, ctx, kube, first)

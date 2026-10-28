@@ -7,8 +7,10 @@ import (
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/metrics"
 	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/workspace"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -52,6 +54,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	defer func() { result = r.withExecutionDeadlines(workload, result) }()
+	// Conditions survive CRD field removal. Retire the old activity observer's
+	// condition as well, so it cannot advertise an obsolete control contract.
+	if meta.FindStatusCondition(workload.Status.Conditions, "ActivityReady") != nil {
+		base := workload.DeepCopy()
+		meta.RemoveStatusCondition(&workload.Status.Conditions, "ActivityReady")
+		if err := r.patchStatus(ctx, workload, base); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	if workload.DeletionTimestamp != nil {
 		return r.finalize(ctx, workload)
 	}
@@ -60,9 +71,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	}
 	if handled, result, err := r.reconcileRestart(ctx, workload); handled || err != nil {
 		return result, err
-	}
-	if err := r.observeActivity(ctx, workload); err != nil {
-		return ctrl.Result{}, err
 	}
 	if handled, result, err := r.reconcileExpiry(ctx, workload); handled || err != nil {
 		return result, err
@@ -105,17 +113,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 
 // withExecutionDeadlines bounds all retry paths, including paths that exit before allocation.
 func (r *Reconciler) withExecutionDeadlines(workload *v1.AgentInstance, result ctrl.Result) ctrl.Result {
-	if activity := workload.Status.Activity; activity != nil && workload.DeletionTimestamp == nil && meta.IsStatusConditionTrue(workload.Status.Conditions, controller.ConditionActivityReady) {
-		for _, deadline := range []*metav1.MicroTime{activity.ValidUntil, activity.IdleDeadline} {
-			if deadline == nil || !deadline.After(r.now()) {
-				continue
-			}
-			delay := deadline.Sub(r.now())
-			if result.RequeueAfter == 0 || delay < result.RequeueAfter {
-				result.RequeueAfter = delay
-			}
-		}
-	}
 	if lifecycle := workload.Status.Lifecycle; lifecycle != nil && lifecycle.ExpiredAt == nil && lifecycle.ExpiresAt != nil {
 		delay := lifecycle.ExpiresAt.Sub(r.now())
 		if delay <= 0 {
@@ -160,7 +157,7 @@ func (r *Reconciler) readyGroup(ctx context.Context, workload *v1.AgentInstance)
 	if err := r.Get(ctx, client.ObjectKey{Name: workload.Namespace}, ns); err != nil {
 		return nil, false, err
 	}
-	if err := controller.CheckOwner(ns, group); err != nil {
+	if err := controller.CheckGroupNamespace(ns, group); err != nil {
 		return nil, false, err
 	}
 	if ns.DeletionTimestamp != nil && !suspending {
@@ -171,9 +168,6 @@ func (r *Reconciler) readyGroup(ctx context.Context, workload *v1.AgentInstance)
 
 func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentInstance, group *v1.AgentGroup) (ctrl.Result, error) {
 	mode := executionMode(workload)
-	if mode == "" {
-		mode = sandbox.Running
-	}
 	if mode != sandbox.Running && mode != sandbox.Suspended {
 		return r.pending(ctx, workload, "InvalidConfiguration", "operatingMode must be Running or Suspended")
 	}
@@ -191,7 +185,7 @@ func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentI
 	}
 	reader := r.referenceReader()
 	validationCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	validation := validateCapabilities(validationCtx, reader, workload, group, &config.PodTemplate.Spec, config.VolumeClaimTemplates)
+	validation := executionconfig.ValidateCapabilities(validationCtx, reader, workload.Namespace, workload.Generation, group, &config.PodTemplate.Spec, config.VolumeClaimTemplates)
 	cancel()
 	blocked, err := r.capabilityBlocksExecution(ctx, workload, validation, config, mode)
 	if err != nil {
@@ -230,6 +224,25 @@ func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentI
 func (r *Reconciler) resolveExecutionConfiguration(ctx context.Context, workload *v1.AgentInstance, group *v1.AgentGroup, mode string) (executionConfiguration, error) {
 	configurationCtx, configurationCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer configurationCancel()
+	if mode != sandbox.Suspended && workload.Spec.Workspace != nil && workload.Spec.Workspace.Persistence != nil {
+		revision, err := loadDefinitionRevision(configurationCtx, r.referenceReader(), workload)
+		if err != nil {
+			return executionConfiguration{}, err
+		}
+		resolved, err := executionconfig.ResolveTemplate(workload.Spec.DefinitionRef.Name, workload.Spec.Workspace, revision)
+		if err != nil {
+			return executionConfiguration{}, err
+		}
+		if err := validateWorkspaceMount(workload.Spec.Workspace, resolved); err != nil {
+			return executionConfiguration{}, err
+		}
+		if err := r.bindDefinition(configurationCtx, workload, resolved.Definition); err != nil {
+			return executionConfiguration{}, err
+		}
+		if err := workspace.Ensure(configurationCtx, r.directClient(), r.referenceReader(), r.Scheme, workload, group, revision); err != nil {
+			return executionConfiguration{}, err
+		}
+	}
 	resolved, err := desiredExecution(configurationCtx, r.referenceReader(), workload)
 	templateFallback := false
 	if err != nil && mode == sandbox.Suspended {
@@ -256,7 +269,7 @@ func (r *Reconciler) resolveExecutionConfiguration(ctx context.Context, workload
 		if err != nil {
 			return executionConfiguration{}, err
 		}
-		revision, err = configRevision(configurationCtx, r.referenceReader(), workload.Namespace, *resolved)
+		revision, err = executionconfig.Revision(configurationCtx, r.referenceReader(), workload.Namespace, *resolved)
 		if err != nil {
 			return executionConfiguration{}, err
 		}

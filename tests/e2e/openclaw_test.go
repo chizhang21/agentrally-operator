@@ -167,7 +167,7 @@ func TestOpenClawLifecycle(t *testing.T) {
 	if revision() != "v1" {
 		t.Fatal("pinned OpenClaw adopted unpublished execution settings")
 	}
-	instance.Spec.RestartToken = "openclaw-config-v2"
+	instance.Spec.Revision, instance.Spec.RestartToken = definition.Status.CurrentRevision, "openclaw-config-v2"
 	update(t, ctx, kube, instance)
 	await(t, "OpenClaw configuration replacement", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
@@ -178,7 +178,7 @@ func TestOpenClawLifecycle(t *testing.T) {
 	}
 	health()
 	retained()
-	t.Log("Explicit restart: new revision and execution, retained PVC/files")
+	t.Log("Explicit upgrade: new revision and execution, retained PVC/files")
 	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 2}
 	update(t, ctx, kube, group)
 	await(t, "Group prewarming policy observation", func() (bool, error) {

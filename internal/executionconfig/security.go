@@ -1,4 +1,4 @@
-package agentinstance
+package executionconfig
 
 import (
 	"context"

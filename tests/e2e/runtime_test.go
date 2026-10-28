@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestRuntimePolicyAndIdleLifecycle(t *testing.T) {
+func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 	kube, kubeconfig := e2eClient(t)
 	ctx := context.Background()
 	group := readyGroup(t, ctx, kube, "runtime-policy")
@@ -43,7 +43,7 @@ func TestRuntimePolicyAndIdleLifecycle(t *testing.T) {
 	definition.Spec.Container.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt32(8080)}}, PeriodSeconds: 1}
 	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{
 		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("32Mi")}}}}
-	instance.Spec.Lifecycle = &v1.AgentInstanceLifecycle{IdleTimeoutSeconds: ptr.To(int32(5)), ActivityLeaseRef: &v1.ActivityLeaseReference{Name: "activity"}}
+	instance.Spec.Lifecycle = &v1.AgentInstanceLifecycle{}
 	create(t, ctx, kube, definition)
 	create(t, ctx, kube, instance)
 	await(t, "missing RuntimeClass denied", func() (bool, error) {
@@ -62,7 +62,7 @@ func TestRuntimePolicyAndIdleLifecycle(t *testing.T) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(definition), definition)
 		return definition.Status.CurrentRevision != previous && conditionTrue(definition.Status.Conditions, "Ready", definition.Generation), err
 	})
-	instance.Spec.RestartToken = "accept-pinned-definition"
+	instance.Spec.Revision, instance.Spec.RestartToken = definition.Status.CurrentRevision, "accept-pinned-definition"
 	update(t, ctx, kube, instance)
 	readyAgent(t, ctx, kube, instance)
 	accepted, execution := instance.Status.Definition.Revision, instance.Status.SandboxUID
@@ -86,10 +86,12 @@ func TestRuntimePolicyAndIdleLifecycle(t *testing.T) {
 	var resume []time.Duration
 	for attempt := range 3 {
 		oldPod := instance.Status.PodUID
+		instance.Spec.OperatingMode = sandbox.Suspended
+		update(t, ctx, kube, instance)
 		signal("Idle")
-		await(t, "automatic idle suspension", func() (bool, error) {
+		await(t, "explicit suspension", func() (bool, error) {
 			err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
-			return instance.Status.Activity != nil && instance.Status.Activity.Suspended && conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
+			return conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
 		})
 		if attempt == 0 {
 			definition.Spec.Container.Args = []string{agentCommand("v2")}
@@ -100,14 +102,16 @@ func TestRuntimePolicyAndIdleLifecycle(t *testing.T) {
 			})
 		}
 		start := time.Now()
+		instance.Spec.OperatingMode = sandbox.Running
+		update(t, ctx, kube, instance)
 		signal("Busy")
-		await(t, "activity wake-up with a new process", func() (bool, error) {
+		await(t, "explicit resume with a new process", func() (bool, error) {
 			err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
 			return conditionTrue(instance.Status.Conditions, "Ready", instance.Generation) && instance.Status.PodUID != oldPod, err
 		})
 		resume = append(resume, time.Since(start))
 		if instance.Status.SandboxUID != execution || instance.Status.Definition.Revision != accepted {
-			t.Fatal("automatic wake-up replaced execution or upgraded the accepted version")
+			t.Fatal("explicit resume replaced execution or upgraded the accepted version")
 		}
 		if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/canary"); got != "idle-retained" {
 			t.Fatal("idle suspension lost workspace data", got)
@@ -120,7 +124,7 @@ func TestRuntimePolicyAndIdleLifecycle(t *testing.T) {
 	instance.Spec.OperatingMode = sandbox.Suspended
 	update(t, ctx, kube, instance)
 	signal("Busy")
-	await(t, "manual suspension wins over busy activity", func() (bool, error) {
+	await(t, "legacy busy signal does not override explicit suspension", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
 		return conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
 	})

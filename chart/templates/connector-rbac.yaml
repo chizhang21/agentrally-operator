@@ -9,6 +9,9 @@ metadata:
     {{- include "agentrally-operator.labels" . | nindent 4 }}
 # Other CR permissions are already granted by the manager role.
 rules:
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list"]
   - apiGroups: [arally.io]
     resources: [agentgroups, agentdefinitions]
     verbs: [create, delete]

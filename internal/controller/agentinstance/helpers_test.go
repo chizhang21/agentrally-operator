@@ -7,6 +7,7 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/allocation"
+	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/sandbox"
 	"agentrally/operator/internal/testutil"
 
@@ -30,6 +31,14 @@ func clientWithPublishedDefinitions(t *testing.T, objects ...client.Object) (cli
 	c, scheme := testutil.Client(t, objects...)
 	testutil.PublishDefinitions(t, c, scheme)
 	return c, scheme
+}
+
+func resolveSandboxTemplate(ctx context.Context, reader client.Reader, instance *v1.AgentInstance) (*resolvedTemplate, error) {
+	revision, err := loadDefinitionRevision(ctx, reader, instance)
+	if err != nil {
+		return nil, err
+	}
+	return executionconfig.ResolveTemplate(instance.Spec.DefinitionRef.Name, instance.Spec.Workspace, revision)
 }
 
 func workspaceVolumeSpec() corev1.PersistentVolumeClaimSpec {
@@ -324,3 +333,15 @@ func saveDefinition(t *testing.T, c client.Client, desired *v1.AgentDefinition) 
 	}
 	*desired = *current
 }
+
+// Preserve existing controller regression coverage across the shared resolver seam.
+var (
+	configRevision              = executionconfig.Revision
+	configurationReferences     = executionconfig.References
+	validateConfigurationMarker = executionconfig.ValidateMarker
+	snapshotReferences          = executionconfig.SnapshotReferences
+)
+
+var validateNativeReferences = executionconfig.ValidateNativeReferences
+
+const snapshotAPIGroup = "snapshot.storage.k8s.io"

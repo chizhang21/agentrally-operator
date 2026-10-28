@@ -39,7 +39,7 @@ func ClientBuilder(t *testing.T) (*fake.ClientBuilder, *runtime.Scheme) {
 			t.Fatal(err)
 		}
 	}
-	builder := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.ClusterCapabilities{}, &v1.AgentGroup{}, &v1.AgentDefinition{}, &v1.AgentInstance{}, &corev1.Namespace{}, &corev1.ResourceQuota{}, sandbox.Object())
+	builder := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.AgentWorkspace{}, &v1.ClusterCapabilities{}, &v1.AgentGroup{}, &v1.AgentDefinition{}, &v1.AgentInstance{}, &corev1.Namespace{}, &corev1.ResourceQuota{}, sandbox.Object())
 	return builder, scheme
 }
 

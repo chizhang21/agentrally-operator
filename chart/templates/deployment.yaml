@@ -51,6 +51,9 @@ spec:
             - --health-probe-bind-address=:8081
             {{- if .Values.connector.enabled }}
             - --connector-enabled=true
+            {{- if .Values.connector.invocationPreview }}
+            - --connector-invocation-preview=true
+            {{- end }}
             - {{ printf "--connector-endpoint=%s" .Values.connector.endpoint | quote }}
             - {{ printf "--connector-id=%s" .Values.connector.id | quote }}
             {{- with .Values.connector.caFile }}
@@ -73,6 +76,10 @@ spec:
               path: /readyz
               port: health
           env:
+            - name: OPERATOR_RELEASE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/instance']
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:

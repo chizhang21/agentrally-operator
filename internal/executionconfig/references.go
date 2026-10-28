@@ -1,4 +1,4 @@
-package agentinstance
+package executionconfig
 
 import (
 	"context"
@@ -20,9 +20,9 @@ type nativeReferenceValidator struct {
 	errors    map[string]error
 }
 
-// validateNativeReferences preflights native Pod references without copying
+// ValidateNativeReferences preflights native Pod references without copying
 // credentials into diagnostics or mutating the user-supplied template.
-func validateNativeReferences(ctx context.Context, reader client.Reader, namespace string, template *corev1.PodTemplateSpec) error {
+func ValidateNativeReferences(ctx context.Context, reader client.Reader, namespace string, template *corev1.PodTemplateSpec) error {
 	if ctx == nil || reader == nil || template == nil || namespace == "" {
 		return diagnostics.New("InvalidConfiguration", "native reference validation requires a namespace and Pod template; correct the deployment configuration", nil)
 	}

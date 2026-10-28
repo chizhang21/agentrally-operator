@@ -14,29 +14,37 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"agentrally/operator/internal/controller"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 type Config struct {
-	Endpoint  string
-	ID        string
-	TokenFile string
-	CAFile    string
+	Endpoint          string
+	ID                string
+	TokenFile         string
+	CAFile            string
+	InvocationPreview bool
+	InvocationPeer    controller.InvocationPeer
 }
 
-// Client runs one serial poll worker on the elected Operator replica.
+// Client runs management and optional invocation workers on the elected replica.
 type Client struct {
-	config    Config
-	requests  string
-	responses string
-	http      *http.Client
-	executor  Executor
-	ready     atomic.Bool
-	wait      func(context.Context, time.Duration) bool
+	config           Config
+	requests         string
+	responses        string
+	invocations      string
+	invocationMu     sync.Mutex
+	invocationCancel context.CancelFunc
+	http             *http.Client
+	executor         Executor
+	ready            atomic.Bool
+	wait             func(context.Context, time.Duration) bool
 }
 
 func NewClient(config Config, executor Executor) (*Client, error) {
@@ -46,6 +54,9 @@ func NewClient(config Config, executor Executor) (*Client, error) {
 	}
 	if config.ID == "" || len(validation.IsDNS1123Subdomain(config.ID)) != 0 {
 		return nil, fmt.Errorf("connector id must be a DNS subdomain")
+	}
+	if config.InvocationPreview && (len(validation.IsDNS1123Label(config.InvocationPeer.Namespace)) != 0 || config.InvocationPeer.ReleaseName == "" || len(validation.IsValidLabelValue(config.InvocationPeer.ReleaseName)) != 0) {
+		return nil, fmt.Errorf("invocation preview requires Operator namespace and release identity")
 	}
 	if _, err := loadToken(config.TokenFile); err != nil {
 		return nil, err
@@ -63,10 +74,14 @@ func NewClient(config Config, executor Executor) (*Client, error) {
 		}
 		transport.TLSClientConfig.RootCAs = roots
 	}
+	v2 := *base
+	v2.Path = strings.TrimRight(base.Path, "/") + "/internal/v2/connectors/" + config.ID
+	v2.RawPath = ""
+	executor.InvocationPreview = config.InvocationPreview
 	base.Path = strings.TrimRight(base.Path, "/") + "/internal/v1/connectors/" + config.ID
 	base.RawPath = ""
 	return &Client{
-		config: config, requests: base.String() + "/requests", responses: base.String() + "/responses",
+		config: config, requests: base.String() + "/requests", responses: base.String() + "/responses", invocations: v2.String(),
 		http:     &http.Client{Transport: transport, Timeout: 45 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		executor: executor, wait: waitContext,
 	}, nil
@@ -76,20 +91,38 @@ func (c *Client) Ready() bool { return c.ready.Load() }
 
 func (c *Client) NeedLeaderElection() bool { return true }
 
-func (c *Client) Start(ctx context.Context) error {
-	defer c.ready.Store(false)
+func (c *Client) Start(ctx context.Context) (resultErr error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if c.config.InvocationPreview {
+		done := make(chan error, 1)
+		go func() {
+			err := c.runInvocations(ctx)
+			if err != nil {
+				cancel()
+			}
+			done <- err
+		}()
+		defer func() {
+			cancel()
+			if err := <-done; err != nil {
+				resultErr = err
+			}
+		}()
+	}
+	defer c.setReady(false)
 	defer c.http.CloseIdleConnections()
 	backoff := time.Second
 	for ctx.Err() == nil {
 		req, err := c.poll(ctx)
 		if err != nil {
-			c.ready.Store(false)
+			c.setReady(false)
 			if !c.retry(ctx, &backoff, "poll") {
 				return nil
 			}
 			continue
 		}
-		c.ready.Store(true)
+		c.setReady(true)
 		backoff = time.Second
 		if req == nil {
 			// A misconfigured backend returning immediate 204 must not spin.
@@ -109,13 +142,13 @@ func (c *Client) Start(ctx context.Context) error {
 		// Retry only the response. Never rerun the Kubernetes operation here.
 		for ctx.Err() == nil {
 			if err := c.acknowledge(ctx, data); err != nil {
-				c.ready.Store(false)
+				c.setReady(false)
 				if !c.retry(ctx, &backoff, "response") {
 					return nil
 				}
 				continue
 			}
-			c.ready.Store(true)
+			c.setReady(true)
 			break
 		}
 	}

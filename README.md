@@ -136,16 +136,19 @@ reasons.
 
 - **Suspend and resume:** the Pod is removed and recreated.
   PVC data remains; process memory and ephemeral files do not.
-- **Idle lifecycle:** an optional caller-managed [activity Lease](docs/activity.md) enables automatic suspension and wake-up.
 - **Configuration updates:** an allocated agent keeps running with its current Pod
   configuration until you set a new `restartToken`.
-  Definition edits alone do not move pinned instances.
+  A restart preserves its accepted definition revision.
+  To upgrade, select the target `spec.revision` and set a new token.
 - **Workspace retention:** private PVCs are replaced with the Sandbox;
   external workspace PVCs retain their data.
+  An opt-in [persistent workspace preview](docs/usage.md#platform-managed-persistent-workspaces-preview)
+  also protects platform PVCs from ordinary parent deletion; recovery and automatic GC are unavailable.
 - **Expiry:** optional maximum lifetimes, shutdown deadlines and completion TTLs trigger execution cleanup.
   The shutdown policy controls whether to retain the AgentInstance.
 
 See [Lifecycle](docs/usage.md#lifecycle) for commands and retention settings.
+Existing Activity Lease users must [migrate their explicit intent](docs/activity-migration.md) before upgrading.
 
 ## Documentation
 
@@ -153,14 +156,14 @@ See [Lifecycle](docs/usage.md#lifecycle) for commands and retention settings.
 | --- | --- |
 | Install or upgrade the Operator | [Installation](docs/installation.md) |
 | Configure the Helm release | [Chart configuration](chart/README.md) |
-| Reuse configuration, pin revisions and retain workspaces | [Definitions and instances](docs/agent-definitions.md) |
+| Pin revisions and manage workspace lifecycles | [Lifecycle](docs/usage.md#lifecycle) |
 | Deploy, expose and operate agents | [Usage](docs/usage.md) |
 | Try credentials, storage and access configurations | [Examples](examples/README.md) |
 | Customize environments and pools | [Agent templates](docs/agent-templates.md) |
 | Inspect available cluster configuration | [Cluster capabilities](docs/cluster-capabilities.md) |
 | Understand resource ownership and reconciliation | [Architecture](docs/architecture.md) |
 | Build, test or package changes | [Development](docs/development.md) |
-| Understand CI and releases | [CI](docs/ci.md) |
+| Inspect CI and release workflows | [GitHub Workflows](.github/workflows) |
 | Enable optional backend integration | [Outbound Connector](docs/outbound-connector.md) |
 
 ## Project status

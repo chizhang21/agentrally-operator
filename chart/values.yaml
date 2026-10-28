@@ -46,6 +46,8 @@ metrics:
 # Optional outbound relay in the elected Operator process.
 connector:
   enabled: false
+  # Controlled invocation testing only; production support is not yet advertised.
+  invocationPreview: false
   endpoint: ""
   id: ""
   # Existing Secret with token and optional ca.crt; never place tokens in values.

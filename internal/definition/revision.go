@@ -99,7 +99,9 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	if err := unstructured.SetNestedField(template.Object, service, "spec", "service"); err != nil {
 		return nil, err
 	}
-	spec, err := json.Marshal(object.Spec)
+	published := object.Spec.DeepCopy()
+	published.Prewarming = nil
+	spec, err := json.Marshal(published)
 	if err != nil {
 		return nil, err
 	}
@@ -113,15 +115,17 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	result.SetLabels(map[string]string{UIDLabel: string(object.UID)})
 	result.SetAnnotations(map[string]string{SpecAnnotation: string(spec), RevisionAnnotation: id})
 	result.Object["spec"] = runtime.DeepCopyJSONValue(template.Object["spec"])
-	if err := ctrl.SetControllerReference(object, result, scheme); err != nil {
-		return nil, err
+	if !object.Status.StandaloneRevisions {
+		if err := ctrl.SetControllerReference(object, result, scheme); err != nil {
+			return nil, err
+		}
 	}
 	existing := sandbox.ExtensionObject("SandboxTemplate")
 	err = reader.Get(ctx, client.ObjectKeyFromObject(result), existing)
 	if apierrors.IsNotFound(err) {
 		err = c.Create(ctx, result)
 		if err == nil {
-			return &Revision{Spec: *object.Spec.DeepCopy(), Template: result, ID: id, DefinitionUID: object.UID}, nil
+			return &Revision{Spec: *published, Template: result, ID: id, DefinitionUID: object.UID}, nil
 		}
 		if !apierrors.IsAlreadyExists(err) {
 			return nil, err
@@ -131,14 +135,14 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	if err != nil {
 		return nil, err
 	}
-	if err := controller.CheckOwner(existing, object); err != nil {
+	if err := CheckPublicationOwner(existing, object); err != nil {
 		return nil, err
 	}
 	if existing.GetDeletionTimestamp() != nil || existing.GetAnnotations()[SpecAnnotation] != string(spec) || existing.GetAnnotations()[RevisionAnnotation] != id || !equality.Semantic.DeepEqual(existing.Object["spec"], result.Object["spec"]) {
 		return nil, diagnostics.New("DefinitionRevisionConflict", "A published configuration revision has been changed or is terminating", nil)
 	}
 	result = existing
-	return &Revision{Spec: *object.Spec.DeepCopy(), Template: result, ID: id, DefinitionUID: object.UID}, nil
+	return &Revision{Spec: *published, Template: result, ID: id, DefinitionUID: object.UID}, nil
 }
 
 func Read(ctx context.Context, reader client.Reader, object *v1.AgentDefinition, revision string) (*Revision, error) {
@@ -146,7 +150,16 @@ func Read(ctx context.Context, reader client.Reader, object *v1.AgentDefinition,
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: object.Namespace, Name: Name(object.UID, revision)}, template); err != nil {
 		return nil, diagnostics.ReferenceError("DefinitionRevision", object.Namespace, revision, err)
 	}
-	if err := controller.CheckOwner(template, object); err != nil {
+	return Verify(object, template, revision)
+}
+
+// Verify checks an immutable publication fetched by either a typed controller
+// reader or the Connector's direct dynamic client.
+func Verify(object *v1.AgentDefinition, template *unstructured.Unstructured, revision string) (*Revision, error) {
+	if template.GetNamespace() != object.Namespace || template.GetName() != Name(object.UID, revision) {
+		return nil, diagnostics.New("DefinitionRevisionConflict", "The published revision identity does not match", nil)
+	}
+	if err := CheckPublicationOwner(template, object); err != nil {
 		return nil, err
 	}
 	if template.GetDeletionTimestamp() != nil || template.GetAnnotations()[RevisionAnnotation] != revision {
@@ -178,4 +191,15 @@ func revisionID(spec json.RawMessage, native any) (string, error) {
 	}
 	sum := sha256.Sum256(input)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// CheckPublicationOwner uses the Definition's controller-written ownership mode.
+func CheckPublicationOwner(template *unstructured.Unstructured, object *v1.AgentDefinition) error {
+	if !object.Status.StandaloneRevisions {
+		return controller.CheckOwner(template, object)
+	}
+	if len(template.GetOwnerReferences()) != 0 || template.GetNamespace() != object.Namespace || template.GetLabels()[UIDLabel] != string(object.UID) {
+		return diagnostics.New("DefinitionRevisionConflict", "Standalone publication ownership does not match", nil)
+	}
+	return nil
 }

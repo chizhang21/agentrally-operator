@@ -6,9 +6,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -233,5 +235,42 @@ func TestConfigurationRequiresHTTPSIdentityAndCredential(t *testing.T) {
 		if _, err := NewClient(base, Executor{}); err == nil {
 			t.Fatal("invalid credential accepted")
 		}
+	}
+}
+
+func TestInvocationWorkerFailureStopsConnector(t *testing.T) {
+	var handshakes atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/requests"):
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasSuffix(req.URL.Path, "/sessions"):
+			var request struct {
+				Nonce string `json:"nonce"`
+			}
+			if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+				t.Error(err)
+				w.WriteHeader(400)
+				return
+			}
+			handshakes.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]string{"protocolVersion": InvocationVersion, "nonce": request.Nonce, "connectionEpoch": "reused-epoch"})
+		default:
+			// End the first session so a second handshake must reject epoch reuse.
+			w.WriteHeader(http.StatusConflict)
+		}
+	}))
+	defer server.Close()
+	config := testConfig(t)
+	config.Endpoint, config.InvocationPreview, config.InvocationPeer = server.URL, true, testInvocationPeer
+	connector, err := NewClient(config, Executor{Client: fakeKube()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connector.http = server.Client()
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
+	defer cancel()
+	if err := connector.Start(ctx); err == nil || ctx.Err() != nil || connector.Ready() || handshakes.Load() != 2 {
+		t.Fatalf("worker failure was hidden by management readiness: error=%v ready=%v handshakes=%d", err, connector.Ready(), handshakes.Load())
 	}
 }

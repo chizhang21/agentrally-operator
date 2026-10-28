@@ -37,7 +37,7 @@ Set `AgentInstance.spec.definitionRef.name` to that definition.
 Both resources must reference the same Group.
 
 Definitions publish immutable configuration; instances pin it at allocation.
-See [version selection and workspace lifetime](agent-definitions.md).
+See [version selection and workspace lifetime](#lifecycle).
 
 Use [full-definition.yaml](../examples/full-definition.yaml) and
 [full.yaml](../examples/full.yaml) as the configuration and instance field references,
@@ -100,7 +100,10 @@ Waiting instances report `AllocationPaused` without starting a new allocation bu
 Already submitted allocations may finish; existing agents can continue, suspend, resume
 or be deleted.
 Unpause the Group to allow new allocations.
-This does not suspend agents or stop prewarmed processes.
+This does not suspend allocated agents.
+For Definitions with an explicit prewarming policy, it also drains desired spare capacity
+to zero; upstream work already submitted can finish.
+Legacy pools without this policy retain their existing spare behavior.
 
 Restart cleanup can finish while paused; the replacement waits for unpause.
 
@@ -231,6 +234,58 @@ AgentRally carries the spec through the pool template; Core creates and owns the
 Pending WaitForFirstConsumer claims can bind after Core creates the Pod.
 See
 [workspace permissions and defaults](agent-templates.md#persistent-state-and-credentials).
+
+### Platform-managed persistent workspaces (preview)
+
+New Groups can enable `spec.persistentWorkspaces: true` at creation.
+This choice cannot change later and does not migrate an existing Group or its PVCs.
+
+An Instance in that Group can request its own persistent workspace:
+
+```yaml
+workspace:
+  mountPath: /workspace
+  persistence:
+    retentionSeconds: 86400
+  volumeClaimTemplate:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 1Gi
+```
+
+The Operator creates an `AgentWorkspace` record and one PVC.
+It pins their UIDs before permitting a consumer.
+The record, PVC, namespace and published revision are protected from ordinary
+Instance, Definition and Group deletion.
+Group policies and quotas remain with the namespace.
+
+Choose persistence when creating the Instance.
+Its workspace configuration is immutable.
+The initial PVC must be a new filesystem volume; existing PVCs, snapshots and
+pre-bound volumes are not accepted in this mode.
+Pending PVCs can proceed to scheduling with `WaitForFirstConsumer`.
+Persistent workspaces do not create warm spares.
+
+Suspension and resumption of the same Instance reuse its PVC.
+The first Definition revision remains pinned; upgrading that revision is currently
+unsupported (`PersistentRevisionPinned`).
+
+**Deletion recovery and automatic cleanup are not available in this preview.**
+`retentionSeconds` records the requested future policy; no retention countdown starts,
+and even zero does not trigger deletion.
+After the Instance is deleted, the record reports `ReleasePending`.
+Absence of a Pod does not prove that an old execution can no longer write.
+A recreated Instance cannot take over the retained data.
+
+Deleting the workspace record reports `DeletionBlocked` and preserves its finalizer.
+Group and Definition deletion remain blocked while any associated record exists.
+There is no supported purge command in this version.
+Use this preview only where retaining those resources indefinitely is acceptable.
+Direct administrator deletion of the namespace or forced removal of finalizers is
+outside this protection.
+
+### Externally managed workspaces
 
 For storage retained across execution upgrades, use an existing PVC on the instance:
 
@@ -370,7 +425,7 @@ Core removes and recreates the Pod.
 PVC data remains; process memory and emptyDir data do not.
 This is stop/start, not checkpoint/restore.
 
-After publishing a definition update or rotating credentials, set a new restart token:
+To replace execution using the same definition revision, set a new restart token:
 
 ```sh
 kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
@@ -380,9 +435,20 @@ kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
 Change the token for each restart; repeating it does nothing.
 Definition edits publish a new revision and leave pinned instances running on their old
 version.
-Restart adopts the latest publication unless `spec.revision` selects a specific hash.
-Changing that explicit revision or rotating environment credentials can report
+Restart preserves the accepted revision and its invocation protocol declaration.
+For instances without platform persistence, upgrade by setting `spec.revision` to the desired hash from the Definition's
+`status.currentRevision`, and change `restartToken` in the same update.
+Platform persistent workspaces currently reject revision upgrades; see the
+[persistent workspace preview](#platform-managed-persistent-workspaces-preview).
+Changing only the selected revision or rotating environment credentials can report
 RestartRequired until restart.
+
+An optional `AgentDefinition.spec.invocationProtocol: HTTPJSONSSEV1` declares an
+application protocol and becomes part of its immutable revision.
+It does not enable invocation transport.
+Controlled testing additionally requires the default-off [invocation preview](invocation-protocol.md) and a ConnectorOnly Group.
+The [Connector capability query](outbound-connector.md#management-capability-discovery)
+reports which operations this Operator actually supports.
 
 ConfigurationApplied checks the owned Pod's creation revision; it does not prove
 application hot reload.
@@ -392,12 +458,14 @@ contents.
 The pending-update condition describes creation evidence.
 
 AgentRally replaces execution through its owning SandboxClaim.
-**Private workspaces are replaced:** upstream garbage collection removes the old Sandbox
+**Default Sandbox-owned workspaces are replaced:** upstream garbage collection removes the old Sandbox
 and its PVCs.
-An external `existingClaimRef` workspace retains its files across replacement.
+An external `existingClaimRef` or platform persistent workspace retains its PVC across replacement.
 Suspend/resume and Pod recreation within the same Sandbox retain its PVCs.
 
-Delete AgentInstances, then AgentDefinitions, before the Group.
+For Groups without retained platform workspaces, delete AgentInstances, then
+AgentDefinitions, before the Group.
+Retained records block parent deletion; the persistent workspace preview has no purge path.
 Wait for execution cleanup, then inspect remaining Sandboxes and PVCs before moving or
 removing data:
 
@@ -418,18 +486,21 @@ The optional `lifecycle` block in [full.yaml](../examples/full.yaml) controls ex
 | Field | Behavior |
 | --- | --- |
 | `shutdownTime` | Absolute deadline, including time waiting for dependencies or allocation. Also applies to failed and suspended agents. |
-| `maxLifetimeSeconds` | Wall-clock execution limit from validated allocation, including suspension. Activity does not reset it. |
+| `maxLifetimeSeconds` | Wall-clock execution limit from validated allocation, including suspension. |
 | `ttlSecondsAfterFinished` | Starts when Core confirms that the current owned Pod completed naturally. Suspension does not start this TTL. |
 | `retainFailed` | True by default; false allows completion TTL to remove failed executions. |
 | `shutdownPolicy: Retain` | Removes execution and interaction resources, keeps the instance with `Expired=True`. |
 | `shutdownPolicy: Delete` | Deletes the instance through its finalizer. |
 
 The earliest applicable execution deadline wins.
-For optional activity-driven idle suspension and automatic wake-up, see [Activity](activity.md).
-Automatic wake-up keeps the accepted revision and does not replace execution.
+The Operator applies explicit `operatingMode` changes; it does not infer idleness from traffic or Leases.
+Observation-driven automatic suspension is currently unsupported.
+For upgrades from the old Activity Lease contract, follow the
+[migration procedure](activity-migration.md).
 
 Sandbox-owned workspace PVCs are removed with execution; externally supplied Secrets and
 externally managed workspace PVCs remain.
+Platform persistent workspaces also remain; their release, recovery and GC are unavailable.
 `Retain` preserves the AgentInstance and diagnostics; it does not retain Sandbox-owned
 private PVCs.
 
@@ -447,6 +518,10 @@ New managed pools default to zero spares.
 
 Configure `AgentGroup.spec.prewarming` for declarative spares and idle retention; omit
 it to preserve manual scaling.
+To prepare capacity before the first instance, also enable
+`AgentDefinition.spec.prewarming` on a safe stateless application with a readiness probe.
+Check the Definition's `Prepared` condition and `status.prewarming` counts separately
+from its publication `Ready` condition.
 See [pool policy](agent-templates.md#allocation-and-policy).
 
 The optional provisioning block selects a pool or changes the allocation budget:

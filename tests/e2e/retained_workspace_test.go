@@ -76,7 +76,7 @@ func TestRetainedWorkspaceUpgrade(t *testing.T) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(definition), definition)
 		return definition.Status.CurrentRevision != previousRevision && conditionTrue(definition.Status.Conditions, "Ready", definition.Generation), err
 	})
-	instance.Spec.RestartToken = "upgrade-v2"
+	instance.Spec.Revision, instance.Spec.RestartToken = definition.Status.CurrentRevision, "upgrade-v2"
 	update(t, ctx, kube, instance)
 	await(t, "retained assistant upgrade", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)

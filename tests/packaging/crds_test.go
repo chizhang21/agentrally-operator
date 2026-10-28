@@ -2,6 +2,7 @@ package packaging_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -18,9 +19,12 @@ func TestHelmManagesCRDs(t *testing.T) {
 			if mode == "upgrade" {
 				objects = renderObjects(t, "--is-upgrade")
 			}
-			for _, plural := range []string{"agentgroups", "agentdefinitions", "agentinstances", "clustercapabilities"} {
-				name := plural + ".arally.io"
-				data, exists := objects["CustomResourceDefinition/"+name]
+			for key, originalData := range installed {
+				if !strings.HasPrefix(key, "CustomResourceDefinition/") {
+					continue
+				}
+				name := strings.TrimPrefix(key, "CustomResourceDefinition/")
+				data, exists := objects[key]
 				if !exists {
 					t.Fatalf("%s omitted from Helm %s manifest", name, mode)
 				}
@@ -29,7 +33,7 @@ func TestHelmManagesCRDs(t *testing.T) {
 					t.Fatal(err)
 				}
 				var original apiextensionsv1.CustomResourceDefinition
-				if err := yaml.Unmarshal(installed["CustomResourceDefinition/"+name], &original); err != nil {
+				if err := yaml.Unmarshal(originalData, &original); err != nil {
 					t.Fatal(err)
 				}
 				if !reflect.DeepEqual(actual.Spec, original.Spec) {

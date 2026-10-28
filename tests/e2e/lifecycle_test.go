@@ -228,8 +228,8 @@ func TestOperatorLifecycle(t *testing.T) {
 	}
 	awaitDeleted(t, ctx, kube, blocked)
 
-	t.Log("Explicit restart applies the new configuration after upstream cleanup")
-	claim.Spec.RestartToken = "apply-v2"
+	t.Log("Explicit revision upgrade applies the new configuration after upstream cleanup")
+	claim.Spec.Revision, claim.Spec.RestartToken = definition.Status.CurrentRevision, "apply-v2"
 	update(t, ctx, kube, claim)
 	awaitReady()
 	current := sandbox.Object()

@@ -17,6 +17,14 @@ type lifecycleDecision struct {
 	Expired bool
 }
 
+// executionMode is explicit user intent. Health observations never change it.
+func executionMode(instance *v1.AgentInstance) string {
+	if instance.Spec.OperatingMode == "" {
+		return sandbox.Running
+	}
+	return instance.Spec.OperatingMode
+}
+
 // Only the current owned terminal Pod can establish a completion. Core can
 // briefly retain the old Pod's condition while suspension or resume progresses.
 func executionFinishedCondition(w *v1.AgentInstance, pod *corev1.Pod, finished *metav1.Condition) *metav1.Condition {

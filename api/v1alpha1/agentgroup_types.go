@@ -9,6 +9,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // HTTPRouteDefaults supplies shared ingress settings without owning the Gateway.
@@ -34,9 +35,10 @@ type InteractionDefaults struct {
 }
 
 // PrewarmingPolicy controls spare capacity for each resolved configuration.
-// Pools are discovered through instances; an unseen configuration starts cold.
+// Instances discover configurations on demand. Definitions can opt into proactive
+// preparation within this policy's per-pool cap and shared budget.
 type PrewarmingPolicy struct {
-	// Replicas is the desired number of unclaimed Sandboxes per managed pool.
+	// Replicas is the default spare count, and the per-pool cap for proactive Definitions.
 	// These run real applications and consume compute, storage and credentials.
 	// +kubebuilder:validation:Minimum=0
 	Replicas int32 `json:"replicas"`
@@ -71,8 +73,22 @@ type ExecutionPolicy struct {
 	RequireImageDigest bool `json:"requireImageDigest,omitempty"`
 }
 
+type InvocationAccess struct {
+	// ConnectorOnly configures ingress for the Operator's Connector. Actual CNI
+	// enforcement must be verified separately; discovery is not enforcement.
+	// +kubebuilder:validation:Enum=Disabled;ConnectorOnly
+	// +kubebuilder:default=Disabled
+	Mode string `json:"mode"`
+}
+
 // +kubebuilder:validation:XValidation:rule="has(self.namespace) == has(oldSelf.namespace)",message="namespace cannot be added or removed after creation"
+// +kubebuilder:validation:XValidation:rule="!has(self.invocationAccess) || self.invocationAccess.mode != 'ConnectorOnly' || !has(self.networkPolicy) || ((!has(self.networkPolicy.ingress) || size(self.networkPolicy.ingress) == 0) && (!has(self.networkPolicy.podSelector.matchLabels) || size(self.networkPolicy.podSelector.matchLabels) == 0) && (!has(self.networkPolicy.podSelector.matchExpressions) || size(self.networkPolicy.podSelector.matchExpressions) == 0))",message="ConnectorOnly requires an empty podSelector and no explicit ingress rules"
 type AgentGroupSpec struct {
+	// PersistentWorkspaces enables standalone namespace and revision ownership for new Groups.
+	// +kubebuilder:default=false
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="persistentWorkspaces cannot change after creation"
+	// +optional
+	PersistentWorkspaces bool `json:"persistentWorkspaces,omitempty"`
 	// Namespace optionally names the dedicated namespace and must start with agentrally-.
 	// Omitted names are derived from the group name. Unrelated namespaces are never adopted.
 	// +kubebuilder:validation:MinLength=1
@@ -107,6 +123,9 @@ type AgentGroupSpec struct {
 	// NetworkPolicy expresses namespace/group policy, not runtime policy.
 	// +optional
 	NetworkPolicy *networkingv1.NetworkPolicySpec `json:"networkPolicy,omitempty"`
+	// InvocationAccess optionally restricts ingress for Connector-managed calls.
+	// +optional
+	InvocationAccess *InvocationAccess `json:"invocationAccess,omitempty"`
 	// InteractionDefaults supplies optional Group-wide ingress defaults.
 	// +optional
 	InteractionDefaults *InteractionDefaults `json:"interactionDefaults,omitempty"`
@@ -133,6 +152,9 @@ func (g *AgentGroup) NamespaceName() string {
 }
 
 type AgentGroupStatus struct {
+	// NamespaceUID pins the standalone namespace before persistent allocation is allowed.
+	// +optional
+	NamespaceUID types.UID `json:"namespaceUID,omitempty"`
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
 	v1 "agentrally/operator/api/v1alpha1"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
@@ -37,6 +39,7 @@ var capabilityGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1
 
 func fakeKube(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		policyResource: "NetworkPolicyList", endpointResource: "EndpointSliceList",
 		groupGVR: "AgentGroupList", definitionGVR: "AgentDefinitionList", workloadGVR: "AgentInstanceList", capabilityGVR: "ClusterCapabilitiesList",
 	}, objects...)
 }
@@ -133,11 +136,14 @@ func TestNativeWorkloadOperationsPreserveSpecAndUsePreconditions(t *testing.T) {
 	}
 }
 
-func TestNativeAPIErrorsSurviveRelay(t *testing.T) {
+func TestNativeAPIErrorClassificationSurvivesWithoutReflectedValues(t *testing.T) {
 	for _, apiErr := range []error{
 		apierrors.NewConflict(groupGVR.GroupResource(), "demo", errors.New("resourceVersion mismatch")),
 		apierrors.NewForbidden(groupGVR.GroupResource(), "demo", errors.New("denied")),
 		apierrors.NewResourceExpired("continue token expired"),
+		apierrors.NewInvalid(schema.GroupKind{Group: "arally.io", Kind: "AgentGroup"}, "demo", field.ErrorList{
+			field.Invalid(field.NewPath("spec", "value"), "sensitive-marker", "rejected sensitive-marker"),
+		}),
 	} {
 		kube := fakeKube()
 		kube.PrependReactor("*", "*", func(ktesting.Action) (bool, runtime.Object, error) { return true, nil, apiErr })
@@ -147,8 +153,8 @@ func TestNativeAPIErrorsSurviveRelay(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := apiErr.(apierrors.APIStatus).Status()
-		if response.ID != "read" || response.Status != int(want.Code) || status.Reason != want.Reason || status.Message != want.Message || status.Kind != "Status" {
-			t.Fatal("native API error lost")
+		if response.ID != "read" || response.Status != int(want.Code) || status.Reason != want.Reason || status.Message == "" || status.Kind != "Status" || status.Details != nil || strings.Contains(string(response.Body), "sensitive-marker") {
+			t.Fatal("native API error classification lost or submitted values reflected")
 		}
 	}
 }

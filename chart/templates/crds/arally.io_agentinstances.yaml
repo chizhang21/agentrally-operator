@@ -151,33 +151,10 @@ spec:
                 description: AgentInstanceLifecycle controls execution cleanup, including
                   Sandbox-owned PVCs.
                 properties:
-                  activityLeaseRef:
-                    description: |-
-                      ActivityLeaseRef supplies the optional activity signal, fenced to this
-                      Instance UID and its current Sandbox UID.
-                    properties:
-                      name:
-                        description: Name identifies a caller-managed activity Lease
-                          in the instance namespace.
-                        maxLength: 253
-                        minLength: 1
-                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                        type: string
-                    required:
-                    - name
-                    type: object
-                  idleTimeoutSeconds:
-                    description: |-
-                      IdleTimeoutSeconds suspends execution after trusted idle activity.
-                      Missing, stale or invalid signals do not cause automatic suspension.
-                    format: int32
-                    maximum: 2147483647
-                    minimum: 1
-                    type: integer
                   maxLifetimeSeconds:
                     description: |-
                       MaxLifetimeSeconds bounds wall-clock execution lifetime from validated
-                      allocation, including suspension. Activity and Pod recreation do not reset it.
+                      allocation, including suspension. Pod recreation does not reset it.
                     format: int32
                     maximum: 2147483647
                     minimum: 1
@@ -209,10 +186,6 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
-                x-kubernetes-validations:
-                - message: idleTimeoutSeconds and activityLeaseRef must be configured
-                    together
-                  rule: has(self.idleTimeoutSeconds) == has(self.activityLeaseRef)
               operatingMode:
                 default: Running
                 enum:
@@ -260,7 +233,7 @@ spec:
               revision:
                 description: |-
                   Revision optionally selects a published definition revision. Omitted pins
-                  the latest revision on first allocation and on explicit execution replacement.
+                  the latest revision on first allocation and preserves it across restarts.
                 pattern: ^[a-f0-9]{64}$
                 type: string
               workspace:
@@ -286,12 +259,24 @@ spec:
                   mountPath:
                     minLength: 1
                     type: string
+                  persistence:
+                    description: Persistence retains platform data independently of
+                      execution. Recovery and GC are unavailable.
+                    properties:
+                      retentionSeconds:
+                        format: int64
+                        maximum: 31536000
+                        minimum: 0
+                        type: integer
+                    required:
+                    - retentionSeconds
+                    type: object
                   readOnly:
                     type: boolean
                   volumeClaimTemplate:
                     description: |-
-                      VolumeClaimTemplate provisions a private PVC for each Sandbox, including
-                      warm instances. Core owns the PVC for the lifetime of that Sandbox.
+                      VolumeClaimTemplate normally provisions a Core-owned PVC per Sandbox.
+                      With Persistence, the Operator provisions one independently retained PVC.
                     properties:
                       accessModes:
                         description: |-
@@ -492,6 +477,8 @@ spec:
                   rule: has(self.volumeClaimTemplate) != has(self.existingClaimRef)
                 - message: exclusive requires existingClaimRef
                   rule: '!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)'
+                - message: persistence requires volumeClaimTemplate
+                  rule: '!has(self.persistence) || has(self.volumeClaimTemplate)'
             required:
             - agentGroupRef
             - definitionRef
@@ -500,28 +487,14 @@ spec:
             - message: warmPoolRef cannot be added or removed after creation
               rule: (has(self.provisioning) && has(self.provisioning.warmPoolRef))
                 == (has(oldSelf.provisioning) && has(oldSelf.provisioning.warmPoolRef))
+            - message: persistent workspace mode must be chosen at creation
+              rule: (has(self.workspace) && has(self.workspace.persistence)) == (has(oldSelf.workspace)
+                && has(oldSelf.workspace.persistence))
+            - message: persistent workspace configuration is immutable
+              rule: '!(has(oldSelf.workspace) && has(oldSelf.workspace.persistence))
+                || (has(self.workspace) && self.workspace == oldSelf.workspace)'
           status:
             properties:
-              activity:
-                description: Activity observes the optional caller-provided activity
-                  contract.
-                properties:
-                  idleDeadline:
-                    format: date-time
-                    type: string
-                  lastActivityAt:
-                    format: date-time
-                    type: string
-                  suspended:
-                    description: Suspended records automatic idle suspension; explicit
-                      operatingMode still wins.
-                    type: boolean
-                  validUntil:
-                    description: ValidUntil is the activity heartbeat's freshness
-                      deadline.
-                    format: date-time
-                    type: string
-                type: object
               appliedRevision:
                 description: AppliedRevision is populated only after observing the
                   owned execution Pod.
@@ -592,6 +565,13 @@ spec:
                 description: Definition pins the published configuration independently
                   of later updates.
                 properties:
+                  agentContainer:
+                    description: |-
+                      AgentContainer is the actual container name resolved from this revision.
+                      Missing on older bindings until the controller verifies that revision.
+                    type: string
+                  invocationProtocol:
+                    type: string
                   name:
                     type: string
                   revision:
@@ -730,8 +710,8 @@ spec:
               sandboxName:
                 type: string
               sandboxUID:
-                description: SandboxUID identifies the current execution for fencing
-                  caller activity.
+                description: SandboxUID identifies the assigned native Sandbox, not
+                  a process lifetime.
                 type: string
               serviceFQDN:
                 type: string
@@ -775,6 +755,14 @@ spec:
                   claimName:
                     type: string
                   uid:
+                    description: |-
+                      UID is a type that holds unique ID values, including UUIDs.  Because we
+                      don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                      intent and helps make sure that UIDs and names do not get conflated.
+                    type: string
+                  workspaceName:
+                    type: string
+                  workspaceUID:
                     description: |-
                       UID is a type that holds unique ID values, including UUIDs.  Because we
                       don't ONLY use UUIDs, this is an alias to string.  Being a type captures

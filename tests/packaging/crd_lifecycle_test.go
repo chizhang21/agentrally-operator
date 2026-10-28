@@ -296,7 +296,11 @@ func verifySchemaUpgrade(t *testing.T, k8s client.Client, kubeconfig, chart stri
 
 func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart string) {
 	t.Helper()
-	for _, name := range []string{"agentgroups.arally.io", "agentdefinitions.arally.io", "agentinstances.arally.io", "clustercapabilities.arally.io"} {
+	for key := range renderChartObjects(t, chart) {
+		if !strings.HasPrefix(key, "CustomResourceDefinition/") {
+			continue
+		}
+		name := strings.TrimPrefix(key, "CustomResourceDefinition/")
 		retained := &apiextensionsv1.CustomResourceDefinition{}
 		if err := k8s.Get(context.Background(), client.ObjectKey{Name: name}, retained); err != nil {
 			t.Fatal(err)
@@ -326,12 +330,12 @@ func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart str
 		t.Fatal(err)
 	}
 	objects := renderChartObjects(t, legacy)
-	for _, plural := range []string{"agentgroups", "agentdefinitions", "agentinstances", "clustercapabilities"} {
-		data, exists := objects["CustomResourceDefinition/"+plural+".arally.io"]
-		if !exists {
-			t.Fatalf("legacy chart fixture omitted %s CRD", plural)
+	for key, data := range objects {
+		if !strings.HasPrefix(key, "CustomResourceDefinition/") {
+			continue
 		}
-		name := "arally.io_" + plural + ".yaml"
+		plural := strings.TrimSuffix(strings.TrimPrefix(key, "CustomResourceDefinition/"), "."+v1.GroupVersion.Group)
+		name := v1.GroupVersion.Group + "_" + plural + ".yaml"
 		if err := os.WriteFile(filepath.Join(legacy, "crds", name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

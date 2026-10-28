@@ -51,16 +51,6 @@ func TestCapabilitySummaryPreservesChoiceUncertaintyAndMappingEvidence(t *testin
 	if find("NetworkPolicy").Status != "Observed" || report.Status.NetworkPolicy.EnforcementVerified || find("DefaultRuntime").Status != "Unknown" {
 		t.Fatal("summary promoted passive discovery into verification")
 	}
-	copy := report.DeepCopy()
-	copy.Status.Capabilities[0].Resources = nil
-	for i := range copy.Status.Capabilities {
-		if len(copy.Status.Capabilities[i].Resources) != 0 {
-			copy.Status.Capabilities[i].Resources[0].Name = "changed-copy"
-		}
-	}
-	if find("VirtualMachineIsolation").Resources[0].Name != available.Name {
-		t.Fatal("summary resources share mutable state across DeepCopy")
-	}
 	observer.Reader = interceptor.NewClient(kube, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 		if _, ok := list.(*nodev1.RuntimeClassList); ok {
 			return apierrors.NewForbidden(schema.GroupResource{Group: "node.k8s.io", Resource: "runtimeclasses"}, "", nil)

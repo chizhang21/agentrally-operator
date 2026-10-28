@@ -44,9 +44,6 @@ func (r *Reconciler) blockedStatus(ctx context.Context, workload *v1.AgentInstan
 
 func (r *Reconciler) blockedStatusWithValidation(ctx context.Context, workload *v1.AgentInstance, reason, message string, validation *metav1.Condition) error {
 	base := workload.DeepCopy()
-	for _, kind := range []string{controller.ConditionPodScheduled, controller.ConditionFinished, controller.ConditionSuspended} {
-		meta.RemoveStatusCondition(&workload.Status.Conditions, kind)
-	}
 	if validation != nil {
 		meta.SetStatusCondition(&workload.Status.Conditions, *validation)
 	} else {
@@ -55,7 +52,11 @@ func (r *Reconciler) blockedStatusWithValidation(ctx context.Context, workload *
 	workload.Status.ObservedGeneration = workload.Generation
 	workload.Status.ServiceName, workload.Status.ServiceFQDN = "", ""
 	workload.Status.Interaction = nil
-	r.observeBlockedExecution(ctx, workload)
+	if !r.observeBlockedExecution(ctx, workload) {
+		for _, kind := range []string{controller.ConditionPodScheduled, controller.ConditionFinished, controller.ConditionSuspended} {
+			meta.RemoveStatusCondition(&workload.Status.Conditions, kind)
+		}
+	}
 	setInstanceCondition(workload, controller.ConditionConfigurationApplied, metav1.ConditionUnknown, "WorkloadBlocked", "Desired execution configuration cannot currently be verified")
 	if hasInteraction(workload) {
 		setInstanceCondition(workload, controller.ConditionInteractionReady, metav1.ConditionFalse, "WorkloadBlocked", message)
@@ -208,18 +209,18 @@ func (r *Reconciler) executionAvailableStatus(ctx context.Context, workload *v1.
 
 // A blocked desired configuration does not erase health observations of an
 // existing execution. Observe through the same UID checks used by normal status.
-func (r *Reconciler) observeBlockedExecution(ctx context.Context, workload *v1.AgentInstance) {
+func (r *Reconciler) observeBlockedExecution(ctx context.Context, workload *v1.AgentInstance) bool {
 	object, err := r.existingExecution(ctx, workload)
 	if err != nil {
 		setInstanceCondition(workload, controller.ConditionAvailable, metav1.ConditionUnknown,
 			"ExecutionObservationBlocked", "Cannot verify a current owned execution")
-		return
+		return false
 	}
 	current, err := sandbox.Decode(object)
 	if err != nil {
 		setInstanceCondition(workload, controller.ConditionAvailable, metav1.ConditionUnknown,
 			"ExecutionObservationBlocked", "Cannot decode the current owned execution")
-		return
+		return false
 	}
 	pod, podErr := r.executionPod(ctx, object)
 	mirrorCoreConditions(workload, current, object.GetGeneration(), pod, podErr)
@@ -229,6 +230,7 @@ func (r *Reconciler) observeBlockedExecution(ctx context.Context, workload *v1.A
 		workload.Status.PodName, workload.Status.PodUID = pod.Name, string(pod.UID)
 	}
 	r.observeTimings(workload, previousPodUID, pod)
+	return true
 }
 
 // Ready describes convergence of the current declaration. Availability and route

@@ -154,8 +154,8 @@ func verifyPackagedResources(t *testing.T, archive, image string) {
 			crds++
 		}
 	}
-	if crds != 4 {
-		t.Fatalf("chart archive has %d CRDs, want 4", crds)
+	if crds != 5 {
+		t.Fatalf("chart archive has %d CRDs, want 5", crds)
 	}
 	if _, ok := objects["ClusterCapabilities/cluster"]; ok {
 		t.Fatal("report bootstrap must wait for CRD registration in the controller")
@@ -177,7 +177,7 @@ func verifyPackagedResources(t *testing.T, archive, image string) {
 func TestChartBuildPreservesSourceConfiguration(t *testing.T) {
 	stage, _ := packageStage(t)
 	before := sourceSnapshot(t, stage)
-	for _, image := range []string{"registry.example.com/agentrally-operator:custom", "registry.example.com/agentrally-operator@sha256:" + strings.Repeat("a", 64)} {
+	for _, image := range []string{"registry.example.com/agentrally-operator:custom", "registry.example.com:5000/agentrally-operator@sha256:" + strings.Repeat("a", 64)} {
 		command := exec.Command("bash", "hack/package-chart.sh", image, filepath.Join(stage, "dist"))
 		command.Dir = stage
 		command.Env = append(os.Environ(), "VERSION=1.2.3")

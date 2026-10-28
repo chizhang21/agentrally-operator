@@ -5,15 +5,20 @@ Users declare an image, configuration and lifecycle; the Operator prepares the g
 namespace and policies, requests execution, and reports the observed state.
 The agent application implements its own conversations, model calls, tools and API.
 
+Open the [interactive architecture explorer](architecture-explorer/index.html) to inspect
+components, follow lifecycle steps and compare workspace ownership.
+The standalone page works offline without a build step.
+
 ## Responsibilities
 
-AgentRally exposes four resources in `arally.io/v1alpha1`:
+AgentRally exposes five resources in `arally.io/v1alpha1`:
 
 | Resource | Scope | Responsibility |
 | --- | --- | --- |
 | AgentGroup | Cluster | Dedicated Namespace, Pod Security, quota, LimitRange, NetworkPolicy and allocation/prewarming policy |
-| AgentDefinition | Namespace | Reusable configuration and immutable published revisions, without allocated execution |
+| AgentDefinition | Namespace | Reusable configuration, immutable application revisions and optional proactive spare capacity |
 | AgentInstance | Namespace | Logical identity, pinned definition revision, workspace binding, lifecycle and optional HTTP access |
+| AgentWorkspace | Cluster | Operator-managed initial persistent binding, pinned storage identity and release observation |
 | ClusterCapabilities | Cluster | Runtime, storage and network configuration evidence used by deployment checks |
 
 AgentInstance execution requires agent-sandbox Core and Extensions.
@@ -44,11 +49,14 @@ execution must start from scratch:
 
 ```mermaid
 flowchart LR
-    D["AgentDefinition"] --> V["Published revision: no execution"]
+    D["AgentDefinition"] --> V["Published application revision"]
     V --> AC["AgentInstance pins revision"]
     AC --> R["AgentRally: resolve and validate"]
     R --> P["Effective SandboxTemplate and pool"]
     P --> CL["AgentRally: create SandboxClaim"]
+    V -->|"Explicit safe prewarming policy"| P
+    P -->|"Group grants spare budget"| W["Extensions prepares unassigned Sandboxes"]
+    W -->|"Matching Claim adopts"| S
     CL -->|"Extensions allocates"| S["Sandbox"]
     S -->|"Core reconciles"| X["Pod and declared PVCs"]
 ```
@@ -85,7 +93,15 @@ New managed pools default to zero spares.
 A Group prewarming policy controls the spare count per discovered configuration and
 retains unused capacity for its declared idle TTL.
 Omitted policy preserves manual scaling and immediate cleanup.
-An unseen configuration starts cold.
+An unseen configuration starts cold unless its Definition explicitly prepares matching
+capacity before the first Instance.
+Proactive preparation requires a safe stateless application with an Agent readiness probe.
+It shares the same configuration identity, native pool and Group budget as allocation.
+The Definition reports publication `Ready` separately from capacity `Prepared`.
+Revision changes and dependency rotation retire old proactive spares while preserving
+already allocated executions.
+Workspace overrides remain cold; retained PVC handoff and deletion recovery are not
+enabled by prewarming.
 A spare starts the real application with its configured credentials and consumes compute
 and storage before allocation.
 See [pool policy](agent-templates.md#allocation-and-policy) for configuration.
@@ -104,8 +120,11 @@ observations.
 
 | Resource | Reconciled by | Controller owner |
 | --- | --- | --- |
-| Group Namespace, quota, LimitRange and NetworkPolicy | AgentRally | AgentGroup |
-| Published revision SandboxTemplates | AgentRally | AgentDefinition |
+| Group Namespace, quota, LimitRange and NetworkPolicy (default mode) | AgentRally | AgentGroup |
+| Persistent Group namespace and published revisions | AgentRally | None; pinned by Group and workspace UIDs |
+| Persistent Group quota, LimitRange and NetworkPolicy | AgentRally | Namespace |
+| AgentWorkspace and its PVC | AgentRally | None after initial identity pinning |
+| Published revision SandboxTemplates (default mode) | AgentRally | AgentDefinition |
 | Resolved allocation SandboxTemplates and SandboxWarmPools | AgentRally | AgentGroup |
 | Allocation SandboxClaim, interaction Service and route | AgentRally | AgentInstance |
 | Unassigned warm Sandbox | Extensions | SandboxWarmPool |
@@ -116,7 +135,7 @@ AgentGroup creates an `agentrally-` namespace and rejects an unrelated existing 
 instances must use their Group's namespace.
 Source templates, external pools and referenced credentials remain user-managed.
 
-The Group prunes generated pools with no active AgentInstance or native SandboxClaim
+The Group prunes generated pools with no active Definition preparation, AgentInstance or native SandboxClaim
 references after any configured idle TTL.
 Group deletion bypasses the delay.
 
@@ -132,8 +151,25 @@ Group deletion waits for AgentDefinitions, AgentInstances, allocation Claims, Sa
 removed before deleting the namespace.
 
 AgentRally patches `operatingMode` on assigned Sandboxes and observes their Pods and PVCs.
-Its RBAC grants Sandbox patch access without field-level restrictions; Pod and PVC
-access is read-only.
+Its RBAC grants Sandbox patch access without field-level restrictions.
+Pod access is read-only.
+Persistent workspace provisioning also requires PVC create and patch access.
+PVC delete permission satisfies Kubernetes owner-reference admission during detachment;
+there is no automatic PVC deletion path in the workspace controller.
+
+New Groups may opt into persistent workspaces at creation.
+The Group pins its namespace UID before removing the temporary Group owner.
+Definitions publish standalone revisions in that mode.
+The Instance pins its first revision and workspace UID before provisioning a PVC.
+The workspace then pins the PVC UID before removing its temporary owner.
+No consumer is allowed before those steps complete.
+
+Workspace records block Group and Definition cleanup.
+They preserve the original binding after Instance deletion and report `ReleasePending`.
+Instance and PVC events update workspace observations without periodic API reads.
+Neither retention timers nor recovery/GC transitions run without verified release.
+This preview does not migrate existing ownership or implement a purge operation.
+See [persistent workspace limits](usage.md#platform-managed-persistent-workspaces-preview).
 
 ## Lifecycle and workspace
 
@@ -145,7 +181,7 @@ Suspend/resume preserves the workspace within an execution.
 Private PVCs are replaced with execution; an external `workspace.existingClaimRef` keeps
 the same recorded PVC UID.
 The Operator never adopts or deletes that PVC.
-See [definitions and instances](agent-definitions.md).
+See [instance lifecycle](usage.md#lifecycle).
 
 | Change | Execution behavior | Private workspace |
 | --- | --- | --- |
@@ -158,11 +194,17 @@ See [definitions and instances](agent-definitions.md).
 
 Resume restores access to retained files; it does not restore process memory.
 
-Optional activity-driven idle suspension uses a caller-maintained Lease fenced to the Instance and Sandbox UIDs.
-It leaves user intent unchanged and resumes the same accepted revision on fresh activity.
+Explicit `spec.operatingMode` controls suspension and resumption.
+The Operator does not consume activity signals or decide when an application is idle.
 Manual suspension takes precedence.
-Maximum execution lifetime counts from allocation and is independent of activity.
-See [Activity](activity.md) for the signal contract.
+Maximum execution lifetime counts from allocation, including suspended time.
+Existing Activity Lease users must [migrate before upgrading](activity-migration.md).
+
+Ordinary execution replacement preserves the accepted Definition revision.
+Selecting another `spec.revision` and changing `restartToken` explicitly upgrades it.
+The [Connector](outbound-connector.md) reports current container identity separately
+from stable instance identity.
+Its lifecycle observations are not proof that a process on an unreachable node has stopped.
 
 Optional exclusive external workspaces use separate Instance-owned coordination Leases.
 The reservation survives execution replacement, and deletion releases it only after execution cleanup.
@@ -184,7 +226,7 @@ Expiry with `shutdownPolicy: Retain` keeps the AgentInstance and diagnostics, wh
 removing execution and its private workspace.
 Data that must outlive Sandbox replacement needs storage managed independently of that
 execution.
-Instances can bind [external PVCs](agent-definitions.md#workspace-lifetime), whose
+Instances can bind [external PVCs](agent-templates.md#persistent-state-and-credentials), whose
 access and sharing constraints still apply.
 Operating commands and expiry settings are in [lifecycle](usage.md#lifecycle).
 
@@ -241,7 +283,7 @@ snapshot specs and external pool settings remain unchanged.
 | Give each Group a dedicated namespace | Apply namespace policy and quota consistently | Requires cluster permissions; Group deletion waits for resources to be removed |
 | Use one pool allocation path | Cold and warm instances share validation and lifecycle handling | Requires template snapshots, pool selection and unused-capacity cleanup |
 | Publish immutable definition revisions | Reuse configuration across instances and keep existing instances pinned | Published history remains until definition deletion |
-| Snapshot execution configuration and require explicit replacement | Keep a running execution stable while desired settings change | Pod configuration updates wait for `restartToken`; replacement also replaces its private workspace |
+| Snapshot execution configuration and require explicit replacement | Keep a running execution stable while desired settings change | New Definition versions require a selected `revision` and new `restartToken`; replacement also replaces its private workspace |
 | Bind external workspace PVCs by UID | Retain assistant files across upgrades without changing PVC ownership | Administrators provision and retire storage; existing-workspace spares stay at zero |
 | Provision a private PVC per Sandbox | Prepare independent storage before warm allocation | Spares consume disks; workspace lifetime ends with the execution |
 | Default to zero spares | Let users decide when application startup and idle resource use are acceptable | Prewarming must be enabled explicitly |
@@ -311,7 +353,8 @@ For operational interpretation, see
 
 `connector.enabled` starts an outbound Connector worker in the elected Operator process.
 The chart conditionally supplies its credentials and additional CR write permissions.
-It relays requests for the four AgentRally CRs for future Orchestrator integration.
+It relays requests for AgentGroup, AgentDefinition, AgentInstance and ClusterCapabilities.
+AgentWorkspace is managed by the Operator and is not a Connector management resource.
 Protocol details are in [Outbound Connector](outbound-connector.md).
 
 Installation, operating commands and build workflows are covered separately in

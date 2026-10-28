@@ -5,8 +5,8 @@ The Kubernetes API group remains `arally.io`.
 
 Run commands from the repository root.
 
-Installation instructions are in [Installation](installation.md); GitHub workflows and
-published artifacts are described in [CI and publication](ci.md).
+Installation instructions are in [Installation](installation.md).
+Build and publication jobs are defined in [GitHub Workflows](../.github/workflows).
 
 ## Local development
 
@@ -131,7 +131,7 @@ available in `KUBEBUILDER_ASSETS`, run:
 go test -tags=integration ./cmd ./tests/packaging -count=1 -timeout=180s
 ```
 
-It checks first installation and upgrades of all four AgentRally CRDs, retained
+It checks first installation and upgrades of all five AgentRally CRDs, retained
 CRDs/resources on uninstall, adoption of existing CRDs, default report creation, and
 Group LimitRange convergence after native API defaulting and policy edits.
 
@@ -233,8 +233,9 @@ AGENTRALLY_EXAMPLES_DIR=/path/to/agentrally-examples/operator \
 go test ./tests/packaging -run 'AdmissionAndPruning|ReferencesResolveWithinTheSameGroup'
 ```
 
-Runtime policy tests reject missing RuntimeClasses before allocation, accept a digest-pinned image, and exercise activity-driven suspension and wake-up.
-They check retained files, version binding, explicit suspension and maximum lifetime cleanup.
+Runtime policy tests reject missing RuntimeClasses before allocation and accept a digest-pinned image.
+They exercise explicit suspension and resumption, retained files, version binding and maximum lifetime cleanup.
+Legacy activity signals must not override explicit intent.
 Group capacity tests verify a total managed-spare budget across multiple configurations.
 The retained-workspace test also rejects a competing Instance.
 
@@ -315,3 +316,24 @@ Runtime-specific lifecycle evidence requires the optional runtime profile.
 No profile establishes arbitrary CSI, Gateway routing or cluster-wide NetworkPolicy compatibility.
 Passive discovery remains configuration evidence and keeps `enforcementVerified=false`
 after these tests.
+
+### Persistent workspace foundation
+
+`TestPersistentWorkspaceFoundation` uses the Chart's actual Operator ServiceAccount.
+It writes data once to a dynamically provisioned PVC, then verifies suspension, resumption
+and same-revision execution replacement without rewriting the marker.
+It then deletes the Instance and parents, checking foreground and background propagation.
+The namespace, original revision, PVC identity, quota, LimitRange and NetworkPolicy must survive.
+Deleting the workspace record must remain blocked.
+
+```bash
+E2E_TEST='^TestPersistentWorkspaceFoundation$' make e2e
+```
+
+The disposable cluster removes these intentionally retained resources when the test ends.
+This checks Kubernetes GC and local-path storage.
+It does not establish old-writer fencing, deletion recovery, automatic GC, Kata or production CSI behavior.
+
+`TestPersistentNamespaceBootstrapDeletion` pauses only the disposable Operator deployment.
+It creates Groups interrupted before namespace UID pinning and before owner detachment,
+requests background deletion, then restarts the Operator and verifies cleanup completes.

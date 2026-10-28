@@ -75,12 +75,12 @@ func (r *Reconciler) reconcileRestart(ctx context.Context, w *v1.AgentInstance) 
 	w.Status.Lifecycle = nil
 	w.Status.Provisioning = nil
 	w.Status.Timings = nil
-	if w.Status.Definition != nil {
+	if w.Status.Definition != nil && w.Spec.Revision != "" && w.Spec.Revision != w.Status.Definition.Revision {
 		w.Status.Definition.Revision, w.Status.Definition.TemplateName = "", ""
+		w.Status.Definition.AgentContainer, w.Status.Definition.InvocationProtocol = "", ""
 	}
 	w.Status.SandboxName = ""
 	w.Status.SandboxUID = ""
-	w.Status.Activity = nil
 	w.Status.VolumeClaims = nil
 	w.Status.ServiceName = ""
 	w.Status.ServiceFQDN = ""
@@ -93,7 +93,6 @@ func (r *Reconciler) reconcileRestart(ctx context.Context, w *v1.AgentInstance) 
 		controller.ConditionProvisioningReady, controller.ConditionPodScheduled, controller.ConditionFinished,
 		controller.ConditionSuspended, controller.ConditionExpired, controller.ConditionInteractionReady,
 		controller.ConditionCleanupReady,
-		controller.ConditionActivityReady,
 	} {
 		meta.RemoveStatusCondition(&w.Status.Conditions, kind)
 	}

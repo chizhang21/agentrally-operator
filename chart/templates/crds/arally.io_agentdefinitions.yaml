@@ -34,6 +34,9 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
+    - jsonPath: .status.conditions[?(@.type=='Prepared')].status
+      name: Prepared
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -937,6 +940,13 @@ spec:
                 required:
                 - image
                 type: object
+              invocationProtocol:
+                description: |-
+                  InvocationProtocol declares the application's HTTP contract. It does not
+                  enable transport or establish application readiness.
+                enum:
+                - HTTPJSONSSEV1
+                type: string
               modelProvider:
                 properties:
                   apiKeySecretRef:
@@ -974,6 +984,23 @@ spec:
                 - apiKeySecretRef
                 - baseURL
                 - model
+                type: object
+              prewarming:
+                description: |-
+                  Prewarming requests capacity before any Instance exists. Enabling it asserts
+                  that this application can safely run without instance identity or data.
+                  Group prewarming supplies the per-pool cap and optional shared budget.
+                  This policy is excluded from immutable application revisions.
+                properties:
+                  replicas:
+                    description: |-
+                      Replicas is the requested number of ready, unassigned Sandboxes. Zero disables
+                      proactive preparation; only probe-checked, stateless applications are eligible.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                required:
+                - replicas
                 type: object
               security:
                 description: |-
@@ -1051,12 +1078,24 @@ spec:
                   mountPath:
                     minLength: 1
                     type: string
+                  persistence:
+                    description: Persistence retains platform data independently of
+                      execution. Recovery and GC are unavailable.
+                    properties:
+                      retentionSeconds:
+                        format: int64
+                        maximum: 31536000
+                        minimum: 0
+                        type: integer
+                    required:
+                    - retentionSeconds
+                    type: object
                   readOnly:
                     type: boolean
                   volumeClaimTemplate:
                     description: |-
-                      VolumeClaimTemplate provisions a private PVC for each Sandbox, including
-                      warm instances. Core owns the PVC for the lifetime of that Sandbox.
+                      VolumeClaimTemplate normally provisions a Core-owned PVC per Sandbox.
+                      With Persistence, the Operator provisions one independently retained PVC.
                     properties:
                       accessModes:
                         description: |-
@@ -1255,11 +1294,13 @@ spec:
                 x-kubernetes-validations:
                 - message: existing workspaces belong to AgentInstance, not a reusable
                     definition
-                  rule: '!has(self.existingClaimRef)'
+                  rule: '!has(self.existingClaimRef) && !has(self.persistence)'
                 - message: select exactly one of volumeClaimTemplate or existingClaimRef
                   rule: has(self.volumeClaimTemplate) != has(self.existingClaimRef)
                 - message: exclusive requires existingClaimRef
                   rule: '!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)'
+                - message: persistence requires volumeClaimTemplate
+                  rule: '!has(self.persistence) || has(self.volumeClaimTemplate)'
             required:
             - agentGroupRef
             type: object
@@ -1340,6 +1381,41 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              prewarming:
+                description: Prewarming pins the proactive selection before creating
+                  shared capacity.
+                properties:
+                  configurationRevision:
+                    type: string
+                  desiredReplicas:
+                    format: int32
+                    type: integer
+                  observedGeneration:
+                    format: int64
+                    type: integer
+                  poolName:
+                    type: string
+                  readyReplicas:
+                    format: int32
+                    type: integer
+                  requestedReplicas:
+                    format: int32
+                    type: integer
+                  revision:
+                    type: string
+                  templateName:
+                    type: string
+                required:
+                - desiredReplicas
+                - observedGeneration
+                - readyReplicas
+                - requestedReplicas
+                - revision
+                type: object
+              standaloneRevisions:
+                description: StandaloneRevisions is set before publishing revisions
+                  in a persistent Group.
+                type: boolean
               templateName:
                 type: string
             type: object

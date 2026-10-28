@@ -123,6 +123,22 @@ spec:
                         type: object
                     type: object
                 type: object
+              invocationAccess:
+                description: InvocationAccess optionally restricts ingress for Connector-managed
+                  calls.
+                properties:
+                  mode:
+                    default: Disabled
+                    description: |-
+                      ConnectorOnly configures ingress for the Operator's Connector. Actual CNI
+                      enforcement must be verified separately; discovery is not enforcement.
+                    enum:
+                    - Disabled
+                    - ConnectorOnly
+                    type: string
+                required:
+                - mode
+                type: object
               limitRange:
                 description: |-
                   LimitRange supplies native per-container/Pod/PVC defaults and limits.
@@ -682,6 +698,14 @@ spec:
                     type: array
                     x-kubernetes-list-type: atomic
                 type: object
+              persistentWorkspaces:
+                default: false
+                description: PersistentWorkspaces enables standalone namespace and
+                  revision ownership for new Groups.
+                type: boolean
+                x-kubernetes-validations:
+                - message: persistentWorkspaces cannot change after creation
+                  rule: self == oldSelf
               podSecurity:
                 default: Restricted
                 description: |-
@@ -713,7 +737,7 @@ spec:
                     type: integer
                   replicas:
                     description: |-
-                      Replicas is the desired number of unclaimed Sandboxes per managed pool.
+                      Replicas is the default spare count, and the per-pool cap for proactive Definitions.
                       These run real applications and consume compute, storage and credentials.
                     format: int32
                     minimum: 0
@@ -792,6 +816,13 @@ spec:
             x-kubernetes-validations:
             - message: namespace cannot be added or removed after creation
               rule: has(self.namespace) == has(oldSelf.namespace)
+            - message: ConnectorOnly requires an empty podSelector and no explicit
+                ingress rules
+              rule: '!has(self.invocationAccess) || self.invocationAccess.mode !=
+                ''ConnectorOnly'' || !has(self.networkPolicy) || ((!has(self.networkPolicy.ingress)
+                || size(self.networkPolicy.ingress) == 0) && (!has(self.networkPolicy.podSelector.matchLabels)
+                || size(self.networkPolicy.podSelector.matchLabels) == 0) && (!has(self.networkPolicy.podSelector.matchExpressions)
+                || size(self.networkPolicy.podSelector.matchExpressions) == 0))'
           status:
             properties:
               conditions:
@@ -854,6 +885,10 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               namespace:
+                type: string
+              namespaceUID:
+                description: NamespaceUID pins the standalone namespace before persistent
+                  allocation is allowed.
                 type: string
               observedGeneration:
                 format: int64

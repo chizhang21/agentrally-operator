@@ -1,0 +1,43 @@
+# Apply the Group first and wait for its namespace, then apply this file:
+# kubectl apply -f examples/prewarming.yaml --selector=example=prewarming-group && kubectl wait agentgroup/prewarming --for=condition=Ready --timeout=120s
+# kubectl apply -f examples/prewarming.yaml
+# No AgentInstance is needed to prepare capacity.
+apiVersion: arally.io/v1alpha1
+kind: AgentGroup
+metadata:
+  name: prewarming
+  labels:
+    example: prewarming-group
+spec:
+  prewarming:
+    replicas: 1
+    maxTotalReplicas: 2
+    idleTTLSeconds: 60
+---
+apiVersion: arally.io/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: echo
+  namespace: agentrally-prewarming
+spec:
+  agentGroupRef:
+    name: prewarming
+  # This demo is safe to start without instance identity, data or credentials.
+  prewarming:
+    replicas: 1
+  template: generic
+  security:
+    runAsUser: 1000
+  container:
+    image: docker.io/library/busybox:1.37.0
+    command: [sh, -ec]
+    args:
+    - mkdir -p /tmp/www; printf ready > /tmp/www/index.html; exec httpd -f -p 8080 -h /tmp/www
+    ports:
+    - name: http
+      containerPort: 8080
+    readinessProbe:
+      httpGet:
+        path: /
+        port: http
+      periodSeconds: 2

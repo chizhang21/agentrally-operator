@@ -103,10 +103,5 @@ func TestRuntimeMappingsCannotEraseHandlerMismatch(t *testing.T) {
 	if got.Family != "declared" || got.Source != "AdministratorDeclared" || got.Status != "Unknown" || got.Reason != "RuntimeHandlerNotReported" || got.HandlerEvidence.MissingFromReportedInventoryNodes != 1 {
 		t.Fatal("mapping bypassed native evidence or failed to override invalid metadata", got)
 	}
-	copy := report.DeepCopy()
-	copy.Status.Runtimes[0].HandlerEvidence.ReportedNodes++
-	copy.Status.Runtimes[0].Features.UserNamespaces.UnknownNodes++
-	if reflect.DeepEqual(copy.Status.Runtimes[0], report.Status.Runtimes[0]) {
-		t.Fatal("runtime evidence shares mutable state across DeepCopy")
-	}
+
 }

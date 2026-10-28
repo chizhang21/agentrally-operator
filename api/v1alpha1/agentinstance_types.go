@@ -8,9 +8,13 @@ import (
 
 // +kubebuilder:validation:XValidation:rule="has(self.volumeClaimTemplate) != has(self.existingClaimRef)",message="select exactly one of volumeClaimTemplate or existingClaimRef"
 // +kubebuilder:validation:XValidation:rule="!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)",message="exclusive requires existingClaimRef"
+// +kubebuilder:validation:XValidation:rule="!has(self.persistence) || has(self.volumeClaimTemplate)",message="persistence requires volumeClaimTemplate"
 type WorkspaceMount struct {
-	// VolumeClaimTemplate provisions a private PVC for each Sandbox, including
-	// warm instances. Core owns the PVC for the lifetime of that Sandbox.
+	// Persistence retains platform data independently of execution. Recovery and GC are unavailable.
+	// +optional
+	Persistence *WorkspacePersistence `json:"persistence,omitempty"`
+	// VolumeClaimTemplate normally provisions a Core-owned PVC per Sandbox.
+	// With Persistence, the Operator provisions one independently retained PVC.
 	// +optional
 	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
 	// ExistingClaimRef mounts an externally managed PVC in the instance namespace.
@@ -27,6 +31,12 @@ type WorkspaceMount struct {
 	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
+type WorkspacePersistence struct {
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=31536000
+	RetentionSeconds int64 `json:"retentionSeconds"`
+}
+
 type PersistentVolumeClaimReference struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
@@ -36,8 +46,12 @@ type PersistentVolumeClaimReference struct {
 
 // WorkspaceBinding identifies external storage retained across execution changes.
 type WorkspaceBinding struct {
-	ClaimName string    `json:"claimName"`
-	UID       types.UID `json:"uid"`
+	// +optional
+	WorkspaceName string `json:"workspaceName,omitempty"`
+	// +optional
+	WorkspaceUID types.UID `json:"workspaceUID,omitempty"`
+	ClaimName    string    `json:"claimName"`
+	UID          types.UID `json:"uid"`
 }
 
 // AgentGroupReference identifies a cluster-scoped AgentGroup by Kubernetes name.
@@ -107,33 +121,14 @@ type InteractionEndpointStatus struct {
 	GatewayRef *GatewayReference `json:"gatewayRef,omitempty"`
 }
 
-type ActivityLeaseReference struct {
-	// Name identifies a caller-managed activity Lease in the instance namespace.
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
-	Name string `json:"name"`
-}
-
 // AgentInstanceLifecycle controls execution cleanup, including Sandbox-owned PVCs.
-// +kubebuilder:validation:XValidation:rule="has(self.idleTimeoutSeconds) == has(self.activityLeaseRef)",message="idleTimeoutSeconds and activityLeaseRef must be configured together"
 type AgentInstanceLifecycle struct {
 	// MaxLifetimeSeconds bounds wall-clock execution lifetime from validated
-	// allocation, including suspension. Activity and Pod recreation do not reset it.
+	// allocation, including suspension. Pod recreation does not reset it.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=2147483647
 	// +optional
 	MaxLifetimeSeconds *int32 `json:"maxLifetimeSeconds,omitempty"`
-	// IdleTimeoutSeconds suspends execution after trusted idle activity.
-	// Missing, stale or invalid signals do not cause automatic suspension.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=2147483647
-	// +optional
-	IdleTimeoutSeconds *int32 `json:"idleTimeoutSeconds,omitempty"`
-	// ActivityLeaseRef supplies the optional activity signal, fenced to this
-	// Instance UID and its current Sandbox UID.
-	// +optional
-	ActivityLeaseRef *ActivityLeaseReference `json:"activityLeaseRef,omitempty"`
 	// ShutdownTime is an absolute deadline, including time spent waiting for dependencies.
 	// +optional
 	ShutdownTime *metav1.Time `json:"shutdownTime,omitempty"`
@@ -225,11 +220,13 @@ type AgentInstanceProvisioningStatus struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="(has(self.provisioning) && has(self.provisioning.warmPoolRef)) == (has(oldSelf.provisioning) && has(oldSelf.provisioning.warmPoolRef))",message="warmPoolRef cannot be added or removed after creation"
+// +kubebuilder:validation:XValidation:rule="(has(self.workspace) && has(self.workspace.persistence)) == (has(oldSelf.workspace) && has(oldSelf.workspace.persistence))",message="persistent workspace mode must be chosen at creation"
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.workspace) && has(oldSelf.workspace.persistence)) || (has(self.workspace) && self.workspace == oldSelf.workspace)",message="persistent workspace configuration is immutable"
 type AgentInstanceSpec struct {
 	AgentGroupRef AgentGroupReference      `json:"agentGroupRef"`
 	DefinitionRef AgentDefinitionReference `json:"definitionRef"`
 	// Revision optionally selects a published definition revision. Omitted pins
-	// the latest revision on first allocation and on explicit execution replacement.
+	// the latest revision on first allocation and preserves it across restarts.
 	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
 	// +optional
 	Revision string `json:"revision,omitempty"`
@@ -257,6 +254,12 @@ type DefinitionBinding struct {
 	UID          types.UID `json:"uid"`
 	Revision     string    `json:"revision"`
 	TemplateName string    `json:"templateName"`
+	// AgentContainer is the actual container name resolved from this revision.
+	// Missing on older bindings until the controller verifies that revision.
+	// +optional
+	AgentContainer string `json:"agentContainer,omitempty"`
+	// +optional
+	InvocationProtocol string `json:"invocationProtocol,omitempty"`
 }
 
 type AgentInstanceStatus struct {
@@ -271,12 +274,9 @@ type AgentInstanceStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
 	SandboxName string `json:"sandboxName,omitempty"`
-	// SandboxUID identifies the current execution for fencing caller activity.
+	// SandboxUID identifies the assigned native Sandbox, not a process lifetime.
 	// +optional
 	SandboxUID types.UID `json:"sandboxUID,omitempty"`
-	// Activity observes the optional caller-provided activity contract.
-	// +optional
-	Activity *AgentInstanceActivityStatus `json:"activity,omitempty"`
 	// VolumeClaims maps logical volumes to the current execution's PVCs, including
 	// an externally managed workspace when configured.
 	// +optional
@@ -314,19 +314,6 @@ type AgentInstanceStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-type AgentInstanceActivityStatus struct {
-	// +optional
-	LastActivityAt *metav1.MicroTime `json:"lastActivityAt,omitempty"`
-	// ValidUntil is the activity heartbeat's freshness deadline.
-	// +optional
-	ValidUntil *metav1.MicroTime `json:"validUntil,omitempty"`
-	// +optional
-	IdleDeadline *metav1.MicroTime `json:"idleDeadline,omitempty"`
-	// Suspended records automatic idle suspension; explicit operatingMode still wins.
-	// +optional
-	Suspended bool `json:"suspended,omitempty"`
 }
 
 type AgentInstanceTimings struct {

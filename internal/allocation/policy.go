@@ -24,7 +24,7 @@ func (m *Manager) now() time.Time {
 
 // Reconcile only the declared replica policy and idle anchor. Nil policy leaves
 // manual scaling alone; an external pool is never passed to this method.
-func (m *Manager) reconcilePoolPolicy(ctx context.Context, pool *unstructured.Unstructured, group *v1.AgentGroup, used bool) error {
+func (m *Manager) reconcilePoolUsage(ctx context.Context, pool *unstructured.Unstructured, group *v1.AgentGroup, used bool) error {
 	if pool.GetDeletionTimestamp() != nil {
 		return nil
 	}
@@ -41,19 +41,32 @@ func (m *Manager) reconcilePoolPolicy(ctx context.Context, pool *unstructured.Un
 		}
 	}
 	pool.SetAnnotations(annotations)
-	if policy := group.Spec.Prewarming; policy != nil || pool.GetAnnotations()[existingWorkspaceAnnotation] == "true" {
-		replicas := int64(0)
-		if policy != nil && pool.GetAnnotations()[existingWorkspaceAnnotation] != "true" {
-			if policy.MaxTotalReplicas != nil {
-				// Only Group reconciliation distributes a total budget. Allocation
-				// must not independently refill a pool past that shared decision.
-				return m.patchPool(ctx, pool, base)
-			}
-			replicas = int64(policy.Replicas)
-		}
-		if err := unstructured.SetNestedField(pool.Object, replicas, "spec", "replicas"); err != nil {
-			return err
-		}
+	return m.patchPool(ctx, pool, base)
+}
+
+// Instance allocation retains the legacy per-pool policy only. Proactive pools
+// and total budgets are exclusively scaled by Group reconciliation.
+func (m *Manager) reconcilePoolPolicy(ctx context.Context, pool *unstructured.Unstructured, group *v1.AgentGroup, used bool) error {
+	if err := m.reconcilePoolUsage(ctx, pool, group, used); err != nil {
+		return err
+	}
+	if pool.GetDeletionTimestamp() != nil || pool.GetAnnotations()[proactiveAnnotation] == "true" {
+		return nil
+	}
+	policy := group.Spec.Prewarming
+	if policy != nil && policy.MaxTotalReplicas != nil {
+		return nil
+	}
+	if policy == nil && pool.GetAnnotations()[existingWorkspaceAnnotation] != "true" {
+		return nil
+	}
+	replicas := int64(0)
+	if policy != nil && pool.GetAnnotations()[existingWorkspaceAnnotation] != "true" {
+		replicas = int64(policy.Replicas)
+	}
+	base := pool.DeepCopy()
+	if err := unstructured.SetNestedField(pool.Object, replicas, "spec", "replicas"); err != nil {
+		return err
 	}
 	return m.patchPool(ctx, pool, base)
 }
@@ -65,51 +78,60 @@ func (m *Manager) patchPool(ctx context.Context, pool, base *unstructured.Unstru
 	return m.Client.Patch(ctx, pool, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
-func (m *Manager) reconcileSpareBudget(ctx context.Context, group *v1.AgentGroup, pools []unstructured.Unstructured) error {
-	policy := group.Spec.Prewarming
-	if policy == nil || policy.MaxTotalReplicas == nil {
-		return nil
-	}
+func (m *Manager) reconcileSpareBudget(ctx context.Context, group *v1.AgentGroup, pools []unstructured.Unstructured, definitions map[string]*v1.AgentDefinition) error {
 	var managed, eligible []*unstructured.Unstructured
-	budget := int64(*policy.MaxTotalReplicas)
+	targets := map[string]int64{}
+	budget := int64(0)
+	limited := group.Spec.Prewarming != nil && group.Spec.Prewarming.MaxTotalReplicas != nil
+	if limited {
+		budget = int64(*group.Spec.Prewarming.MaxTotalReplicas)
+	}
 	for i := range pools {
 		pool := &pools[i]
 		if !managedByGroup(pool, group) {
 			continue
 		}
 		if pool.GetDeletionTimestamp() != nil {
-			// Foreground cleanup may still own spare Pods. Do not redistribute
-			// their target budget until the terminating pool has disappeared.
-			replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas")
-			budget -= replicas
+			if limited {
+				replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas")
+				budget -= max(replicas, 0)
+			}
+			continue
+		}
+		demand, controlled := poolDemand(pool, group, definitions)
+		if !controlled {
 			continue
 		}
 		managed = append(managed, pool)
-		if pool.GetAnnotations()[existingWorkspaceAnnotation] != "true" {
+		targets[pool.GetName()] = demand
+		if demand > 0 {
 			eligible = append(eligible, pool)
 		}
 	}
-	sort.Slice(eligible, func(i, j int) bool { return eligible[i].GetName() < eligible[j].GetName() })
-	targets := map[string]int64{}
-	if len(eligible) > 0 {
-		if budget < 0 {
-			budget = 0
-		}
-		share, extra := budget/int64(len(eligible)), budget%int64(len(eligible))
+	if limited {
+		// Fill small requests first, then share the remaining budget. Equal
+		// demands use stable names for remainder assignment; work is O(n log n).
+		sort.Slice(eligible, func(i, j int) bool {
+			a, b := eligible[i].GetName(), eligible[j].GetName()
+			if targets[a] != targets[b] {
+				return targets[a] < targets[b]
+			}
+			return a < b
+		})
+		budget = max(budget, 0)
 		for i, pool := range eligible {
-			target := share
-			if int64(i) < extra {
-				target++
+			left := int64(len(eligible) - i)
+			share := budget / left
+			if budget%left > 0 {
+				share++
 			}
-			if target > int64(policy.Replicas) {
-				target = int64(policy.Replicas)
-			}
+			target := min(targets[pool.GetName()], share)
 			targets[pool.GetName()] = target
+			budget -= target
 		}
 	}
-	// Reduce before increasing other pools so redistribution does not introduce
-	// a transient desired-replica overshoot. Concurrent native edits still obey
-	// optimistic locking; ResourceQuota supplies hard resource admission limits.
+	// Reductions precede increases. Optimistic locking also rejects inventories
+	// invalidated by an in-flight allocation or reactivated Definition selection.
 	for _, reducing := range []bool{true, false} {
 		for _, pool := range managed {
 			current, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas")

@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/executionconfig"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -55,7 +56,7 @@ func templateDependencyKeys(object client.Object) []string {
 
 func podDependencyKeys(pod *corev1.PodTemplateSpec) []string {
 	var keys []string
-	for _, ref := range configurationReferences(pod) {
+	for _, ref := range executionconfig.References(pod) {
 		if ref.Kind == "ConfigMap" {
 			keys = append(keys, "ConfigMap/"+ref.Name)
 		}

@@ -208,3 +208,14 @@ func normalizeOptionalReference(optional **bool) {
 		*optional = nil
 	}
 }
+
+// SetEnv replaces a native environment declaration without retaining duplicates.
+func SetEnv(container *corev1.Container, desired corev1.EnvVar) {
+	filtered := container.Env[:0]
+	for _, env := range container.Env {
+		if env.Name != desired.Name {
+			filtered = append(filtered, env)
+		}
+	}
+	container.Env = append(filtered, desired)
+}

@@ -5,7 +5,7 @@ environment.
 The Operator embeds three Pod blueprints, then creates a complete SandboxTemplate
 revision during publication.
 Instances select a revision, then create a resolved snapshot and pool during allocation.
-See [definitions and revisions](agent-definitions.md).
+See [revision selection and lifecycle](usage.md#lifecycle).
 Built-in environments do not require a source template.
 
 For other Pod settings, create a SandboxTemplate and use `spec.templateRef`.
@@ -59,7 +59,7 @@ Set `workspace.volumeClaimTemplate` to a native PVC spec; on the instance or as 
 definition default; see the [workspace example](usage.md#model-and-workspace).
 Choose capacity, access modes and optionally a StorageClass.
 
-Core creates a private PVC for every Sandbox, including unassigned warm instances.
+By default, Core creates a private PVC for every Sandbox, including unassigned warm instances.
 The PVC belongs to that Sandbox.
 
 Suspend/resume and Pod recreation within the same Sandbox retain workspace data.
@@ -73,7 +73,11 @@ managed PVC.
 Its UID stays bound across restart.
 
 Existing-PVC allocations enforce zero spares; see
-[workspace lifetime](agent-definitions.md#workspace-lifetime).
+[workspace lifetime](usage.md#lifecycle).
+
+New Groups can separately opt into the [platform persistent workspace preview](usage.md#platform-managed-persistent-workspaces-preview).
+That mode creates one Operator-managed PVC outside the Sandbox ownership chain.
+It has no warm spares, deletion recovery, automatic GC or revision upgrades in this version.
 
 `workspace` replaces assistant/coding's ephemeral `/workspace` with the PVC mount.
 A different mountPath also changes the built-in working directory and HOME, unless
@@ -128,7 +132,9 @@ conflicts.
 Kubernetes evaluates nodes, affinity, tolerations and capacity.
 The setting flows into the snapshot, pool and Pod.
 
-Use a new `restartToken` to apply a runtime change to an allocated agent.
+For a runtime change published by the Definition, select the new `spec.revision`
+and set a new `restartToken` on the instance.
+An ordinary restart preserves its accepted Definition revision.
 
 ## Browser environment
 
@@ -175,20 +181,82 @@ prewarming:
   idleTTLSeconds: 300
 ```
 
-`replicas` is the spare count for each resolved configuration, not each instance.
+`replicas` is the default spare count for each resolved configuration, not each instance.
+For Definitions with an explicit prewarming policy, it is the per-pool upper limit.
 Optional `maxTotalReplicas` caps desired spares across managed configurations.
-The Group divides the budget evenly in stable pool-name order, reducing old targets before increasing others.
+The Group shares this budget across requested configurations, caps each share at its
+request and assigns equal-demand remainders in stable pool-name order.
+It reduces old targets before increasing others.
 Terminating pools retain their share until foreground cleanup removes them.
 New pools start at zero when a total budget is configured.
 External pools are excluded, and ResourceQuota remains the hard resource-admission boundary.
-AgentRally discovers configurations from actual instances: a first unseen configuration has
-no ready spares.
+Without a Definition prewarming policy, AgentRally discovers configurations from actual
+instances, so a first unseen configuration has no ready spares.
 The policy owns only generated pool replica counts; an omitted policy preserves native
 manual scaling, except existing-PVC configurations always enforce zero spares.
 External pools remain unchanged and must declare zero spares when mounting an existing
 workspace.
 
 Each spare consumes compute and a separate disk.
+
+### Prepare capacity before the first instance
+
+With Group prewarming enabled, opt a Definition into proactive preparation:
+
+```yaml
+# AgentDefinition.spec
+prewarming:
+  replicas: 1
+```
+
+This starts the real application before any AgentInstance exists.
+Only enable it after checking that shared Definition credentials and initialization are
+safe without an assigned owner.
+Applications that connect to a user's channels, consume business queues or run personal
+scheduled tasks should keep this disabled unless they have a safe unassigned phase.
+
+Proactive preparation requires a long-running application and a readiness probe on the
+selected Agent container.
+It permits ephemeral workspace and configuration volumes.
+PVC templates, existing PVCs, direct data volumes and Kubernetes service account tokens
+are excluded.
+The example in [prewarming.yaml](../examples/prewarming.yaml) uses no persistent storage.
+
+`Ready=True` means the application configuration is published.
+`Prepared=True` means the current, probe-checked spare capacity satisfies the request.
+`status.prewarming` reports the requested count, the Group's desired count and the ready
+count separately.
+Budget limits or preparation failures do not invalidate a published configuration.
+These observations are eventually consistent; they do not reserve a warm slot for a
+particular caller.
+
+The first matching Instance uses the same configuration snapshot and can adopt a spare.
+An Instance workspace override selects a different pool and stays cold with zero spares.
+Setting Definition replicas to zero or removing its policy stops proactive preparation.
+Scaling the policy does not create an application Revision.
+
+Application updates and Secret/ConfigMap rotation select new capacity.
+After the changed inputs are observed, old proactive pools stop refilling and stop
+counting toward Prepared.
+Existing allocated executions retain their accepted configuration and dependencies.
+Changing referenced Secret contents does not itself create an immutable application
+Revision; the resolved capacity fingerprint tracks the reference version.
+
+Group allocation pause stops new proactive preparation and drains its desired spares to
+zero.
+Already submitted upstream work can finish.
+Pools that have never used the new Definition policy retain the existing pause behavior.
+External pools are never scaled by this policy.
+
+Removing a proactive policy does not turn its old pools back into automatically refilled
+legacy capacity.
+Unused resources follow the Group's idle retention policy.
+An enabled, current Definition request also keeps its pool alive without Instance
+references.
+
+Full PVC warm handoff and deletion recovery remain unavailable.
+Independent image pre-pulling is not enabled; a cached image is separate from an already
+running, prepared Sandbox.
 
 After the last live instance/native allocation reference disappears, the persisted idle
 timer retains the pool for `idleTTLSeconds`.

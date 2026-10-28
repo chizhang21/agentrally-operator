@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 KIND=${KIND:-kind}
-for tool in "$KIND" docker kubectl helm go curl; do
+for tool in "$KIND" docker kubectl helm go curl python3 timeout; do
   command -v "$tool" >/dev/null || { echo "Required E2E tool is missing: $tool" >&2; exit 1; }
 done
 export E2E_CNI=${E2E_CNI:-kindnet}
@@ -49,31 +49,49 @@ fi
 cluster="agentrally-e2e-$(date +%s)-$$"
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/agentrally-e2e.XXXXXX")
 export KUBECONFIG="$temporary/kubeconfig"
-logs="${E2E_LOG_DIR:-$PWD/.cache/e2e/$cluster}"
-mkdir -p "$logs"
+log_root="${E2E_LOG_DIR:-$PWD/.cache/e2e}"
+mkdir -p "$log_root"
+logs=$(mktemp -d "$log_root/$cluster.XXXXXX")
+export E2E_STARTED_AT
+E2E_STARTED_AT=$(date -u +%FT%TZ)
+export E2E_IMAGE_SOURCE=provided-image
+if [[ -z ${E2E_IMAGE:-} ]]; then E2E_IMAGE_SOURCE=built-from-checkout; fi
+image=${E2E_IMAGE:-agentrally-operator:e2e}
+phase=build
 created=false
 
 finish() {
   result=$?
-  trap - EXIT
+  trap - EXIT INT TERM
+  # Evidence or cleanup errors must not skip the other cleanup operations.
+  set +e
+  cleanup=not-created
   if [[ "$created" == true ]]; then
+    python3 hack/e2e_report.py inventory --directory "$logs"
+    inventory_result=$?
     if (( result != 0 )); then
-      kubectl get pods,events -A -o yaml > "$logs/resources.yaml" 2>&1 || true
-      kubectl get agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/agentrally-resources.yaml" 2>&1 || true
-      kubectl -n agentrally-system logs deployment/agentrally-operator --all-containers > "$logs/operator.log" 2>&1 || true
-      kubectl -n agent-sandbox-system logs deployment/agent-sandbox-controller --all-containers > "$logs/upstream.log" 2>&1 || true
-      "$KIND" export logs "$logs/kind" --name "$cluster" || true
+      kubectl --request-timeout=5s get pods,events -A -o yaml > "$logs/resources.yaml" 2>&1 || true
+      kubectl --request-timeout=5s get agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/agentrally-resources.yaml" 2>&1 || true
+      timeout 10s kubectl --request-timeout=5s -n agentrally-system logs deployment/agentrally-operator --pod-running-timeout=5s --all-containers > "$logs/operator.log" 2>&1 || true
+      timeout 10s kubectl --request-timeout=5s -n agent-sandbox-system logs deployment/agent-sandbox-controller --pod-running-timeout=5s --all-containers > "$logs/upstream.log" 2>&1 || true
+      timeout 30s "$KIND" export logs "$logs/kind" --name "$cluster" || true
     fi
-    "$KIND" delete cluster --name "$cluster" || true
+    if timeout 120s "$KIND" delete cluster --name "$cluster"; then cleanup=passed; else cleanup=failed; fi
+    if (( result == 0 && inventory_result != 0 )); then result=1; fi
   fi
+  python3 hack/e2e_report.py finish --directory "$logs" --phase "$phase" \
+    --exit-code "$result" --image "$image" --chart "$chart" --cleanup "$cleanup"
+  report_result=$?
   rm -rf "$temporary"
-  exit "$result"
+  if (( result != 0 )); then exit "$result"; fi
+  exit "$report_result"
 }
 trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Supplying an image tests an already built local release candidate. Otherwise
 # build the production Containerfile from this checkout, without publishing it.
-image=${E2E_IMAGE:-agentrally-operator:e2e}
 if [[ "$image" == *@* || ${image##*/} != *:* ]]; then
   echo 'E2E_IMAGE must name a locally built image with an explicit tag.' >&2
   exit 1
@@ -89,6 +107,7 @@ if "$KIND" get clusters | grep -Fxq "$cluster"; then
   echo "Test cluster name already exists: $cluster" >&2
   exit 1
 fi
+phase=cluster
 created=true
 if [[ "$E2E_CNI" == cilium ]]; then
   cat > "$temporary/kind.yaml" <<'YAML'
@@ -112,6 +131,7 @@ if [[ -n ${E2E_RUNTIME_MANIFEST:-} ]]; then
   kubectl apply --server-side -f "$E2E_RUNTIME_MANIFEST"
   kubectl wait --for=condition=Ready pod --all -A --timeout=360s
 fi
+phase=infrastructure
 if [[ -n "$E2E_RUNTIME_CLASS" ]]; then kubectl get runtimeclass "$E2E_RUNTIME_CLASS"; fi
 # Docker's containerd image store can retain a multi-platform index without all
 # its children. Export only the running platform so kind imports complete content.
@@ -147,8 +167,16 @@ kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controll
 # identical to a real chart install; Connector remains disabled by default.
 repository=${image%:*}
 tag=${image##*:}
+phase=install
 helm install agentrally-operator "$chart" -n agentrally-system --create-namespace \
   --set-string image.repository="$repository" --set-string image.tag="$tag" \
   --set image.pullPolicy=IfNotPresent --wait --timeout=240s
+phase=tests
+set +e
 AGENTRALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
-  go test -tags=e2e ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v 2>&1 | tee "$logs/lifecycle.log"
+  go test -json -tags=e2e ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v \
+  | python3 hack/e2e_report.py stream --directory "$logs"
+test_results=("${PIPESTATUS[@]}")
+set -e
+if (( test_results[0] != 0 )); then exit "${test_results[0]}"; fi
+exit "${test_results[1]}"

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -78,19 +80,30 @@ func managementFixture(t *testing.T) (*dynamicfake.FakeDynamicClient, Request) {
 }
 
 func TestCapabilitiesAndUnsupportedIntentsNeverTouchKubernetes(t *testing.T) {
-	kube := fakeKube()
-	response := (Executor{Client: kube}).Execute(context.Background(), Request{Method: http.MethodGet, Resource: "connectorcapabilities"})
-	var capabilities capabilityDocument
-	if response.Status != 200 || json.Unmarshal(response.Body, &capabilities) != nil || len(capabilities.Management) != 2 || capabilities.Invocation || capabilities.ExclusiveHandoff || capabilities.ObservedOperatingMode || capabilities.ActivityLease || capabilities.ProcessIdentity || capabilities.ScopedNamespaceCreate {
-		t.Fatalf("capabilities overstate support: %s", response.Body)
+	data, err := os.ReadFile("../../tests/fixtures/connector/management-v1-v2.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, req := range []Request{
-		{Version: "v2", Method: http.MethodPost, Resource: "exclusivehandoff"},
-		{Version: "v9", Method: http.MethodGet, Resource: "agentgroups"},
-		{Version: "v2", Method: http.MethodPut, Resource: "agentinstances", Intent: &ControlIntent{Kind: "Observed", ExpectedExecutionID: "old-execution", ObservedAt: "2026-10-28T00:00:00Z"}},
-		{Version: "v2", Method: http.MethodGet, Resource: "instanceobservations", ObservationScope: "Process"},
-		{Version: "v2", Method: http.MethodPost, Resource: "agentinstances", Namespace: "team"},
-	} {
+	var fixture struct {
+		Capabilities map[string]any `json:"capabilities"`
+		Unsupported  []Request      `json:"unsupported"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.Capabilities == nil || len(fixture.Unsupported) == 0 {
+		t.Fatal("management fixture has no capability or rejection contract")
+	}
+	kube := fakeKube()
+	for _, preview := range []bool{false, true} {
+		response := (Executor{Client: kube, InvocationPreview: preview}).Execute(context.Background(), Request{Method: http.MethodGet, Resource: "connectorcapabilities"})
+		var capabilities map[string]any
+		fixture.Capabilities["invocationPreview"] = preview
+		if response.Status != 200 || json.Unmarshal(response.Body, &capabilities) != nil || !reflect.DeepEqual(capabilities, fixture.Capabilities) {
+			t.Fatalf("management capability contract differs from shared fixture (preview=%t): %s", preview, response.Body)
+		}
+	}
+	for _, req := range fixture.Unsupported {
 		if got := (Executor{Client: kube}).Execute(context.Background(), req); got.Status != 501 {
 			t.Fatalf("unsupported operation was accepted: %+v: %s", req, got.Body)
 		}

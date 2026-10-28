@@ -79,8 +79,9 @@ Continue with [deploying an agent](usage.md).
 
 ### Upgrade AgentRally
 
-If the installed version supports Activity Leases, complete the
-[activity migration](activity-migration.md) before upgrading its CRDs.
+When upgrading from Activity Lease support, preserve explicit instance intent with the
+[migration tool](../hack/migrate_activity.py) before replacing the CRDs.
+Use `--help` to review the required context and Operator Deployment arguments.
 
 For an OCI installation, select the published Chart version to install.
 For a local archive, use [Updating a dev build](#updating-a-dev-build).

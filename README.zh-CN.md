@@ -133,7 +133,6 @@ kubectl -n agentrally-demo describe agentinstance demo-agent
   关闭策略决定是否保留 AgentInstance。
 
 操作命令和保留策略见[生命周期说明](docs/usage.md#lifecycle)。
-使用过 Activity Lease 的安装需要先[迁移显式意图](docs/activity-migration.md)，再升级。
 
 ## 文档
 

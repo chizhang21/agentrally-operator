@@ -188,8 +188,26 @@ failed-task retention and TTL deletion policies.
 Execution replacement and cleanup reclaim Sandbox-owned volumes.
 
 The driver always uses its own kubeconfig and deletes its temporary cluster.
-Failures retain logs under `.cache/e2e/`; `E2E_LOG_DIR` selects another output
-directory.
+Each invocation creates a separate directory under `.cache/e2e/`.
+`E2E_LOG_DIR` selects another output root; retries never reuse an earlier run's evidence.
+
+Every run that reaches driver initialization records `report.json`, `summary.md` and,
+when a cluster was created, a whitelist of environment fields in `environment.json`.
+They record selected artifacts, observed component versions, individual test outcomes and
+optional checks that were skipped or not run.
+Selecting no execution tests, only the target guard, or a parent without any selected
+execution subcase fails the run.
+An incomplete ConnectorOnly profile is not reported as successful traffic enforcement.
+
+The source commit identifies the test checkout.
+The report distinguishes a locally built image from an image supplied through `E2E_IMAGE`.
+An externally supplied image is not assumed to come from that checkout.
+
+Raw test output and failure diagnostics remain in the local run directory.
+CI retains only the report, summary and safe environment record on both success and failure.
+It does not upload raw Pod/Event dumps, application output or the full Kind diagnostic bundle.
+Cleanup handles ordinary completion and catchable INT/TERM; SIGKILL or runner loss may
+prevent final evidence and cleanup.
 
 [AgentRally Operator E2E](../.github/workflows/e2e.yml) supports manual dispatch.
 Version-tag Release tests the built image and Chart archives with this workflow.

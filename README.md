@@ -148,7 +148,6 @@ reasons.
   The shutdown policy controls whether to retain the AgentInstance.
 
 See [Lifecycle](docs/usage.md#lifecycle) for commands and retention settings.
-Existing Activity Lease users must [migrate their explicit intent](docs/activity-migration.md) before upgrading.
 
 ## Documentation
 

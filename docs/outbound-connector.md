@@ -238,3 +238,6 @@ ConnectorOnly ingress, session epochs, limits and rollout gates.
 
 Production `invocation` and `exclusiveHandoff` remain false.
 Reference-backend tests do not replace real Orchestrator integration.
+The [shared contract fixtures](../tests/fixtures/connector/README.md) record the current
+management capabilities, unsupported requests and invocation stream examples.
+Consumers can validate those fixtures without importing the Operator's Go types.

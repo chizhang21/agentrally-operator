@@ -495,8 +495,8 @@ The optional `lifecycle` block in [full.yaml](../examples/full.yaml) controls ex
 The earliest applicable execution deadline wins.
 The Operator applies explicit `operatingMode` changes; it does not infer idleness from traffic or Leases.
 Observation-driven automatic suspension is currently unsupported.
-For upgrades from the old Activity Lease contract, follow the
-[migration procedure](activity-migration.md).
+For upgrades from the old Activity Lease contract, see
+[upgrade guidance](installation.md#upgrade-agentrally).
 
 Sandbox-owned workspace PVCs are removed with execution; externally supplied Secrets and
 externally managed workspace PVCs remain.

@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,6 +26,104 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func TestExecutionDiagnostics(t *testing.T) {
+	kube, _ := e2eClient(t)
+	ctx := t.Context()
+	group := readyGroup(t, ctx, kube, "execution-diagnostics")
+	definition, instance := testAgent(group, "unready", "sleep 3600")
+	const canary = "probe-output-must-not-enter-operator-diagnostics"
+	definition.Spec.Container.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+		Exec: &corev1.ExecAction{Command: []string{"sh", "-c", "printf " + canary + "; exit 1"}},
+	}, PeriodSeconds: 1, FailureThreshold: 1}
+	create(t, ctx, kube, definition)
+	create(t, ctx, kube, instance)
+	await(t, "real readiness failure with safe Instance diagnostics", func() (bool, error) {
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance); err != nil {
+			return false, err
+		}
+		available := meta.FindStatusCondition(instance.Status.Conditions, "Available")
+		if available == nil || available.Status != metav1.ConditionFalse || available.Reason != "ContainersNotReady" || available.ObservedGeneration != instance.Generation ||
+			meta.IsStatusConditionTrue(instance.Status.Conditions, "Ready") || instance.Status.PodUID == "" || instance.Status.SandboxUID == "" {
+			return false, nil
+		}
+		pod := &corev1.Pod{}
+		if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, pod); err != nil {
+			return false, err
+		}
+		current := sandbox.Object()
+		if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.SandboxName}, current); err != nil {
+			return false, err
+		}
+		owner := metav1.GetControllerOf(pod)
+		if current.GetUID() != instance.Status.SandboxUID || owner == nil || owner.UID != current.GetUID() ||
+			owner.APIVersion != sandbox.GroupVersion.String() || owner.Kind != "Sandbox" {
+			return false, fmt.Errorf("execution identity does not match the observed Sandbox and Pod ownership")
+		}
+		agentRunning := false
+		for _, container := range pod.Status.ContainerStatuses {
+			if container.Name == "agent" && container.State.Running != nil && !container.Ready {
+				agentRunning = true
+			}
+		}
+		if string(pod.UID) != instance.Status.PodUID || pod.Status.Phase != corev1.PodRunning || !agentRunning {
+			return false, nil
+		}
+		events := &corev1.EventList{}
+		if err := kube.List(ctx, events, client.InNamespace(instance.Namespace)); err != nil {
+			return false, err
+		}
+		probeFailed, diagnosed := false, false
+		for _, event := range events.Items {
+			if event.InvolvedObject.UID == pod.UID && event.Reason == "Unhealthy" && strings.Contains(event.Message, canary) {
+				probeFailed = true
+			}
+			if event.InvolvedObject.UID == instance.UID {
+				if strings.Contains(event.Message, canary) {
+					t.Fatal("Operator Event exposed raw probe output")
+				}
+				diagnosed = diagnosed || event.Reason == available.Reason
+			}
+		}
+		status, err := json.Marshal(instance.Status)
+		if err != nil {
+			return false, err
+		}
+		if strings.Contains(string(status), canary) {
+			t.Fatal("Instance status exposed raw probe output")
+		}
+		return probeFailed && diagnosed, nil
+	})
+	oldRevision, oldPod, oldSandbox := instance.Status.Definition.Revision, instance.Status.PodUID, instance.Status.SandboxUID
+	definition.Spec.Container.ReadinessProbe.Exec.Command = []string{"true"}
+	update(t, ctx, kube, definition)
+	await(t, "fixed readiness configuration published", func() (bool, error) {
+		err := kube.Get(ctx, client.ObjectKeyFromObject(definition), definition)
+		return definition.Status.CurrentRevision != oldRevision && conditionTrue(definition.Status.Conditions, "Ready", definition.Generation), err
+	})
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance); err != nil {
+		t.Fatal(err)
+	}
+	if instance.Status.PodUID != oldPod || instance.Status.Definition.Revision != oldRevision || meta.IsStatusConditionTrue(instance.Status.Conditions, "Ready") {
+		t.Fatal("publishing a fixed probe implicitly upgraded or marked the old execution ready")
+	}
+	instance.Spec.Revision, instance.Spec.RestartToken = definition.Status.CurrentRevision, "accept-fixed-readiness"
+	update(t, ctx, kube, instance)
+	readyAgent(t, ctx, kube, instance)
+	if instance.Status.PodUID == oldPod || instance.Status.SandboxUID == oldSandbox || instance.Status.Definition.Revision != definition.Status.CurrentRevision {
+		t.Fatal("explicit upgrade did not replace the failed execution and revision")
+	}
+	if err := kube.Delete(ctx, instance); err != nil {
+		t.Fatal(err)
+	}
+	awaitDeleted(t, ctx, kube, instance)
+	awaitExecutionRemoved(t, ctx, kube, group.Status.Namespace)
+	deleteDefinitions(t, ctx, kube, group)
+	if err := kube.Delete(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	awaitDeleted(t, ctx, kube, group)
+}
 
 func TestNetworkPolicyTraffic(t *testing.T) {
 	if os.Getenv("E2E_CNI") != "cilium" {

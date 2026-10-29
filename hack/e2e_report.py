@@ -20,6 +20,7 @@ CHILD_CASES = {
 SKIP_REASONS = {
     "TestKataRuntimeLifecycle": "Requires E2E_RUNTIME_CLASS and an installed Kata runtime",
     "TestNetworkPolicyTraffic": "Requires E2E_CNI=cilium",
+    "TestNativeEgressTraffic": "Requires E2E_CNI=cilium",
     "TestConnectorOnlyTraffic": "Requires E2E_CNI=cilium",
     "TestSnapshotWorkspaceRestore": "Requires E2E_SNAPSHOTS=true",
     "TestOpenClawLifecycle": "Requires the opt-in OpenClaw example profile",
@@ -27,6 +28,7 @@ SKIP_REASONS = {
 PROFILES = {
     "kata": "TestKataRuntimeLifecycle",
     "networkPolicy": "TestNetworkPolicyTraffic",
+    "nativeEgress": "TestNativeEgressTraffic",
     "connectorOnly": "TestConnectorOnlyTraffic",
     "snapshotRestore": "TestSnapshotWorkspaceRestore",
 }

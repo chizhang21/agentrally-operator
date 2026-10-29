@@ -13,21 +13,29 @@ import (
 
 func TestConfigurationDiagnosticClassification(t *testing.T) {
 	for _, tc := range []struct {
-		err    error
-		reason string
+		err     error
+		reason  string
+		pending bool
 	}{
-		{nil, ""},
-		{fmt.Errorf("wrapped: %w", New("CustomReason", "safe action", context.DeadlineExceeded)), "CustomReason"},
-		{fmt.Errorf("wrapped: %w", apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "key")), "DependencyNotFound"},
-		{apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, "key", errors.New("private-detail")), "DependencyAccessDenied"},
-		{apierrors.NewUnauthorized("private-detail"), "DependencyAccessDenied"},
-		{apierrors.NewTimeoutError("private-detail", 1), "DependencyReadFailed"},
-		{context.DeadlineExceeded, "DependencyReadFailed"},
-		{errors.New("private-detail"), "InvalidConfiguration"},
+		{nil, "", false},
+		{fmt.Errorf("wrapped: %w", New("CustomReason", "safe action", nil)), "CustomReason", true},
+		{New("CustomReason", "safe action", fmt.Errorf("wrapped: %w", New("OwnershipConflict", "safe ownership", nil))), "CustomReason", true},
+		{New("InvalidConfiguration", "safe configuration", errors.New("invalid format")), "InvalidConfiguration", true},
+		{fmt.Errorf("wrapped: %w", New("CustomReason", "safe action", context.DeadlineExceeded)), "CustomReason", false},
+		{fmt.Errorf("wrapped: %w", apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "key")), "DependencyNotFound", true},
+		{apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, "key", errors.New("private-detail")), "DependencyAccessDenied", false},
+		{New("CannotRead", "safe action", apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "key", errors.New("private-detail"))), "CannotRead", false},
+		{apierrors.NewUnauthorized("private-detail"), "DependencyAccessDenied", false},
+		{apierrors.NewTimeoutError("private-detail", 1), "DependencyReadFailed", false},
+		{context.DeadlineExceeded, "DependencyReadFailed", false},
+		{errors.New("private-detail"), "InvalidConfiguration", false},
 	} {
 		reason, message := Classify(tc.err)
 		if reason != tc.reason || strings.Contains(message, "private-detail") {
 			t.Fatalf("reason=%s message=%s", reason, message)
+		}
+		if IsPending(tc.err) != tc.pending {
+			t.Fatalf("incorrect wait/retry classification for %v", tc.err)
 		}
 	}
 }

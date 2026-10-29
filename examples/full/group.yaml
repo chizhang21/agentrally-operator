@@ -1,0 +1,68 @@
+# Field reference. Adapt policy selectors, addresses and cluster dependencies.
+apiVersion: arally.io/v1alpha1
+kind: AgentGroup
+metadata:
+  name: reference
+spec:
+  namespace: agentrally-reference
+  podSecurity: Restricted
+  allocationPaused: false
+  # Preview: deletion recovery and automatic GC remain unavailable.
+  persistentWorkspaces: false
+  quota:
+    hard:
+      count/agentinstances.arally.io: "20"
+      requests.cpu: "16"
+      requests.memory: 32Gi
+  limitRange:
+    limits:
+      - type: Container
+        default: {cpu: "2", memory: 4Gi}
+        defaultRequest: {cpu: 100m, memory: 128Mi}
+  prewarming:
+    replicas: 0
+    maxTotalReplicas: 4
+    idleTTLSeconds: 300
+  executionPolicy:
+    requireImageDigest: false
+    # allowedRuntimeClasses: [your-runtime-class]
+  # Optional Connector ingress management. Omit explicit ingress and Instance.interaction.
+  # invocationAccess:
+  #   mode: ConnectorOnly
+  networkPolicy:
+    podSelector: {}
+    policyTypes: [Ingress, Egress]
+    ingress:
+      - from:
+          - podSelector: {}
+    egress:
+      # Adapt for your actual DNS deployment, including NodeLocal DNS.
+      - to:
+          - namespaceSelector:
+              matchLabels: {kubernetes.io/metadata.name: kube-system}
+            podSelector:
+              matchLabels: {k8s-app: kube-dns}
+        ports:
+          - {protocol: UDP, port: 53}
+          - {protocol: TCP, port: 53}
+      - to:
+          - namespaceSelector:
+              matchLabels: {kubernetes.io/metadata.name: shared-services}
+            podSelector:
+              matchLabels: {app: your-service}
+        ports:
+          - {protocol: TCP, port: 8080}
+      # Documentation addresses; replace before use.
+      - to:
+          - ipBlock:
+              cidr: 198.51.100.0/24
+              except: [198.51.100.128/25]
+        ports:
+          - {protocol: TCP, port: 443}
+  interactionDefaults:
+    httpRoute:
+      gatewayRef:
+        name: shared
+        namespace: gateway-system
+        sectionName: https
+      domain: agents.example.com

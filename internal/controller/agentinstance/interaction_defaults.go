@@ -98,25 +98,8 @@ func interactionPort(w *v1.AgentInstance, core *sandbox.Sandbox) (int32, error) 
 	if index < 0 {
 		return 0, interactionDiagnostic("InteractionPortRequired", "Declare the Agent's TCP port or set interaction.port")
 	}
-	distinct, named := map[int32]bool{}, map[int32]bool{}
-	for _, p := range containers[index].Ports {
-		if (p.Protocol != "" && p.Protocol != corev1.ProtocolTCP) || p.ContainerPort < 1 || p.ContainerPort > 65535 {
-			continue
-		}
-		distinct[p.ContainerPort] = true
-		if p.Name == "http" {
-			named[p.ContainerPort] = true
-		}
-	}
-	if len(named) == 1 {
-		for port := range named {
-			return port, nil
-		}
-	}
-	if len(named) == 0 && len(distinct) == 1 {
-		for port := range distinct {
-			return port, nil
-		}
+	if port, err := podconfig.HTTPPort(containers[index]); err == nil {
+		return port, nil
 	}
 	return 0, interactionDiagnostic("InteractionPortRequired", "Declare one named http TCP port, one TCP port, or set interaction.port explicitly")
 }

@@ -183,7 +183,10 @@ func (r *Reconciler) reconcileInteraction(ctx context.Context, w *v1.AgentInstan
 		}
 		reason, message := diagnostics.Classify(err)
 		state.pending(w, reason, message)
-		return state, nil
+		if diagnostics.IsPending(err) {
+			return state, nil
+		}
+		return state, err
 	}
 	resolved := w.DeepCopy()
 	resolved.Spec.Interaction = e

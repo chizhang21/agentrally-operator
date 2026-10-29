@@ -1,4 +1,4 @@
-# Optional user-access role; apply and bind explicitly.
+# Optional deployer role; administrators apply and bind it explicitly.
 # The operator ServiceAccount does not use this role.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

@@ -8,6 +8,7 @@ import (
 	"net"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 )
 
 // Error carries a safe user message separately from its cause.
@@ -24,6 +25,21 @@ func (e *Error) Unwrap() error { return e.cause }
 // New separates a safe public diagnostic from its underlying cause.
 func New(reason, message string, cause error) error {
 	return &Error{reason: reason, message: message, cause: cause}
+}
+
+// IsPending identifies configuration and missing-dependency waits. Known API and
+// transport failures require normal error backoff, even inside safe diagnostics.
+func IsPending(err error) bool {
+	if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+		return true
+	}
+	var status apierrors.APIStatus
+	var networkError net.Error
+	if errors.As(err, &status) || errors.As(err, &networkError) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var diagnostic *Error
+	return errors.As(err, &diagnostic)
 }
 
 // Classify identifies dependency failures without exposing raw error text.

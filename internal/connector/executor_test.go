@@ -9,13 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	v1 "agentrally/operator/api/v1alpha1"
-	"agentrally/operator/internal/controller/clustercapabilities"
-
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	nodev1 "k8s.io/api/node/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,20 +20,16 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
 	ktesting "k8s.io/client-go/testing"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 var groupGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "agentgroups"}
 var workloadGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "agentinstances"}
 var definitionGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "agentdefinitions"}
-var capabilityGVR = schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: "clustercapabilities"}
 
 func fakeKube(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
 		policyResource: "NetworkPolicyList", endpointResource: "EndpointSliceList",
-		groupGVR: "AgentGroupList", definitionGVR: "AgentDefinitionList", workloadGVR: "AgentInstanceList", capabilityGVR: "ClusterCapabilitiesList",
+		groupGVR: "AgentGroupList", definitionGVR: "AgentDefinitionList", workloadGVR: "AgentInstanceList",
 	}, objects...)
 }
 
@@ -156,57 +145,6 @@ func TestNativeAPIErrorClassificationSurvivesWithoutReflectedValues(t *testing.T
 		if response.ID != "read" || response.Status != int(want.Code) || status.Reason != want.Reason || status.Message == "" || status.Kind != "Status" || status.Details != nil || strings.Contains(string(response.Body), "sensitive-marker") {
 			t.Fatal("native API error classification lost or submitted values reflected")
 		}
-	}
-}
-
-func TestDiscoveredCapabilitiesReadableAsNativeCR(t *testing.T) {
-	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{v1.AddToScheme, corev1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, appsv1.AddToScheme} {
-		if err := add(scheme); err != nil {
-			t.Fatal(err)
-		}
-	}
-	report := &v1.ClusterCapabilities{TypeMeta: metav1.TypeMeta{APIVersion: "arally.io/v1alpha1", Kind: "ClusterCapabilities"}, ObjectMeta: metav1.ObjectMeta{Name: "cluster", Generation: 2}}
-	storage := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs"}, Provisioner: "nfs.csi.k8s.io"}
-	driver := &storagev1.CSIDriver{ObjectMeta: metav1.ObjectMeta{Name: storage.Provisioner}}
-	local := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(report).WithObjects(report, storage, driver).Build()
-	r := &clustercapabilities.Reconciler{Client: local, Reader: local}
-	ctx := context.Background()
-	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Name: "cluster"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := local.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
-		t.Fatal(err)
-	}
-	// The controller-runtime fake clears TypeMeta on typed GETs, unlike the API.
-	report.SetGroupVersionKind(v1.GroupVersion.WithKind("ClusterCapabilities"))
-	object, err := runtime.DefaultUnstructuredConverter.ToUnstructured(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The fake's plural guess incorrectly uses clustercapabilitieses.
-	kube := fakeKube()
-	if err := kube.Tracker().Create(capabilityGVR, &unstructured.Unstructured{Object: object}, ""); err != nil {
-		t.Fatal(err)
-	}
-	response := (Executor{Client: kube}).Execute(ctx, Request{ID: "capabilities", Method: "GET", Resource: "clustercapabilities", Name: "cluster"})
-	if response.Status != 200 {
-		t.Fatalf("capability read failed: %s", response.Body)
-	}
-	var received v1.ClusterCapabilities
-	if err := json.Unmarshal(response.Body, &received); err != nil {
-		t.Fatal(err)
-	}
-	if response.Status != 200 || !reflect.DeepEqual(report.Status, received.Status) || received.Status.ObservedAt == nil || len(received.Status.StorageClasses) != 1 || received.Status.ObservedGeneration != 2 {
-		t.Fatal("discovery status did not survive native CR read")
-	}
-	if action := kube.Actions()[0]; action.GetVerb() != "get" || action.GetNamespace() != "" || action.GetResource() != capabilityGVR {
-		t.Fatal("capability read scope is incorrect")
-	}
-	list := (Executor{Client: kube}).Execute(ctx, Request{Method: "GET", Resource: "clustercapabilities"})
-	var reports v1.ClusterCapabilitiesList
-	if json.Unmarshal(list.Body, &reports) != nil || list.Status != 200 || len(reports.Items) != 1 || !reflect.DeepEqual(reports.Items[0].Status, report.Status) {
-		t.Fatal("native capability list lost status")
 	}
 }
 

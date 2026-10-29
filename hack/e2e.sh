@@ -60,6 +60,19 @@ image=${E2E_IMAGE:-agentrally-operator:e2e}
 phase=build
 created=false
 
+cleanup_egress_fixtures() {
+  local ids id owner failed=0
+  ids=$(timeout 10s docker ps -aq --no-trunc --filter "label=io.agentrally.e2e.egress-cluster=$cluster") || return 1
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    if [[ ! "$id" =~ ^[a-f0-9]{64}$ ]]; then failed=1; continue; fi
+    owner=$(timeout 5s docker inspect --format '{{ index .Config.Labels "io.agentrally.e2e.egress-cluster" }}' "$id") || { failed=1; continue; }
+    if [[ "$owner" != "$cluster" ]]; then failed=1; continue; fi
+    timeout 10s docker rm -f "$id" >/dev/null || failed=1
+  done <<< "$ids"
+  return "$failed"
+}
+
 finish() {
   result=$?
   trap - EXIT INT TERM
@@ -76,7 +89,10 @@ finish() {
       timeout 10s kubectl --request-timeout=5s -n agent-sandbox-system logs deployment/agent-sandbox-controller --pod-running-timeout=5s --all-containers > "$logs/upstream.log" 2>&1 || true
       timeout 30s "$KIND" export logs "$logs/kind" --name "$cluster" || true
     fi
+    cleanup_egress_fixtures
+    fixtures_result=$?
     if timeout 120s "$KIND" delete cluster --name "$cluster"; then cleanup=passed; else cleanup=failed; fi
+    if (( fixtures_result != 0 )); then cleanup=failed; fi
     if (( result == 0 && inventory_result != 0 )); then result=1; fi
   fi
   python3 hack/e2e_report.py finish --directory "$logs" --phase "$phase" \

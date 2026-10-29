@@ -2,6 +2,7 @@ package agentinstance
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,11 +10,29 @@ import (
 	v1 "agentrally/operator/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
+
+func TestInteractionDiscoveryPreservesAPIFailures(t *testing.T) {
+	for _, cause := range []error{
+		apierrors.NewForbidden(schema.GroupResource{Resource: "gateways"}, "public", errors.New("private-detail")),
+		apierrors.NewTimeoutError("private-detail", 1),
+	} {
+		r, w, core := interactionFixture(t, "HTTPRoute")
+		w.Spec.Interaction = &v1.InteractionEndpoint{Type: "HTTPRoute", Port: 8000}
+		r.DirectClient = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
+			List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error { return cause },
+		})
+		state, err := r.reconcileInteraction(t.Context(), w, core, 7)
+		if !errors.Is(err, cause) || state.condition == nil || strings.Contains(state.condition.Message, "private-detail") {
+			t.Fatalf("Gateway API failure lost its cause or safe status: state=%+v error=%v", state, err)
+		}
+	}
+}
 
 func gatewayFixture(name, namespace, protocol, hostname string) *unstructured.Unstructured {
 	listener := strings.ToLower(protocol)

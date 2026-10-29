@@ -44,6 +44,7 @@ type Client struct {
 	http             *http.Client
 	executor         Executor
 	ready            atomic.Bool
+	invocationFailed atomic.Bool
 	wait             func(context.Context, time.Duration) bool
 }
 
@@ -89,25 +90,27 @@ func NewClient(config Config, executor Executor) (*Client, error) {
 
 func (c *Client) Ready() bool { return c.ready.Load() }
 
+// InvocationFailed is latched until process restart. Management connectivity
+// remains independent; no new preview session can discard anti-replay history.
+func (c *Client) InvocationFailed() bool { return c.invocationFailed.Load() }
+
 func (c *Client) NeedLeaderElection() bool { return true }
 
-func (c *Client) Start(ctx context.Context) (resultErr error) {
+func (c *Client) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if c.config.InvocationPreview {
-		done := make(chan error, 1)
+		done := make(chan struct{})
 		go func() {
-			err := c.runInvocations(ctx)
-			if err != nil {
-				cancel()
+			defer close(done)
+			if err := c.runInvocations(ctx); err != nil {
+				c.invocationFailed.Store(true)
+				slog.Error("invocation preview stopped; restart the Operator to re-enable it", "reason", err)
 			}
-			done <- err
 		}()
 		defer func() {
 			cancel()
-			if err := <-done; err != nil {
-				resultErr = err
-			}
+			<-done
 		}()
 	}
 	defer c.setReady(false)

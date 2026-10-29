@@ -10,6 +10,7 @@ import (
 	"agentrally/operator/internal/allocation"
 	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +28,32 @@ type executionConfiguration struct {
 	Revision string
 	Fallback bool
 	Issue    *metav1.Condition
+}
+
+// Preparation owns writes and persists identity before fingerprinting or
+// allocation. Resolution itself only reads and renders configuration.
+func (r *Reconciler) prepareExecutionConfiguration(ctx context.Context, instance *v1.AgentInstance, group *v1.AgentGroup, mode string) (executionConfiguration, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := r.preparePersistentWorkspace(ctx, instance, group, mode); err != nil {
+		return executionConfiguration{}, err
+	}
+	config, err := r.resolveExecutionConfiguration(ctx, instance, mode)
+	if err != nil || config.Fallback {
+		return config, err
+	}
+	if err := r.bindDefinition(ctx, instance, config.Definition); err != nil {
+		return executionConfiguration{}, err
+	}
+	if err := r.bindWorkspace(ctx, instance, config.Workspace); err != nil {
+		return executionConfiguration{}, err
+	}
+	config.SnapshotSources, err = r.resolveSnapshotSources(ctx, instance, group, config.VolumeClaimTemplates)
+	if err != nil {
+		return executionConfiguration{}, err
+	}
+	config.Revision, err = executionconfig.Revision(ctx, r.referenceReader(), instance.Namespace, config.Configuration)
+	return config, err
 }
 
 func (r *Reconciler) now() time.Time {

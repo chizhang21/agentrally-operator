@@ -9,6 +9,7 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/podconfig"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
@@ -46,7 +47,7 @@ func applyContainer(pod *corev1.PodTemplateSpec, settings *v1.AgentContainerSpec
 	container.Command = append([]string(nil), settings.Command...)
 	container.Args = append([]string(nil), settings.Args...)
 	for _, env := range settings.Env {
-		replaceEnv(container, *env.DeepCopy())
+		podconfig.SetEnv(container, *env.DeepCopy())
 	}
 	for _, source := range settings.EnvFrom {
 		container.EnvFrom = append(container.EnvFrom, *source.DeepCopy())
@@ -63,16 +64,6 @@ func applyContainer(pod *corev1.PodTemplateSpec, settings *v1.AgentContainerSpec
 		pod.Spec.RuntimeClassName = &name
 	}
 	pod.Spec.ImagePullSecrets = append([]corev1.LocalObjectReference(nil), settings.ImagePullSecrets...)
-}
-
-func replaceEnv(container *corev1.Container, value corev1.EnvVar) {
-	for i := range container.Env {
-		if container.Env[i].Name == value.Name {
-			container.Env[i] = value
-			return
-		}
-	}
-	container.Env = append(container.Env, value)
 }
 
 func removeEphemeralWorkspace(pod *corev1.PodTemplateSpec) {
@@ -101,5 +92,5 @@ func invalid(message string) error {
 func PrepareWorkspace(pod *corev1.PodTemplateSpec, workspace *v1.WorkspaceMount) {
 	removeEphemeralWorkspace(pod)
 	pod.Spec.Containers[0].WorkingDir = workspace.MountPath
-	replaceEnv(&pod.Spec.Containers[0], corev1.EnvVar{Name: "HOME", Value: workspace.MountPath})
+	podconfig.SetEnv(&pod.Spec.Containers[0], corev1.EnvVar{Name: "HOME", Value: workspace.MountPath})
 }

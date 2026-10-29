@@ -26,7 +26,7 @@ AgentRally builds on
 for Sandbox allocation and Pod management.
 Each agent keeps its own application logic and API.
 
-Basic CR configuration, field references and deployer RBAC are documented in
+Basic CR configuration and full field references are documented in
 [examples](examples/README.md).
 Complete Agent deployments live under `operator/` in the separate
 [agentrally-examples](https://github.com/chizhang21/agentrally-examples) repository.
@@ -108,7 +108,7 @@ helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
 ### 3. Deploy an agent
 
 From a local Operator checkout, replace the placeholder image in
-[definition.yaml](examples/base/definition.yaml) with your agent image.
+[definition.yaml](examples/basic/definition.yaml) with your agent image.
 It must support the built-in environment's [non-root defaults](docs/agent-templates.md).
 Run the following commands from the repository root.
 
@@ -116,12 +116,12 @@ Create the Group, wait for its namespace to be ready, then publish the definitio
 create the AgentInstance:
 
 ```sh
-kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
+kubectl apply -f examples/basic/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/basic/definition.yaml -f examples/basic/instance.yaml
 ```
 
 For credentials, persistent storage and HTTP access, follow the
-[focused examples](examples/README.md).
+[full CR references](examples/README.md).
 
 If the agent does not become ready, inspect its conditions and events:
 
@@ -157,7 +157,7 @@ See [Lifecycle](docs/usage.md#lifecycle) for commands and retention settings.
 | Configure the Helm release | [Chart configuration](chart/README.md) |
 | Pin revisions and manage workspace lifecycles | [Lifecycle](docs/usage.md#lifecycle) |
 | Deploy, expose and operate agents | [Usage](docs/usage.md) |
-| Try credentials, storage and access configurations | [Examples](examples/README.md) |
+| Inspect basic and full CR configuration | [Examples](examples/README.md) |
 | Customize environments and pools | [Agent templates](docs/agent-templates.md) |
 | Inspect available cluster configuration | [Cluster capabilities](docs/cluster-capabilities.md) |
 | Understand resource ownership and reconciliation | [Architecture](docs/architecture.md) |

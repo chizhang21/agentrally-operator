@@ -1,4 +1,5 @@
-# Replace these names with existing native classes. Unmatched mappings do not
+# Optional administrator overrides. Replace names with existing native classes.
+# Unmatched mappings do not
 # create capabilities. See docs/cluster-capabilities.md for evidence boundaries.
 # The controller generates status.capabilities; only mappings are user input.
 apiVersion: arally.io/v1alpha1

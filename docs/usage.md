@@ -5,21 +5,29 @@ This guide covers Agent configuration and day-to-day operations after
 Build and test instructions are in [Development](development.md).
 
 From a local Operator checkout, replace the image in
-[definition.yaml](../examples/base/definition.yaml), then create the Group, definition
+[definition.yaml](../examples/basic/definition.yaml), then create the Group, definition
 and instance in order.
 Run the commands below from the repository root:
 
 ```sh
-kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
+kubectl apply -f examples/basic/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/basic/definition.yaml -f examples/basic/instance.yaml
 ```
 
 ## Users and permissions
 
 Administrators install controllers, create Groups, set policies and grant access.
 Agent deployers manage definitions and instances in their assigned namespace using the
-[editor role and RoleBinding](../examples/rbac/README.md).
+[editor role](../config/rbac/editor-role.yaml).
 This role can read status but cannot write it.
+
+An administrator can bind it to an existing ServiceAccount in the Group namespace:
+
+```sh
+kubectl apply -f config/rbac/editor-role.yaml
+kubectl -n agentrally-demo create rolebinding agentinstance-editor \
+  --clusterrole=agentinstance-editor-role --serviceaccount=agentrally-demo:agent-user
+```
 
 Templates, Secrets, PVCs and Pod inspection need separate permissions.
 
@@ -39,9 +47,9 @@ Both resources must reference the same Group.
 Definitions publish immutable configuration; instances pin it at allocation.
 See [version selection and workspace lifetime](#lifecycle).
 
-Use [full-definition.yaml](../examples/full-definition.yaml) and
-[full.yaml](../examples/full.yaml) as the configuration and instance field references,
-or start from a focused [example](../examples/README.md).
+Use [full/definition.yaml](../examples/full/definition.yaml) and
+[full/instance.yaml](../examples/full/instance.yaml) as the configuration and instance field references,
+or start from the [basic deployment](../examples/README.md).
 To inspect the installed schema:
 
 ```sh
@@ -75,6 +83,43 @@ NetworkPolicy requires an enforcing CNI.
 Templates delegate network policy to the Group.
 Pod Security defaults to Restricted.
 
+### Restrict outbound traffic
+
+Use `AgentGroup.spec.networkPolicy` for native Kubernetes egress rules.
+The [full Group reference](../examples/full/group.yaml) includes DNS, a selected
+service and an external CIDR with an excluded range.
+The example selects all Pods in the Group namespace.
+It leaves ingress open unless another policy restricts it.
+
+For default-deny egress, set `policyTypes: [Egress]` with no egress rules.
+Omitting `policyTypes` follows Kubernetes defaults: Ingress, plus Egress only when
+there are egress rules.
+An empty `egress` list alone does not enable outbound isolation.
+Omitting a port's protocol means TCP.
+
+AgentRally adds no implicit DNS, same-Group or internet allowance.
+Allow both UDP and TCP port 53 for the cluster's actual DNS path.
+Adapt the example for NodeLocal DNS or a different DNS deployment.
+Allowing DNS queries does not restrict subsequent connections by domain name.
+Domain allowlists require a suitable CNI extension and are outside this native API.
+
+Put namespace and Pod selectors in the same peer to require both to match.
+Separate peers are alternatives.
+Policies selecting a Pod are additive: another policy can permit a path that this
+Group policy omits.
+AgentRally manages only `agentrally-group-policy` and preserves other policies.
+Control who can create policies and change destination labels when relying on this boundary.
+
+Validate allow and deny paths on the target CNI.
+Service address translation can change which addresses a policy sees.
+A Pod egress policy does not establish node or hostNetwork isolation.
+Storage/CSI traffic from the node needs separate controls.
+`NetworkPolicySupported` records discovered configuration; it does not prove
+packet filtering or change `enforcementVerified` to true.
+See the [Kubernetes NetworkPolicy semantics](https://kubernetes.io/docs/concepts/services-networking/network-policies/).
+
+### Execution constraints
+
 Use `spec.executionPolicy.allowedRuntimeClasses` to require an explicitly selected runtime from an administrator's list.
 Use `spec.executionPolicy.requireImageDigest: true` to require digest-pinned regular and init containers.
 Both constraints apply to the final resolved Pod, including custom templates.
@@ -92,7 +137,7 @@ Removing the field removes that policy; changes apply to newly admitted resource
 
 Admission-added resource defaults do not cause `RestartRequired`; explicit requested
 quantities remain part of configuration checks.
-See [Group policy](../examples/group-policy.yaml).
+See the [full Group reference](../examples/full/group.yaml).
 
 To stop new allocations, set `spec.allocationPaused: true`.
 Waiting instances report `AllocationPaused` without starting a new allocation budget.
@@ -159,7 +204,7 @@ An IP alone cannot supply a domain.
 HTTPS is preferred within the selected Gateway.
 
 instances can override port, hostname, scheme and Gateway; see
-[full.yaml](../examples/full.yaml).
+[full/instance.yaml](../examples/full/instance.yaml).
 An omitted Gateway namespace means the instance's namespace.
 
 The backend serves HTTP; the Gateway handles external TLS termination.
@@ -206,7 +251,7 @@ application deployment.
 ## Model and workspace
 
 `AgentDefinition.spec.modelProvider` in
-[full-definition.yaml](../examples/full-definition.yaml) injects `OPENAI_BASE_URL`,
+[full/definition.yaml](../examples/full/definition.yaml) injects `OPENAI_BASE_URL`,
 `AGENTRALLY_MODEL_NAME` and Secret-backed `OPENAI_API_KEY`.
 The application must consume or map these variables.
 
@@ -298,14 +343,12 @@ workspace:
 
 The Operator records its UID without adoption or deletion and enforces zero spares.
 Use one PVC per resident assistant; a retained volume is not a backup.
-See the [retained workspace CR example](../examples/retained-workspace.yaml).
 Application paths, probes and upgrade steps belong to each project in `agentrally-examples`.
 
 ### Initialize from a VolumeSnapshot
 
 Set the native PVC `dataSource` (or local `dataSourceRef`) to a ready
 `snapshot.storage.k8s.io/VolumeSnapshot` in the instance namespace.
-See [snapshot-workspace.yaml](../examples/snapshot-workspace.yaml).
 AgentRally checks that the snapshot exists, is not terminating, reports `readyToUse: true`,
 and fits within the requested storage capacity when `restoreSize` is reported.
 New allocations include the source UID in configuration identity, so an old warmed
@@ -481,7 +524,7 @@ Do not use Group deletion as a substitute for data retention planning.
 
 ### Execution expiry
 
-The optional `lifecycle` block in [full.yaml](../examples/full.yaml) controls expiry:
+The optional `lifecycle` block in [full/instance.yaml](../examples/full/instance.yaml) controls expiry:
 
 | Field | Behavior |
 | --- | --- |

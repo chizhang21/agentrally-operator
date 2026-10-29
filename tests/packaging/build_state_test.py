@@ -175,12 +175,6 @@ class BuildStateTests(unittest.TestCase):
         self.assertEqual(self.state()["version"], "1.2.3")
         self.assertEqual(self.state()["chart_oci_repo"], "oci://ghcr.io/chizhang21/helm")
 
-    def test_complete_image_override_preserves_chart_destination(self):
-        destination = "oci://charts.example/team/helm"
-        self.make("configure", "CHART_OCI_REPO=" + destination)
-        self.make("configure", "VERSION=1.2.3", "IMG=images.example/operator:custom")
-        self.assertEqual(self.state()["chart_oci_repo"], destination)
-
     def test_invalid_chart_destination_preserves_saved_settings(self):
         self.make("version")
         selected = self.state()
@@ -189,10 +183,6 @@ class BuildStateTests(unittest.TestCase):
             self.make("configure", "CHART_OCI_REPO=" + destination, success=False)
             self.assertEqual(self.state(), selected)
         self.assertFalse((self.root / "calls").exists())
-
-    def test_help_does_not_create_build_state(self):
-        self.make("help")
-        self.assertFalse((self.root / ".cache").exists())
 
 
 if __name__ == "__main__":

@@ -1,18 +1,19 @@
 # Instance field reference.
-# Apply full-definition.yaml first.
+# Apply group.yaml and definition.yaml first.
 # Replace placeholders and prepare the referenced dependencies before applying.
 apiVersion: arally.io/v1alpha1
 kind: AgentInstance
 metadata:
-  name: builtin-agent
-  namespace: agentrally-demo
+  name: agent
+  namespace: agentrally-reference
 spec:
   agentGroupRef:
-    name: demo
+    name: reference
   definitionRef:
-    name: builtin-agent
+    name: agent
   # Optional: pin a published 64-character definition revision.
-  # Omitted selects the latest on first acceptance and explicit restart.
+  # Omitted selects the latest on first acceptance.
+  # Restarts retain the accepted revision; select revision explicitly to upgrade.
   # revision: <published-revision-hash>
   workspace:
     mountPath: /workspace
@@ -23,10 +24,17 @@ spec:
         requests:
           storage: 20Gi
       # storageClassName: your-storage-class
+    # Alternative: remove volumeClaimTemplate and reference an existing PVC.
+    # existingClaimRef:
+    #   name: your-pvc
+    # exclusive: true
+    # Preview, requiring Group persistentWorkspaces; recovery and GC are unavailable.
+    # persistence:
+    #   retentionSeconds: 0
   interaction:
     type: HTTPRoute
     port: 8080
-    hostname: coding.example.com
+    hostname: agent.example.com
     scheme: HTTPS
     gatewayRef:
       name: shared
@@ -46,4 +54,4 @@ spec:
     # Optional: select an existing external pool referencing the matching
     # Group-owned AgentRally configuration snapshot. AgentRally does not create this pool.
     # warmPoolRef:
-    #   name: coding-pool
+    #   name: matching-pool

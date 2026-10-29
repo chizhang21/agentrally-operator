@@ -21,7 +21,7 @@ AgentRally 基于 [agent-sandbox Core 和 Extensions](https://github.com/kuberne
 完成 Sandbox 分配和 Pod 管理。
 每个 Agent 保留自己的应用逻辑和 API。
 
-基础 CR、字段参考和部署者 RBAC 放在本仓库的 [examples](examples/README.md) 中。
+基础 CR 和完整字段参考放在本仓库的 [examples](examples/README.md) 中。
 完整 Agent 部署示例放在独立的
 [agentrally-examples](https://github.com/chizhang21/agentrally-examples) 仓库的 `operator/` 目录中。
 
@@ -98,18 +98,18 @@ helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
 ### 3. 部署 Agent
 
 在 Operator 仓库的本地副本中，
-将 [definition.yaml](examples/base/definition.yaml) 中的占位镜像替换为你的 Agent 镜像，
+将 [definition.yaml](examples/basic/definition.yaml) 中的占位镜像替换为你的 Agent 镜像，
 确保它兼容内置环境的[非 root 默认配置](docs/agent-templates.md)。
 后续命令在该仓库的根目录执行。
 
 先创建 Group，等待其命名空间就绪，再发布 Definition 和创建 AgentInstance：
 
 ```sh
-kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
+kubectl apply -f examples/basic/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/basic/definition.yaml -f examples/basic/instance.yaml
 ```
 
-凭据、持久存储和 HTTP 入口配置见[专题示例](examples/README.md)。
+凭据、持久存储和 HTTP 入口配置见[完整 CR 参考](examples/README.md)。
 
 如果 Agent 未就绪，先查看它的条件和事件：
 
@@ -144,7 +144,7 @@ kubectl -n agentrally-demo describe agentinstance demo-agent
 | 配置 Helm Release | [Chart 配置](chart/README.md) |
 | 固定版本和管理工作区生命周期 | [生命周期](docs/usage.md#lifecycle) |
 | 部署 Agent、配置入口和日常运维 | [使用指南](docs/usage.md) |
-| 尝试凭据、存储和访问配置 | [示例](examples/README.md) |
+| 查看基础和完整 CR 字段参考 | [示例](examples/README.md) |
 | 定制运行环境和池 | [Agent 模板](docs/agent-templates.md) |
 | 查看集群现有配置 | [集群能力](docs/cluster-capabilities.md) |
 | 了解资源归属和协调过程 | [架构](docs/architecture.md) |

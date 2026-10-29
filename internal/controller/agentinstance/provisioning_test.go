@@ -84,7 +84,9 @@ func TestAgentInstancePoolCreationRetryRecovers(t *testing.T) {
 		return c.Create(ctx, o, opts...)
 	}})
 	r := &Reconciler{Client: guarded, Scheme: scheme}
-	reconcileWithUpstreamSimulation(t, r, w)
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(w)}); !apierrors.IsServiceUnavailable(err) {
+		t.Fatalf("Claim creation failure lost its API error: %v", err)
+	}
 	started := getAgentInstance(t, c, w).Status.Provisioning.StartedAt.DeepCopy()
 	reconcileWithUpstreamSimulation(t, r, w)
 	getClaim(t, c, w)

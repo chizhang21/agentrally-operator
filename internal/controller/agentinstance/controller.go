@@ -5,12 +5,12 @@ import (
 	"time"
 
 	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
 	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/diagnostics"
 	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/metrics"
 	"agentrally/operator/internal/sandbox"
-	"agentrally/operator/internal/workspace"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -171,10 +171,9 @@ func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentI
 	if mode != sandbox.Running && mode != sandbox.Suspended {
 		return r.pending(ctx, workload, "InvalidConfiguration", "operatingMode must be Running or Suspended")
 	}
-	config, err := r.resolveExecutionConfiguration(ctx, workload, group, mode)
+	config, err := r.prepareExecutionConfiguration(ctx, workload, group, mode)
 	if err != nil {
-		reason, message := diagnostics.Classify(err)
-		return r.pending(ctx, workload, reason, message)
+		return r.pendingOrFailed(ctx, workload, err)
 	}
 	if workload.Status.DesiredRevision != config.Revision {
 		base := workload.DeepCopy()
@@ -221,35 +220,16 @@ func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentI
 	return ctrl.Result{RequeueAfter: controller.DependencyRetry}, nil
 }
 
-func (r *Reconciler) resolveExecutionConfiguration(ctx context.Context, workload *v1.AgentInstance, group *v1.AgentGroup, mode string) (executionConfiguration, error) {
-	configurationCtx, configurationCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer configurationCancel()
-	if mode != sandbox.Suspended && workload.Spec.Workspace != nil && workload.Spec.Workspace.Persistence != nil {
-		revision, err := loadDefinitionRevision(configurationCtx, r.referenceReader(), workload)
-		if err != nil {
-			return executionConfiguration{}, err
-		}
-		resolved, err := executionconfig.ResolveTemplate(workload.Spec.DefinitionRef.Name, workload.Spec.Workspace, revision)
-		if err != nil {
-			return executionConfiguration{}, err
-		}
-		if err := validateWorkspaceMount(workload.Spec.Workspace, resolved); err != nil {
-			return executionConfiguration{}, err
-		}
-		if err := r.bindDefinition(configurationCtx, workload, resolved.Definition); err != nil {
-			return executionConfiguration{}, err
-		}
-		if err := workspace.Ensure(configurationCtx, r.directClient(), r.referenceReader(), r.Scheme, workload, group, revision); err != nil {
-			return executionConfiguration{}, err
-		}
-	}
-	resolved, err := desiredExecution(configurationCtx, r.referenceReader(), workload)
+// Resolve reads desired configuration or the pinned execution needed to suspend.
+// Resource creation, reservations and durable identity pins belong to preparation.
+func (r *Reconciler) resolveExecutionConfiguration(ctx context.Context, workload *v1.AgentInstance, mode string) (executionConfiguration, error) {
+	resolved, err := desiredExecution(ctx, r.referenceReader(), workload)
 	templateFallback := false
 	if err != nil && mode == sandbox.Suspended {
 		// Missing credentials/storage must not prevent stopping an existing instance.
 		if existing, getErr := r.existingExecution(ctx, workload); getErr == nil {
 			if current, decodeErr := sandbox.Decode(existing); decodeErr == nil {
-				resolved, err = &resolvedTemplate{PodTemplate: &current.Spec.PodTemplate, Service: current.Spec.Service, VolumeClaimTemplates: current.Spec.VolumeClaimTemplates}, nil
+				resolved, err = &allocation.Configuration{PodTemplate: &current.Spec.PodTemplate, Service: current.Spec.Service, VolumeClaimTemplates: current.Spec.VolumeClaimTemplates}, nil
 				templateFallback = true
 			}
 		}
@@ -257,24 +237,7 @@ func (r *Reconciler) resolveExecutionConfiguration(ctx context.Context, workload
 	if err != nil {
 		return executionConfiguration{}, err
 	}
-	revision := workload.Status.DesiredRevision
-	if !templateFallback {
-		if err := r.bindDefinition(configurationCtx, workload, resolved.Definition); err != nil {
-			return executionConfiguration{}, err
-		}
-		if err := r.bindWorkspace(configurationCtx, workload, resolved.Workspace); err != nil {
-			return executionConfiguration{}, err
-		}
-		resolved.SnapshotSources, err = r.resolveSnapshotSources(configurationCtx, workload, group, resolved.VolumeClaimTemplates)
-		if err != nil {
-			return executionConfiguration{}, err
-		}
-		revision, err = executionconfig.Revision(configurationCtx, r.referenceReader(), workload.Namespace, *resolved)
-		if err != nil {
-			return executionConfiguration{}, err
-		}
-	}
-	return executionConfiguration{Configuration: *resolved, Revision: revision, Fallback: templateFallback}, nil
+	return executionConfiguration{Configuration: *resolved, Revision: workload.Status.DesiredRevision, Fallback: templateFallback}, nil
 }
 
 // An allocated, matching Agent continues running when capability evidence changes.
@@ -301,7 +264,7 @@ func (r *Reconciler) capabilityBlocksExecution(ctx context.Context, workload *v1
 }
 
 func (r *Reconciler) pendingOrFailed(ctx context.Context, workload *v1.AgentInstance, err error) (ctrl.Result, error) {
-	if _, ok := err.(*diagnostics.Error); ok {
+	if diagnostics.IsPending(err) {
 		reason, message := diagnostics.Classify(err)
 		return r.pending(ctx, workload, reason, message)
 	}

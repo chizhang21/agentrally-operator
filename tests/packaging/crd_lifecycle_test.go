@@ -14,6 +14,7 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/capabilities"
+	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/controller/agentgroup"
 	"agentrally/operator/internal/controller/clustercapabilities"
 	"agentrally/operator/internal/podconfig"
@@ -28,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -74,12 +76,26 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Helm renders these CRDs as templates. Discovery may lag behind a
+	// successful install, so do not race the first example's REST mapping.
+	installed := &apiextensionsv1.CustomResourceDefinitionList{}
+	if err := k8s.List(t.Context(), installed); err != nil {
+		t.Fatal(err)
+	}
+	var crds []*apiextensionsv1.CustomResourceDefinition
+	for i := range installed.Items {
+		crds = append(crds, &installed.Items[i])
+	}
+	if err := envtest.WaitForCRDs(cfg, crds, envtest.CRDInstallOptions{MaxTime: 30 * time.Second, PollInterval: 100 * time.Millisecond}); err != nil {
+		t.Fatal("Helm CRD discovery:", err)
+	}
 	t.Run("manifest-admission", func(t *testing.T) { verifyManifestAdmission(t, k8s) })
 	verifyReportBootstrap(t, cfg, scheme, k8s, kubeconfig)
 	t.Run("runtime-capability-admission", func(t *testing.T) { verifyRuntimeCapabilityAdmission(t, k8s) })
 	t.Run("storage-capability-admission", func(t *testing.T) { verifyStorageCapabilityAdmission(t, k8s) })
 	verifyPodAdmissionDefaults(t, k8s)
 	t.Run("group-limit-range", func(t *testing.T) { verifyGroupLimitRangeConvergence(t, k8s, scheme) })
+	t.Run("group-network-policy", func(t *testing.T) { verifyGroupNetworkPolicyConvergence(t, k8s, scheme) })
 
 	group := &v1.AgentGroup{}
 	group.Name = "retained"
@@ -133,6 +149,67 @@ func verifyManifestAdmission(t *testing.T, kube client.Client) {
 		})
 	}
 	t.Logf("API-server dry-run admitted %d example resources", admitted)
+}
+
+func verifyGroupNetworkPolicyConvergence(t *testing.T, kube client.WithWatch, scheme *runtime.Scheme) {
+	t.Helper()
+	ctx := t.Context()
+	group := &v1.AgentGroup{ObjectMeta: metav1.ObjectMeta{Name: "network-defaults"}, Spec: v1.AgentGroupSpec{
+		// Pending quota admission keeps this isolated API-server test in prepare.
+		Quota: &corev1.ResourceQuotaSpec{Hard: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("8")}},
+		NetworkPolicy: &networkingv1.NetworkPolicySpec{
+			Ingress: []networkingv1.NetworkPolicyIngressRule{{Ports: []networkingv1.NetworkPolicyPort{{Port: ptr.To(intstr.FromInt32(8080))}}}},
+			Egress:  []networkingv1.NetworkPolicyEgressRule{{Ports: []networkingv1.NetworkPolicyPort{{Port: ptr.To(intstr.FromInt32(443))}}}},
+		},
+	}}
+	if err := kube.Create(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	updates := 0
+	counted := interceptor.NewClient(kube, interceptor.Funcs{Update: func(ctx context.Context, c client.WithWatch, object client.Object, options ...client.UpdateOption) error {
+		if _, ok := object.(*networkingv1.NetworkPolicy); ok {
+			updates++
+		}
+		return c.Update(ctx, object, options...)
+	}})
+	r := &agentgroup.Reconciler{Client: counted, Reader: kube, Scheme: scheme}
+	reconcile := func() {
+		t.Helper()
+		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(group)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	policy := &networkingv1.NetworkPolicy{}
+	key := client.ObjectKey{Namespace: group.NamespaceName(), Name: controller.GroupNetworkPolicyName}
+	for _, port := range []int32{443, 8443} {
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(group), group); err != nil {
+			t.Fatal(err)
+		}
+		group.Spec.NetworkPolicy.Egress[0].Ports[0].Port = ptr.To(intstr.FromInt32(port))
+		if err := kube.Update(ctx, group); err != nil {
+			t.Fatal(err)
+		}
+		declared := group.Spec.NetworkPolicy.DeepCopy()
+		reconcile()
+		if err := kube.Get(ctx, key, policy); err != nil {
+			t.Fatal(err)
+		}
+		if policy.Spec.Egress[0].Ports[0].Port.IntVal != port {
+			t.Fatal("policy update did not reach the native resource")
+		}
+		rv, before := policy.ResourceVersion, updates
+		reconcile()
+		reconcile()
+		if err := kube.Get(ctx, key, policy); err != nil {
+			t.Fatal(err)
+		}
+		if updates != before || policy.ResourceVersion != rv {
+			t.Errorf("native defaults did not converge: %d unnecessary updates, resourceVersion %s -> %s", updates-before, rv, policy.ResourceVersion)
+		}
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(group), group); err != nil || !equality.Semantic.DeepEqual(declared, group.Spec.NetworkPolicy) {
+			t.Fatal("native defaults changed Group intent", err)
+		}
+	}
 }
 
 func verifyGroupLimitRangeConvergence(t *testing.T, kube client.WithWatch, scheme *runtime.Scheme) {
@@ -319,7 +396,11 @@ func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart str
 			Spec:       *retained.Spec.DeepCopy(),
 		}
 		applied.Spec.Versions[0].Schema.OpenAPIV3Schema.Description = "schema applied before adoption"
-		if err := k8s.Patch(context.Background(), applied, client.Apply, client.FieldOwner("agentrally-operator-install"), client.ForceOwnership); err != nil {
+		fields, err := runtime.DefaultUnstructuredConverter.ToUnstructured(applied)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := k8s.Apply(context.Background(), client.ApplyConfigurationFromUnstructured(&unstructured.Unstructured{Object: fields}), client.FieldOwner("agentrally-operator-install"), client.ForceOwnership); err != nil {
 			t.Fatal(err)
 		}
 	}

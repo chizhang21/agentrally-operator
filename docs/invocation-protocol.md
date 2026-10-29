@@ -66,7 +66,8 @@ Invocation/control polling failures, control ACK failure, management disconnect,
 observed token rotation and leader shutdown close the invocation session.
 Forwarding is cancelled and every Start gate is closed.
 Management CRUD retains its existing response retry behavior.
-The readiness check describes management connectivity, not preview availability.
+The readiness check reports management connectivity and latched preview failures.
+It does not verify that an invocation session or application is ready.
 
 ## Commands and target verification
 
@@ -91,7 +92,7 @@ The local deadline is the earlier of that expiry and the budget measured from re
 The Connector derives the namespace from the verified Group.
 It checks Namespace ownership, Instance identity, accepted immutable revision,
 Sandbox/Pod ownership and current container execution identity.
-The selected agent container must expose a named TCP `http` port or exactly one TCP port.
+The selected agent container must expose a named TCP `http` port or one distinct TCP port.
 Host-network Pods are unsupported.
 
 With an enabled Sandbox Service, its owner, selector and ready EndpointSlices must
@@ -178,10 +179,13 @@ Active calls hold their capacity until result ACK completes.
 Rejected calls retain a pending slot until ACK, and release request bodies beforehand.
 The poller delivers queue-full refusals synchronously.
 History exhaustion closes the session instead of discarding deduplication records.
-After 64 distinct epochs, or if the backend reuses an epoch, the Connector returns a
-terminal error to the Manager.
-The Operator process exits so the Deployment can restart it; management polling cannot
-hide a stopped invocation worker behind a Ready status.
+After 64 distinct epochs, or if the backend reuses an epoch, the invocation preview
+stops until the Operator process is restarted.
+Its failure is latched; the preview never reconnects or clears anti-replay history
+in the same process.
+The elected replica's Connector readiness check fails, while management polling
+and core reconciliation continue.
+Restart the Operator after correcting the backend failure to re-enable the preview.
 
 The [shared fixture](../tests/fixtures/connector/invocation-v1.json) and reference-backend
 tests cover the Operator transport contract.

@@ -168,7 +168,7 @@ func TestPersistentWorkspaceRetryKeepsFirstRevision(t *testing.T) {
 	testutil.PublishDefinitions(t, c, scheme)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	instance.Spec.Workspace.MountPath = "/"
-	if _, err := r.resolveExecutionConfiguration(ctx, instance, group, sandbox.Running); err == nil {
+	if _, err := r.prepareExecutionConfiguration(ctx, instance, group, sandbox.Running); err == nil {
 		t.Fatal("invalid mount path accepted")
 	}
 	records, pvcs := &v1.AgentWorkspaceList{}, &corev1.PersistentVolumeClaimList{}
@@ -182,7 +182,7 @@ func TestPersistentWorkspaceRetryKeepsFirstRevision(t *testing.T) {
 		t.Fatal("invalid mount created protected storage before validation")
 	}
 	instance.Spec.Workspace.MountPath = "/workspace"
-	if _, err := r.resolveExecutionConfiguration(ctx, instance, group, sandbox.Running); err == nil {
+	if _, err := r.prepareExecutionConfiguration(ctx, instance, group, sandbox.Running); err == nil {
 		t.Fatal("expected interrupted workspace initialization")
 	}
 	state := getAgentInstance(t, c, instance)
@@ -193,7 +193,7 @@ func TestPersistentWorkspaceRetryKeepsFirstRevision(t *testing.T) {
 	object.Spec.Container.Image = "example/agent:v2"
 	saveDefinition(t, c, object)
 	testutil.PublishDefinitions(t, c, scheme)
-	if _, err := r.resolveExecutionConfiguration(ctx, state, group, sandbox.Running); err != nil {
+	if _, err := r.prepareExecutionConfiguration(ctx, state, group, sandbox.Running); err != nil {
 		t.Fatal(err)
 	}
 	state = getAgentInstance(t, c, instance)

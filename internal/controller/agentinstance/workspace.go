@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/allocation"
 	"agentrally/operator/internal/diagnostics"
+	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/podconfig"
 	"agentrally/operator/internal/sandbox"
 	managedworkspace "agentrally/operator/internal/workspace"
@@ -18,7 +20,30 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func validateWorkspaceMount(workspace *v1.WorkspaceMount, resolved *resolvedTemplate) error {
+// preparePersistentWorkspace persists the binding before any configuration can
+// consume it. Suspension must not depend on provisioning new storage.
+func (r *Reconciler) preparePersistentWorkspace(ctx context.Context, instance *v1.AgentInstance, group *v1.AgentGroup, mode string) error {
+	if mode == sandbox.Suspended || instance.Spec.Workspace == nil || instance.Spec.Workspace.Persistence == nil {
+		return nil
+	}
+	revision, err := loadDefinitionRevision(ctx, r.referenceReader(), instance)
+	if err != nil {
+		return err
+	}
+	resolved, err := executionconfig.ResolveTemplate(instance.Spec.DefinitionRef.Name, instance.Spec.Workspace, revision)
+	if err != nil {
+		return err
+	}
+	if err := validateWorkspaceMount(instance.Spec.Workspace, resolved); err != nil {
+		return err
+	}
+	if err := r.bindDefinition(ctx, instance, resolved.Definition); err != nil {
+		return err
+	}
+	return managedworkspace.Ensure(ctx, r.directClient(), r.referenceReader(), r.Scheme, instance, group, revision)
+}
+
+func validateWorkspaceMount(workspace *v1.WorkspaceMount, resolved *allocation.Configuration) error {
 	if !path.IsAbs(workspace.MountPath) || workspace.MountPath == "/" || path.Clean(workspace.MountPath) != workspace.MountPath {
 		return diagnostics.New("InvalidConfiguration", "workspace requires a clean absolute mountPath below /", nil)
 	}
@@ -47,7 +72,7 @@ func validateWorkspaceMount(workspace *v1.WorkspaceMount, resolved *resolvedTemp
 	return nil
 }
 
-func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.AgentInstance, resolved *resolvedTemplate, container *corev1.Container) error {
+func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.AgentInstance, resolved *allocation.Configuration, container *corev1.Container) error {
 	workspace := workload.Spec.Workspace
 	if workspace == nil {
 		return nil

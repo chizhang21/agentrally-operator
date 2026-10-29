@@ -592,7 +592,7 @@ func TestSharedPoolKeepsEachAllocatedWorkspacePrivate(t *testing.T) {
 				pod.Spec.Volumes[i].PersistentVolumeClaim.ClaimName = "another-users-volume"
 			}
 		}
-		config, err := r.resolveExecutionConfiguration(ctx, state, group, sandbox.Running)
+		config, err := r.prepareExecutionConfiguration(ctx, state, group, sandbox.Running)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -690,12 +690,14 @@ func TestManagedPoolRetriesAndRejectsSnapshotOwnershipCollision(t *testing.T) {
 		if o.GetObjectKind().GroupVersionKind().Kind == "SandboxWarmPool" {
 			poolWrites++
 			if poolWrites == 1 {
-				return errors.New("temporary create failure")
+				return apierrors.NewServiceUnavailable("temporary create failure")
 			}
 		}
 		return c.Create(ctx, o, opts...)
 	}})}
-	reconcileAllocation(t, r, w)
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(w)}); err == nil {
+		t.Fatal("pool creation failure did not request normal controller backoff")
+	}
 	state := getAgentInstance(t, c, w)
 	started := state.Status.Provisioning.StartedAt.DeepCopy()
 	if err := c.Get(ctx, client.ObjectKeyFromObject(desiredPoolClaim(w)), sandbox.ExtensionObject("SandboxClaim")); !apierrors.IsNotFound(err) {

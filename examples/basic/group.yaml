@@ -1,0 +1,9 @@
+apiVersion: arally.io/v1alpha1
+kind: AgentGroup
+metadata:
+  name: demo
+spec:
+  namespace: agentrally-demo
+  quota:
+    hard:
+      count/agentinstances.arally.io: "20"

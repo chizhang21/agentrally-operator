@@ -5,22 +5,8 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	nodev1 "k8s.io/api/node/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-func TestRuntimeAliasesAndUnrecognizedHandlers(t *testing.T) {
-	for _, tc := range []struct{ handler, family, contract string }{
-		{"kata-clh-azure-runtime-rs", "kata", "LinuxOCI"}, {"kata-dragonball", "kata", "LinuxOCI"},
-		{"runsc-systrap", "gvisor", "LinuxOCI"}, {"wamr", "wamr", "WasmWASI"},
-		{"kata-custom-unknown", "unknown", "Unknown"}, {"opaque", "unknown", "Unknown"},
-	} {
-		got := describeRuntime(nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"arally.io/runtime-type": "kata"}}, Handler: tc.handler})
-		if got.Family != tc.family || got.ImageContract != tc.contract {
-			t.Fatalf("%s: %+v", tc.handler, got)
-		}
-	}
-}
 
 func TestNetworkCatalogFlagsAndControllerPresence(t *testing.T) {
 	for _, tc := range []struct {

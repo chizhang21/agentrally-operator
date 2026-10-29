@@ -6,9 +6,11 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/utils/ptr"
 )
 
 const GroupNetworkPolicyName = "agentrally-group-policy"
@@ -27,6 +29,9 @@ func ManagedInvocation(group *v1.AgentGroup) bool {
 // all group Pods, so accepting an old partial selector would silently widen it.
 func GroupNetworkPolicy(group *v1.AgentGroup, peer InvocationPeer) (*networkingv1.NetworkPolicySpec, error) {
 	policy := group.Spec.NetworkPolicy.DeepCopy()
+	if policy != nil {
+		defaultNetworkPolicy(policy)
+	}
 	if !ManagedInvocation(group) {
 		return policy, nil
 	}
@@ -39,10 +44,6 @@ func GroupNetworkPolicy(group *v1.AgentGroup, peer InvocationPeer) (*networkingv
 	if len(policy.Ingress) != 0 || len(policy.PodSelector.MatchLabels) != 0 || len(policy.PodSelector.MatchExpressions) != 0 {
 		return nil, fmt.Errorf("managed invocation requires an empty podSelector and no explicit ingress")
 	}
-	// Preserve native defaulting before making policyTypes explicit.
-	if len(policy.PolicyTypes) == 0 && len(policy.Egress) != 0 {
-		policy.PolicyTypes = append(policy.PolicyTypes, networkingv1.PolicyTypeEgress)
-	}
 	if !slices.Contains(policy.PolicyTypes, networkingv1.PolicyTypeIngress) {
 		policy.PolicyTypes = append(policy.PolicyTypes, networkingv1.PolicyTypeIngress)
 	}
@@ -53,6 +54,30 @@ func GroupNetworkPolicy(group *v1.AgentGroup, peer InvocationPeer) (*networkingv
 		}},
 	}}}}
 	return policy, nil
+}
+
+// Match API-server defaults before comparing the embedded Group intent with the
+// native policy. Defaulting the copy avoids repeated writes without changing intent.
+func defaultNetworkPolicy(policy *networkingv1.NetworkPolicySpec) {
+	if len(policy.PolicyTypes) == 0 {
+		policy.PolicyTypes = []networkingv1.PolicyType{networkingv1.PolicyTypeIngress}
+		if len(policy.Egress) != 0 {
+			policy.PolicyTypes = append(policy.PolicyTypes, networkingv1.PolicyTypeEgress)
+		}
+	}
+	defaultPorts := func(ports []networkingv1.NetworkPolicyPort) {
+		for i := range ports {
+			if ports[i].Protocol == nil {
+				ports[i].Protocol = ptr.To(corev1.ProtocolTCP)
+			}
+		}
+	}
+	for i := range policy.Ingress {
+		defaultPorts(policy.Ingress[i].Ports)
+	}
+	for i := range policy.Egress {
+		defaultPorts(policy.Egress[i].Ports)
+	}
 }
 
 func IngressPolicy(policy *networkingv1.NetworkPolicy) bool {

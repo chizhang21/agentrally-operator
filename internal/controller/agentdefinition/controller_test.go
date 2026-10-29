@@ -2,6 +2,8 @@ package agentdefinition
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	v1 "agentrally/operator/api/v1alpha1"
@@ -15,9 +17,69 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
+
+func TestDefinitionPreservesAPIFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name, operation, reason string
+		cause                   error
+		pending                 bool
+	}{
+		{"missing-group", "group", "GroupNotFound", apierrors.NewNotFound(schema.GroupResource{Resource: "agentgroups"}, "team"), true},
+		{"forbidden-group", "group", "DependencyAccessDenied", apierrors.NewForbidden(schema.GroupResource{Resource: "agentgroups"}, "team", errors.New("private-detail")), false},
+		{"timeout-group", "group", "DependencyReadFailed", apierrors.NewTimeoutError("private-detail", 1), false},
+		{"missing-source", "source", "DependencyNotFound", apierrors.NewNotFound(schema.GroupResource{Resource: "sandboxtemplates"}, "source"), true},
+		{"forbidden-source", "source", "DependencyAccessDenied", apierrors.NewForbidden(schema.GroupResource{Resource: "sandboxtemplates"}, "source", errors.New("private-detail")), false},
+		{"forbidden-publication", "publication", "DependencyAccessDenied", apierrors.NewForbidden(schema.GroupResource{Resource: "sandboxtemplates"}, "revision", errors.New("private-detail")), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			group, ns, object, _, _ := testutil.Fixture()
+			if tc.operation != "source" {
+				object.Spec.TemplateRef = nil
+				object.Spec.Template = "generic"
+				object.Spec.Container = &v1.AgentContainerSpec{Image: "example/agent:v1"}
+			}
+			c, scheme := testutil.Client(t, group, ns, object)
+			guarded := interceptor.NewClient(c, interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, target client.Object, opts ...client.GetOption) error {
+					if _, group := target.(*v1.AgentGroup); group && tc.operation == "group" {
+						return tc.cause
+					}
+					if target.GetObjectKind().GroupVersionKind().Kind == "SandboxTemplate" && tc.operation == "source" {
+						return tc.cause
+					}
+					return c.Get(ctx, key, target, opts...)
+				},
+				Create: func(ctx context.Context, c client.WithWatch, target client.Object, opts ...client.CreateOption) error {
+					if target.GetObjectKind().GroupVersionKind().Kind == "SandboxTemplate" && tc.operation == "publication" {
+						return tc.cause
+					}
+					return c.Create(ctx, target, opts...)
+				},
+			})
+			r := &Reconciler{Client: guarded, Reader: guarded, Scheme: scheme}
+			result, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(object)})
+			if tc.pending {
+				if err != nil || result.RequeueAfter == 0 {
+					t.Fatalf("expected dependency wait: result=%+v error=%v", result, err)
+				}
+			} else if !errors.Is(err, tc.cause) || result.RequeueAfter != 0 {
+				t.Fatalf("API failure lost its cause or normal backoff: result=%+v error=%v", result, err)
+			}
+			if err := c.Get(t.Context(), client.ObjectKeyFromObject(object), object); err != nil {
+				t.Fatal(err)
+			}
+			ready := meta.FindStatusCondition(object.Status.Conditions, "Ready")
+			if ready == nil || ready.Reason != tc.reason || strings.Contains(ready.Message, "private-detail") {
+				t.Fatalf("incorrect or unsafe failure diagnostic: %+v", ready)
+			}
+		})
+	}
+}
 
 func TestDefinitionPublishesImmutableRevisionsWithoutExecution(t *testing.T) {
 	ctx := context.Background()
@@ -30,11 +92,15 @@ func TestDefinitionPublishesImmutableRevisionsWithoutExecution(t *testing.T) {
 	r := &Reconciler{Client: c, Reader: c, Scheme: scheme}
 	reconcile := func() {
 		t.Helper()
-		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(object)}); err != nil {
+		result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(object)})
+		if err != nil {
 			t.Fatal(err)
 		}
 		if err := c.Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
 			t.Fatal(err)
+		}
+		if object.DeletionTimestamp == nil && result.RequeueAfter != 0 {
+			t.Fatal("a published definition without prewarming should wait for dependency events")
 		}
 	}
 	reconcile()

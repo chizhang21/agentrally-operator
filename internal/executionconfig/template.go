@@ -14,11 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// resolvedTemplate is a snapshot of a built-in environment or a read-only native template.
-type resolvedTemplate = allocation.Configuration
-
-func ResolveTemplate(name string, workspace *v1.WorkspaceMount, revision *definition.Revision) (*resolvedTemplate, error) {
-	invalid := func(reason, message string) (*resolvedTemplate, error) {
+func ResolveTemplate(name string, workspace *v1.WorkspaceMount, revision *definition.Revision) (*allocation.Configuration, error) {
+	invalid := func(reason, message string) (*allocation.Configuration, error) {
 		return nil, diagnostics.New(reason, message, nil)
 	}
 	object := revision.Template
@@ -54,7 +51,7 @@ func ResolveTemplate(name string, workspace *v1.WorkspaceMount, revision *defini
 			}
 		}
 	}
-	return &resolvedTemplate{PodTemplate: pod, Service: service, VolumeClaimTemplates: claims, AgentContainer: revision.Spec.AgentContainer,
+	return &allocation.Configuration{PodTemplate: pod, Service: service, VolumeClaimTemplates: claims, AgentContainer: revision.Spec.AgentContainer,
 		Definition: &v1.DefinitionBinding{Name: name, UID: revision.DefinitionUID, Revision: revision.ID, TemplateName: object.GetName(),
 			AgentContainer: pod.Spec.Containers[index].Name, InvocationProtocol: revision.Spec.InvocationProtocol}}, nil
 }

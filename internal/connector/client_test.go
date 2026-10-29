@@ -238,11 +238,12 @@ func TestConfigurationRequiresHTTPSIdentityAndCredential(t *testing.T) {
 	}
 }
 
-func TestInvocationWorkerFailureStopsConnector(t *testing.T) {
-	var handshakes atomic.Int32
+func TestInvocationWorkerFailureKeepsManagementRunning(t *testing.T) {
+	var handshakes, polls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
 		case strings.HasSuffix(req.URL.Path, "/requests"):
+			polls.Add(1)
 			w.WriteHeader(http.StatusNoContent)
 		case strings.HasSuffix(req.URL.Path, "/sessions"):
 			var request struct {
@@ -268,9 +269,44 @@ func TestInvocationWorkerFailureStopsConnector(t *testing.T) {
 		t.Fatal(err)
 	}
 	connector.http = server.Client()
-	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
-	defer cancel()
-	if err := connector.Start(ctx); err == nil || ctx.Err() != nil || connector.Ready() || handshakes.Load() != 2 {
-		t.Fatalf("worker failure was hidden by management readiness: error=%v ready=%v handshakes=%d", err, connector.Ready(), handshakes.Load())
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- connector.Start(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Connector did not stop after manager cancellation")
+		}
+	})
+	deadline := time.NewTimer(6 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for !connector.InvocationFailed() {
+		select {
+		case <-done:
+			t.Fatal("invocation preview failure stopped management")
+		case <-deadline.C:
+			t.Fatal("preview failure was not exposed")
+		case <-tick.C:
+		}
+	}
+	previous := polls.Load()
+	for polls.Load() <= previous {
+		select {
+		case <-done:
+			t.Fatal("management stopped after preview failure")
+		case <-deadline.C:
+			t.Fatal("management did not continue after preview failure")
+		case <-tick.C:
+		}
+	}
+	if !connector.Ready() || handshakes.Load() != 2 || !connector.InvocationFailed() {
+		t.Fatalf("preview failure lost isolation or retried a terminal session: ready=%v handshakes=%d", connector.Ready(), handshakes.Load())
 	}
 }

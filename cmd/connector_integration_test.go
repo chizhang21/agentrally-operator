@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/pem"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"agentrally/operator/internal/connector"
+	"agentrally/operator/internal/controller"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,7 +26,113 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+func TestInvocationFailurePreservesManagerReconciliation(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Fatal("set KUBEBUILDER_ASSETS to envtest binaries")
+	}
+	environment := &envtest.Environment{BinaryAssetsDirectory: os.Getenv("KUBEBUILDER_ASSETS")}
+	cfg, err := environment.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := environment.Stop(); err != nil {
+			t.Error(err)
+		}
+	})
+	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/requests"):
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasSuffix(r.URL.Path, "/sessions"):
+			var request struct{ Nonce string }
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"protocolVersion": connector.InvocationVersion, "nonce": request.Nonce, "connectionEpoch": "reused-epoch"})
+		default:
+			w.WriteHeader(http.StatusConflict)
+		}
+	}))
+	defer backend.Close()
+	directory := t.TempDir()
+	token, ca := filepath.Join(directory, "token"), filepath.Join(directory, "ca.crt")
+	if err := os.WriteFile(token, []byte("local-integration-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: backend.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := ctrl.NewManager(cfg, managerOptions(address, "0", "", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := addConnector(mgr, cfg, connector.Config{Endpoint: backend.URL, ID: "preview", TokenFile: token, CAFile: ca,
+		InvocationPreview: true, InvocationPeer: controller.InvocationPeer{Namespace: "connector-preview", ReleaseName: "operator"}}); err != nil {
+		t.Fatal(err)
+	}
+	var reconciled atomic.Bool
+	if err := ctrl.NewControllerManagedBy(mgr).For(&corev1.ConfigMap{}).Complete(reconcile.Func(func(_ context.Context, request reconcile.Request) (ctrl.Result, error) {
+		if request.Name == "after-preview-failure" {
+			reconciled.Store(true)
+		}
+		return ctrl.Result{}, nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- mgr.Start(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("manager failed to stop")
+		}
+	})
+	httpClient := &http.Client{Timeout: time.Second}
+	if err := wait.PollUntilContextTimeout(ctx, 50*time.Millisecond, 10*time.Second, true, func(context.Context) (bool, error) {
+		response, err := httpClient.Get("http://" + address + "/readyz/connector")
+		if err != nil {
+			return false, nil
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, err := io.ReadAll(response.Body)
+		return err == nil && response.StatusCode == http.StatusInternalServerError && strings.Contains(string(body), "invocation preview stopped"), nil
+	}); err != nil {
+		t.Fatalf("preview failure was not exposed through readiness: %v", err)
+	}
+	kube, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "connector-preview"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "after-preview-failure", Namespace: "connector-preview"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := wait.PollUntilContextTimeout(ctx, 50*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) { return reconciled.Load(), nil }); err != nil {
+		t.Fatalf("preview failure stopped core reconciliation: %v", err)
+	}
+}
 
 func TestConnectorLeaderHandoffAndReadiness(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {

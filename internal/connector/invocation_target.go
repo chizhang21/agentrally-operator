@@ -138,7 +138,7 @@ func (e Executor) invocationPort(ctx context.Context, observed *observedExecutio
 	if index < 0 || pod.Spec.Containers[index].Name != binding.AgentContainer {
 		return 0, invocationError("AgentContainerUnavailable")
 	}
-	port, err := podconfig.InvocationPort(pod.Spec.Containers[index])
+	port, err := podconfig.HTTPPort(pod.Spec.Containers[index])
 	if err != nil {
 		return 0, invocationError("AmbiguousInvocationPort")
 	}
@@ -146,7 +146,7 @@ func (e Executor) invocationPort(ctx context.Context, observed *observedExecutio
 	if index < 0 {
 		return 0, invocationError("AgentContainerUnavailable")
 	}
-	actual, err := podconfig.InvocationPort(observed.Pod.Spec.Containers[index])
+	actual, err := podconfig.HTTPPort(observed.Pod.Spec.Containers[index])
 	if err != nil || actual != port {
 		return 0, invocationError("InvocationPortChanged")
 	}

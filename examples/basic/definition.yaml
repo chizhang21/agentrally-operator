@@ -1,12 +1,12 @@
-# Reusable configuration. Apply before its AgentInstance.
+# Replace the image with your agent image; apply before instance.yaml.
 apiVersion: arally.io/v1alpha1
 kind: AgentDefinition
 metadata:
-  name: restored-agent
+  name: demo-agent
   namespace: agentrally-demo
 spec:
   agentGroupRef:
     name: demo
   template: generic
   container:
-    image: ghcr.io/your-org/agent:tag
+    image: registry.example.com/my-agent:v1

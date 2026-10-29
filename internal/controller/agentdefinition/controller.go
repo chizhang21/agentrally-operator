@@ -19,7 +19,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const Finalizer = "arally.io/definition-cleanup"
@@ -98,7 +97,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	}
 	group := &v1.AgentGroup{}
 	if err := reader.Get(ctx, client.ObjectKey{Name: object.Spec.AgentGroupRef.Name}, group); err != nil {
-		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, object, false, "GroupNotFound", "The definition's AgentGroup is unavailable", nil)
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, object, false, "GroupNotFound", "The definition's AgentGroup is unavailable", nil)
+		}
+		return r.failed(ctx, object, err)
 	}
 	ready := meta.FindStatusCondition(group.Status.Conditions, "Ready")
 	if group.NamespaceName() != object.Namespace || group.DeletionTimestamp != nil || ready == nil || ready.Status != metav1.ConditionTrue || ready.ObservedGeneration != group.Generation {
@@ -120,13 +122,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	}
 	revision, err := definition.Publish(ctx, r.Client, reader, r.Scheme, object)
 	if err != nil {
-		reason, message := diagnostics.Classify(err)
-		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, object, false, reason, message, nil)
+		return r.failed(ctx, object, err)
 	}
 	if err := r.status(ctx, object, true, "ConfigurationPublished", "Immutable configuration published; no allocated execution is started", revision); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.prepareCapacity(ctx, reader, object, group, revision)
+	// Publication depends on watched Group/template changes. Only proactive
+	// capacity needs polling for upstream readiness and credential rotation.
+	result = ctrl.Result{}
+	if policy := object.Spec.Prewarming; policy != nil && policy.Replicas > 0 {
+		result.RequeueAfter = controller.DependencyRetry
+	}
+	return result, r.prepareCapacity(ctx, reader, object, group, revision)
+}
+
+func (r *Reconciler) failed(ctx context.Context, object *v1.AgentDefinition, cause error) (ctrl.Result, error) {
+	reason, message := diagnostics.Classify(cause)
+	if err := r.status(ctx, object, false, reason, message, nil); err != nil {
+		return ctrl.Result{}, err
+	}
+	if diagnostics.IsPending(cause) {
+		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, nil
+	}
+	return ctrl.Result{}, cause
 }
 
 func (r *Reconciler) status(ctx context.Context, object *v1.AgentDefinition, ready bool, reason, message string, revision *definition.Revision) error {
@@ -150,33 +168,11 @@ func (r *Reconciler) status(ctx context.Context, object *v1.AgentDefinition, rea
 	return r.Status().Patch(ctx, object, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
-func (r *Reconciler) mapDependency(ctx context.Context, object client.Object) []reconcile.Request {
-	definitions := &v1.AgentDefinitionList{}
-	opts := []client.ListOption{}
-	if object.GetNamespace() != "" {
-		opts = append(opts, client.InNamespace(object.GetNamespace()))
-	}
-	if err := r.List(ctx, definitions, opts...); err != nil {
-		ctrl.LoggerFrom(ctx).Error(diagnostics.SafeError(err), "Unable to map definition dependency")
-		return nil
-	}
-	var requests []reconcile.Request
-	for _, item := range definitions.Items {
-		match := false
-		if group, ok := object.(*v1.AgentGroup); ok {
-			match = item.Spec.AgentGroupRef.Name == group.Name
-		} else {
-			match = item.Spec.TemplateRef != nil && item.Spec.TemplateRef.Name == object.GetName()
-		}
-		if match {
-			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&item)})
-		}
-	}
-	return requests
-}
-
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Client, r.Reader, r.Scheme = mgr.GetClient(), mgr.GetAPIReader(), mgr.GetScheme()
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1.AgentDefinition{}, definitionDependencyIndex, definitionDependencyKeys); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).For(&v1.AgentDefinition{}).
 		Owns(sandbox.ExtensionObject("SandboxTemplate")).
 		Watches(&v1.AgentGroup{}, handler.EnqueueRequestsFromMapFunc(r.mapDependency)).

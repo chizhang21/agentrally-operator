@@ -39,7 +39,7 @@ func renderedCRD(t *testing.T, plural string) *apiextensionsv1.CustomResourceDef
 // Fake clients do not apply CRD pruning. Exercise the API-server's pruning code
 // so labels, annotations and native scheduling/container fields survive admission.
 func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
-	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "agent.yaml"}, {"clustercapabilities", "clustercapabilities", ""}, {"agentworkspace", "agentworkspaces", ""}} {
+	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "instance.yaml"}, {"clustercapabilities", "clustercapabilities", ""}, {"agentworkspace", "agentworkspaces", ""}} {
 		kind := sampleType.kind
 		t.Run(kind, func(t *testing.T) {
 			crd := renderedCRD(t, sampleType.plural)
@@ -69,7 +69,7 @@ func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
 			} else if sampleType.file == "" {
 				sample, err = yaml.Marshal(&v1.ClusterCapabilities{TypeMeta: metav1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "ClusterCapabilities"}, ObjectMeta: metav1.ObjectMeta{Name: "cluster"}})
 			} else {
-				sample, err = os.ReadFile("../../examples/base/" + sampleType.file)
+				sample, err = os.ReadFile("../../examples/basic/" + sampleType.file)
 			}
 			if err != nil {
 				t.Fatal(err)

@@ -33,7 +33,7 @@ func clientWithPublishedDefinitions(t *testing.T, objects ...client.Object) (cli
 	return c, scheme
 }
 
-func resolveSandboxTemplate(ctx context.Context, reader client.Reader, instance *v1.AgentInstance) (*resolvedTemplate, error) {
+func resolveSandboxTemplate(ctx context.Context, reader client.Reader, instance *v1.AgentInstance) (*allocation.Configuration, error) {
 	revision, err := loadDefinitionRevision(ctx, reader, instance)
 	if err != nil {
 		return nil, err

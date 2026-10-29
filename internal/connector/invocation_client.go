@@ -45,7 +45,8 @@ func (c *Client) runInvocations(ctx context.Context) error {
 		c.invocationMu.Unlock()
 		connection, err := c.invocationHandshake(sessionCtx)
 		if err == nil {
-			// No reuse or eviction: after 64 sessions a process restart is needed.
+			// Stop only the preview on exhaustion or replay. Its supervisor latches
+			// the failure until restart, preserving bounded anti-replay history.
 			if seen[connection.epoch] || len(seen) >= 64 {
 				cancel()
 				return invocationError("SessionEpochHistoryInvalid")

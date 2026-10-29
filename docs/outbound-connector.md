@@ -226,6 +226,8 @@ When enabled, `/readyz/connector` on the Operator health port reports backend
 connectivity on the elected replica; standby replicas pass this check without polling.
 A disconnected leader fails the aggregate `/readyz` check while `/healthz` and local
 reconciliation continue.
+A latched invocation-preview failure also fails Connector readiness.
+Management polling and local reconciliation continue until the Operator is restarted.
 
 Connector keeps no durable operation log or separate capability cache.
 

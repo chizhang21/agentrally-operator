@@ -2,15 +2,19 @@
 apiVersion: arally.io/v1alpha1
 kind: AgentDefinition
 metadata:
-  name: builtin-agent
-  namespace: agentrally-demo
+  name: agent
+  namespace: agentrally-reference
 spec:
   agentGroupRef:
-    name: demo
-  template: coding
+    name: reference
+  template: generic
+  # Alternative: omit template/container and set templateRef.name to custom-agent.
+  # See sandbox-template.yaml for the native source-template reference.
   agentContainer: agent
+  # Optional application contract for the separately enabled invocation preview.
+  # invocationProtocol: HTTPJSONSSEV1
   container:
-    image: registry.example.com/coding-agent-with-browser:replace-me
+    image: registry.example.com/your-agent:replace-me
     imagePullPolicy: IfNotPresent
     command: [/bin/agent]
     args: [serve, --port, "8080"]
@@ -62,6 +66,17 @@ spec:
     serviceAccountName: agent-runtime
     # Optional: choose a non-root UID; omit to use the image or admission default.
     # runAsUser: 1000
+  # Optional proactive preparation. Enable Group prewarming first.
+  # prewarming:
+  #   replicas: 1
+  # Optional workspace default for Instances; requires cold allocation.
+  # workspace:
+  #   mountPath: /workspace
+  #   volumeClaimTemplate:
+  #     accessModes: [ReadWriteOnce]
+  #     resources:
+  #       requests:
+  #         storage: 20Gi
   modelProvider:
     baseURL: https://model.example.com/v1
     model: your-model

@@ -1,18 +1,18 @@
 package agentinstance
 
 import (
+	"context"
+
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/allocation"
 	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/podconfig"
 	"agentrally/operator/internal/workspace"
-	"context"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type resolvedTemplate = allocation.Configuration
-
-func desiredExecution(ctx context.Context, reader client.Reader, instance *v1.AgentInstance) (*resolvedTemplate, error) {
+func desiredExecution(ctx context.Context, reader client.Reader, instance *v1.AgentInstance) (*allocation.Configuration, error) {
 	revision, err := loadDefinitionRevision(ctx, reader, instance)
 	if err != nil {
 		return nil, err

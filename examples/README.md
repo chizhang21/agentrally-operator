@@ -1,68 +1,40 @@
-# AgentRally Operator examples
+# AgentRally Operator CR references
 
-Minimal CRs, configuration references and deployer RBAC for AgentRally Operator.
-Complete application deployments live in the separate
-[agentrally-examples repository](https://github.com/chizhang21/agentrally-examples/tree/main/operator).
+This directory contains basic deployment manifests and full configuration references.
+Complete applications belong in [agentrally-examples](https://github.com/chizhang21/agentrally-examples/tree/main/operator).
 
-Install [Core, Extensions and AgentRally](../docs/installation.md) first.
-Run the commands below from this repository's root.
-Replace placeholder images and cluster-specific settings before applying a file.
+## Basic deployment
 
-## Minimal deployment
-
-Replace the placeholder image in [base/definition.yaml](base/definition.yaml).
-Then create the Group, wait for its namespace and apply the definition and instance:
+Install [Core, Extensions and AgentRally](../docs/installation.md).
+Replace the image in [basic/definition.yaml](basic/definition.yaml).
+Run from the repository root:
 
 ```sh
-kubectl apply -f examples/base/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/base/definition.yaml -f examples/base/agent.yaml
+kubectl apply -f examples/basic/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/basic/definition.yaml -f examples/basic/instance.yaml
 ```
 
-## Configuration examples
+The Group namespace must exist before namespaced resources can be created.
+Running is the default operating mode.
 
-Apply the definition listed for an example before creating its instance.
-The minimal and retained-workspace examples use [base/definition.yaml](base/definition.yaml).
+## Full field references
 
-| File | Use | Prerequisites |
-| --- | --- | --- |
-| [base/group.yaml](base/group.yaml) | Group, quota and optional HTTPRoute defaults | Administrator permissions |
-| [base/definition.yaml](base/definition.yaml) | Minimal reusable generic definition | Your image |
-| [base/agent.yaml](base/agent.yaml) | Minimal generic agent | Your image |
-| [group-policy.yaml](group-policy.yaml) | LimitRange, allocation pause and declarative prewarming | Administrator permissions; applications safe to start before allocation |
-| [prewarming.yaml](prewarming.yaml) | Prepare stateless capacity before the first Instance | Apply the included Group first; safe application with a readiness probe |
-| [snapshot-workspace-definition.yaml](snapshot-workspace-definition.yaml) / [snapshot-workspace.yaml](snapshot-workspace.yaml) | Private workspace initialized from a snapshot | Ready namespaced VolumeSnapshot, snapshot controller and compatible CSI StorageClass |
-| [retained-workspace.yaml](retained-workspace.yaml) | External PVC retained across instance replacement | Base Group and definition; filesystem StorageClass |
-| [cluster-capabilities.yaml](cluster-capabilities.yaml) | Administrator classifications for custom runtime/storage classes | Existing native classes and administrator permissions |
-| [full-definition.yaml](full-definition.yaml) / [full.yaml](full.yaml) | Built-in configuration and instance field references | Secrets, ConfigMap, RuntimeClass, ServiceAccount, pull credentials, filesystem StorageClass and Gateway |
-| [custom-template.yaml](custom-template.yaml) / [custom-definition.yaml](custom-definition.yaml) / [custom.yaml](custom.yaml) | Native SandboxTemplate reference | Apply template, then definition, then instance |
-| [httproute-definition.yaml](httproute-definition.yaml) / [httproute.yaml](httproute.yaml) | HTTP endpoint through Gateway API | Image serving port 8080; Group defaults or a unique eligible Gateway with a wildcard domain |
-| [rbac/editor.yaml](rbac/editor.yaml) | Namespace-scoped deployer access | Administrator applies the [RoleBinding](rbac/README.md) |
+| Resource | Reference |
+| --- | --- |
+| AgentGroup | [full/group.yaml](full/group.yaml) |
+| AgentDefinition | [full/definition.yaml](full/definition.yaml) |
+| AgentInstance | [full/instance.yaml](full/instance.yaml) |
+| ClusterCapabilities administrator mappings | [full/cluster-capabilities.yaml](full/cluster-capabilities.yaml) |
+| Native source for `templateRef` | [full/sandbox-template.yaml](full/sandbox-template.yaml) |
 
-Apply one instance example at a time.
-The base and HTTPRoute examples use the same name; do not apply the directory
-recursively.
+These files document available configuration; they require adaptation before use.
+Use a built-in `template` or a native `templateRef` on a Definition.
+The full Group and namespaced references use `agentrally-reference`, separate from the basic deployment.
+Do not apply this directory recursively.
 
-`full.yaml` is a field reference, not a ready-to-run deployment.
+Prepare referenced Secrets, ConfigMaps, ServiceAccounts, storage and routing dependencies first.
+AgentWorkspace is controller-managed and has no user-created example.
+ClusterCapabilities is created automatically; apply mappings only when needed.
 
-Select assistant or coding on AgentDefinition with `spec.template`; see
-[environment settings](../docs/agent-templates.md).
-AgentRally creates pools automatically.
-
-It also creates `ClusterCapabilities/cluster`; use the optional report example only to
-declare administrator mappings.
-Read it with `kubectl get clustercapabilities cluster -o yaml`.
-`status.capabilities` groups the discovered configuration into isolation, storage and
-networking capabilities while retaining the native resource references.
-Status is generated by the controller; do not add it to an apply manifest.
-See [capability evidence and classifications](../docs/cluster-capabilities.md).
-
-For an endpoint, declare the Agent's HTTP port and set `interaction.type`.
-HTTPRoute uses Group defaults or Gateway discovery.
-See [interaction setup](../docs/usage.md#interaction-endpoint).
-
-## Validate manifests
-
-Run `make check` from the repository root to validate Operator CRs against the
-CRD schemas, CEL rules and field-pruning behavior.
-It also checks references between the resources.
-To include external application examples, see [Development](../docs/development.md).
+See [Usage](../docs/usage.md) for behavior and [deployer RBAC](../config/rbac/editor-role.yaml) for access grants.
+`make check` validates the CR schemas, field preservation and resource references.

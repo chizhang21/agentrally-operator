@@ -130,6 +130,9 @@ func addConnector(mgr ctrl.Manager, cfg *rest.Config, connectorConfig connector.
 			if !relay.Ready() {
 				return errors.New("connector backend unavailable")
 			}
+			if relay.InvocationFailed() {
+				return errors.New("invocation preview stopped; restart the Operator to re-enable it")
+			}
 		default:
 		}
 		return nil

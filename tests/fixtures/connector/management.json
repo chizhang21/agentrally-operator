@@ -1,0 +1,123 @@
+{
+  "capabilities": {
+    "maxMessageBytes": 4194304,
+    "maxListLimit": 500,
+    "invocationPreview": false,
+    "exclusiveHandoff": false,
+    "invocation": false,
+    "observedOperatingMode": false,
+    "activityLease": false,
+    "processIdentity": false,
+    "scopedNamespaceCreate": true,
+    "resources": {
+      "agentgroups": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE"
+      ],
+      "agentdefinitions": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE"
+      ],
+      "agentinstances": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE"
+      ],
+      "clustercapabilities": [
+        "GET"
+      ],
+      "namespaces": [
+        "GET"
+      ],
+      "instanceobservations": [
+        "GET"
+      ],
+      "agentworkspaces": [
+        "GET"
+      ],
+      "persistentvolumeclaims": [
+        "GET"
+      ],
+      "secrets": [
+        "GET",
+        "POST"
+      ]
+    }
+  },
+  "unsupported": [
+    {
+      "id": "handoff",
+      "method": "POST",
+      "resource": "exclusivehandoff"
+    },
+    {
+      "id": "automatic-intent",
+      "method": "PUT",
+      "resource": "agentinstances",
+      "intent": {
+        "kind": "Observed",
+        "expectedExecutionId": "old-execution",
+        "observedAt": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "id": "process",
+      "method": "GET",
+      "resource": "instanceobservations",
+      "observationScope": "Process"
+    }
+  ],
+  "create": {
+    "id": "create-instance-1",
+    "method": "POST",
+    "resource": "agentinstances",
+    "namespace": "agentrally-team",
+    "scope": {
+      "groupName": "team",
+      "groupUID": "group-id",
+      "namespaceUID": "namespace-id"
+    },
+    "body": {
+      "apiVersion": "arally.io/v1alpha1",
+      "kind": "AgentInstance",
+      "metadata": {
+        "name": "assistant",
+        "namespace": "agentrally-team"
+      },
+      "spec": {
+        "agentGroupRef": {
+          "name": "team"
+        },
+        "definitionRef": {
+          "name": "assistant"
+        }
+      }
+    }
+  },
+  "secretMetadata": {
+    "apiVersion": "meta.k8s.io/v1",
+    "kind": "PartialObjectMetadata",
+    "metadata": {
+      "name": "provider",
+      "namespace": "agentrally-team",
+      "uid": "secret-uid",
+      "resourceVersion": "42",
+      "annotations": {
+        "arally.io/connector-operation-id": "create-secret-1"
+      }
+    }
+  },
+  "rejectedEnvelopes": [
+    {
+      "id": "unknown-envelope-field",
+      "method": "GET",
+      "resource": "connectorcapabilities",
+      "unexpected": true
+    }
+  ]
+}

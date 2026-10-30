@@ -47,11 +47,6 @@ func TestClusterCapabilities(t *testing.T) {
 	if os.Getenv("E2E_CNI") == "kindnet" && report.Status.NetworkPolicy.Status != "Unknown" {
 		t.Fatal("kindnet-only evidence became a global negative", report.Status.NetworkPolicy)
 	}
-	for _, condition := range report.Status.Conditions {
-		if condition.Type == "SnapshotDiscoveryReady" || condition.Type == "DiscoveryReady" || condition.Type == "DiscoverySucceeded" {
-			t.Fatal("retired discovery condition is still published", condition)
-		}
-	}
 	for _, capability := range report.Status.Capabilities {
 		if capability.Name == "VolumeSnapshots" {
 			t.Fatal("global snapshot inventory is still published")

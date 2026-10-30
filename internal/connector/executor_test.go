@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -14,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -30,6 +28,7 @@ func fakeKube(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
 		policyResource: "NetworkPolicyList", endpointResource: "EndpointSliceList",
 		groupGVR: "AgentGroupList", definitionGVR: "AgentDefinitionList", workloadGVR: "AgentInstanceList",
+		nativeResource("agentworkspaces"): "AgentWorkspaceList", resourceAPI("persistentvolumeclaims"): "PersistentVolumeClaimList",
 	}, objects...)
 }
 
@@ -72,59 +71,6 @@ func TestDisallowedRequestsNeverReachKubernetes(t *testing.T) {
 	}
 }
 
-func TestNativeWorkloadOperationsPreserveSpecAndUsePreconditions(t *testing.T) {
-	kube := fakeKube()
-	executor := Executor{Client: kube}
-	ctx := context.Background()
-	body := json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstance","metadata":{"name":"agent","namespace":"demo"},"spec":{"agentGroupRef":{"name":"demo"},"definitionRef":{"name":"agent-generic"}},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`)
-	create := executor.Execute(ctx, Request{ID: "create", Method: "POST", Resource: "agentinstances", Namespace: "demo", Body: body})
-	if create.ID != "create" || create.Status != http.StatusCreated {
-		t.Fatalf("create failed: %s", create.Body)
-	}
-	var original, created unstructured.Unstructured
-	_ = json.Unmarshal(body, &original)
-	_ = json.Unmarshal(create.Body, &created)
-	if !reflect.DeepEqual(original.Object["spec"], created.Object["spec"]) {
-		t.Fatal("relay modified native spec/env/Secret reference")
-	}
-	if _, present := created.Object["status"]; present {
-		t.Fatal("relay attempted to write controller status")
-	}
-	created.SetResourceVersion("7")
-	created.SetUID(types.UID("uid-7"))
-	created.Object["spec"].(map[string]any)["operatingMode"] = "Suspended"
-	update := executor.Execute(ctx, Request{Method: "PUT", Resource: "agentinstances", Namespace: "demo", Name: "agent", Body: mustJSON(&created)})
-	if update.Status != http.StatusOK {
-		t.Fatalf("update failed: %s", update.Body)
-	}
-	get := executor.Execute(ctx, Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Name: "agent"})
-	var read unstructured.Unstructured
-	_ = json.Unmarshal(get.Body, &read)
-	if get.Status != 200 || read.GetResourceVersion() != "7" || read.Object["spec"].(map[string]any)["operatingMode"] != "Suspended" {
-		t.Fatal("update concurrency token or native fields lost")
-	}
-	list := executor.Execute(ctx, Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Limit: 25, Continue: "page-2"})
-	if list.Status != 200 {
-		t.Fatalf("list failed: %s", list.Body)
-	}
-	deleted := executor.Execute(ctx, Request{Method: "DELETE", Resource: "agentinstances", Namespace: "demo", Name: "agent", Body: json.RawMessage(`{"preconditions":{"uid":"uid-7","resourceVersion":"7"}}`)})
-	if deleted.Status != http.StatusAccepted {
-		t.Fatalf("delete failed: %s", deleted.Body)
-	}
-	options := kube.Actions()[len(kube.Actions())-1].(ktesting.DeleteAction).GetDeleteOptions()
-	if *options.Preconditions.UID != "uid-7" || *options.Preconditions.ResourceVersion != "7" || *options.PropagationPolicy != metav1.DeletePropagationForeground {
-		t.Fatal("safe delete preconditions missing")
-	}
-	if executor.Execute(ctx, Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Name: "agent"}).Status != 404 {
-		t.Fatal("native not found error lost")
-	}
-	for _, action := range kube.Actions() {
-		if action.GetResource() != workloadGVR || action.GetNamespace() != "demo" || action.GetSubresource() != "" {
-			t.Fatal("operation escaped allowed main resource/namespace")
-		}
-	}
-}
-
 func TestNativeAPIErrorClassificationSurvivesWithoutReflectedValues(t *testing.T) {
 	for _, apiErr := range []error{
 		apierrors.NewConflict(groupGVR.GroupResource(), "demo", errors.New("resourceVersion mismatch")),
@@ -136,7 +82,7 @@ func TestNativeAPIErrorClassificationSurvivesWithoutReflectedValues(t *testing.T
 	} {
 		kube := fakeKube()
 		kube.PrependReactor("*", "*", func(ktesting.Action) (bool, runtime.Object, error) { return true, nil, apiErr })
-		response := (Executor{Client: kube}).Execute(context.Background(), Request{ID: "read", Method: "GET", Resource: "agentgroups"})
+		response := (Executor{Client: kube}).Execute(context.Background(), Request{ID: "read", Method: "GET", Resource: "agentgroups", Name: "demo", Scope: &RequestScope{GroupName: "demo", GroupUID: "group-id"}})
 		var status metav1.Status
 		if err := json.Unmarshal(response.Body, &status); err != nil {
 			t.Fatal(err)
@@ -158,41 +104,32 @@ func TestPaginationReachesNativeAPI(t *testing.T) {
 		}
 		calls := 0
 		kube, err := dynamic.NewForConfig(&rest.Config{Host: "https://kube.example", Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			calls++
-			if req.URL.Path != "/apis/arally.io/v1alpha1/namespaces/demo/agentinstances" || req.URL.Query().Get("limit") != wantLimit || req.URL.Query().Get("continue") != "page-2" {
-				t.Fatalf("incorrect native list request: %s", req.URL)
+			body := ""
+			switch req.URL.Path {
+			case "/apis/arally.io/v1alpha1/agentgroups/team":
+				body = `{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"team","uid":"group-id"},"spec":{}}`
+			case "/api/v1/namespaces/agentrally-team":
+				body = `{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"agentrally-team","uid":"namespace-id","ownerReferences":[{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","name":"team","uid":"group-id","controller":true}]}}`
+			case "/apis/arally.io/v1alpha1/namespaces/agentrally-team/agentinstances":
+				calls++
+				if req.URL.Query().Get("limit") != wantLimit || req.URL.Query().Get("continue") != "page-2" {
+					t.Fatalf("incorrect native list request: %s", req.URL)
+				}
+				body = `{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstanceList","metadata":{"continue":"page-3"},"items":[]}`
+			default:
+				t.Fatalf("unexpected request: %s", req.URL)
 			}
-			response := remoteResponse(req, 200, `{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstanceList","metadata":{"continue":"page-3"},"items":[]}`)
+			response := remoteResponse(req, 200, body)
 			response.Header.Set("Content-Type", "application/json")
 			return response, nil
 		})})
 		if err != nil {
 			t.Fatal(err)
 		}
-		response := (Executor{Client: kube}).Execute(context.Background(), Request{Method: "GET", Resource: "agentinstances", Namespace: "demo", Limit: limit, Continue: "page-2"})
+		response := (Executor{Client: kube}).Execute(context.Background(), Request{Method: "GET", Resource: "agentinstances", Namespace: "agentrally-team", Limit: limit, Continue: "page-2", Scope: &RequestScope{GroupName: "team", GroupUID: "group-id", NamespaceUID: "namespace-id"}})
 		var list unstructured.UnstructuredList
 		if response.Status != 200 || json.Unmarshal(response.Body, &list) != nil || list.GetContinue() != "page-3" || calls != 1 {
 			t.Fatal("native pagination result lost")
 		}
-	}
-}
-
-func TestConnectorRelaysDefinitionConfiguration(t *testing.T) {
-	kube := fakeKube()
-	body := json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentDefinition","metadata":{"name":"assistant","namespace":"demo"},"spec":{"agentGroupRef":{"name":"demo"},"template":"assistant","container":{"image":"example/assistant:v1","env":[{"name":"API_KEY","valueFrom":{"secretKeyRef":{"name":"credentials","key":"key"}}}]}}}`)
-	response := (Executor{Client: kube}).Execute(context.Background(), Request{Method: "POST", Resource: "agentdefinitions", Namespace: "demo", Body: body})
-	if response.Status != http.StatusCreated {
-		t.Fatal(string(response.Body))
-	}
-	object := &unstructured.Unstructured{}
-	if err := json.Unmarshal(response.Body, object); err != nil {
-		t.Fatal(err)
-	}
-	original := &unstructured.Unstructured{}
-	if err := json.Unmarshal(body, original); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(object.Object["spec"], original.Object["spec"]) || kube.Actions()[0].GetResource() != definitionGVR {
-		t.Fatal("definition relay changed credential references or resource routing")
 	}
 }

@@ -58,10 +58,6 @@ helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operat
 
 Add `-f myvalues.yaml` for custom values.
 
-If CRDs remain from a previous uninstall, add `--take-ownership` to adopt them, using
-the same release name and namespace.
-Use adoption only for resources belonging to your AgentRally installation.
-
 `--wait --timeout 5m` waits up to five minutes for the release's workloads and
 dependencies to be ready.
 
@@ -79,10 +75,6 @@ Continue with [deploying an agent](usage.md).
 
 ### Upgrade AgentRally
 
-When upgrading from Activity Lease support, preserve explicit instance intent with the
-[migration tool](../hack/migrate_activity.py) before replacing the CRDs.
-Use `--help` to review the required context and Operator Deployment arguments.
-
 For an OCI installation, select the published Chart version to install.
 For a local archive, use [Updating a dev build](#updating-a-dev-build).
 
@@ -97,8 +89,6 @@ This updates the Operator and CRDs together.
 `--reset-then-reuse-values` uses the new chart defaults and preserves previous explicit
 settings, including pull Secrets.
 Pass `-f` or `--set` to change those settings.
-If existing AgentRally CRDs are outside the release, add `--take-ownership` for the first
-upgrade.
 No separate `kubectl apply` of AgentRally CRDs is needed.
 
 Uninstall retains CRDs and Agent resources.
@@ -117,7 +107,6 @@ helm install agentrally-operator "$CHART_PACKAGE" \
   -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 
-If CRDs remain from a previous uninstall, add `--take-ownership` to the install command.
 For an existing Helm release, use [Updating a dev build](#updating-a-dev-build).
 
 If you built with an explicit `VERSION`, set `CHART_PACKAGE` to that version's archive.
@@ -167,7 +156,6 @@ This uses the [same upgrade behavior](#upgrade-agentrally) as a published chart,
 explicit settings such as `imagePullSecrets`.
 Explicit image overrides also carry over; update them with `--set` if the image
 reference changed.
-For CRDs installed outside the release, add `--take-ownership` on the first upgrade.
 
 The dev tag stays `v0.0.0-dev`.
 Its packaged pull policy is `Always`, but existing Pods need a restart to use the

@@ -255,7 +255,6 @@ type DefinitionBinding struct {
 	Revision     string    `json:"revision"`
 	TemplateName string    `json:"templateName"`
 	// AgentContainer is the actual container name resolved from this revision.
-	// Missing on older bindings until the controller verifies that revision.
 	// +optional
 	AgentContainer string `json:"agentContainer,omitempty"`
 	// +optional

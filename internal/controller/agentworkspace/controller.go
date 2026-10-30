@@ -31,6 +31,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.Get(ctx, req.NamespacedName, record); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// Retained records must remain discoverable after their Instance is gone.
+	// Labels are query indexes; the immutable spec remains the identity authority.
+	if record.Labels[workspace.GroupUIDLabel] != string(record.Spec.GroupUID) || record.Labels[workspace.NamespaceUIDLabel] != string(record.Spec.NamespaceUID) {
+		base := record.DeepCopy()
+		if record.Labels == nil {
+			record.Labels = map[string]string{}
+		}
+		record.Labels[workspace.GroupUIDLabel], record.Labels[workspace.NamespaceUIDLabel] = string(record.Spec.GroupUID), string(record.Spec.NamespaceUID)
+		if err := r.Patch(ctx, record, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	reader := r.Reader
 	if reader == nil {
 		reader = r.Client

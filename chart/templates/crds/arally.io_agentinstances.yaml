@@ -566,9 +566,8 @@ spec:
                   of later updates.
                 properties:
                   agentContainer:
-                    description: |-
-                      AgentContainer is the actual container name resolved from this revision.
-                      Missing on older bindings until the controller verifies that revision.
+                    description: AgentContainer is the actual container name resolved
+                      from this revision.
                     type: string
                   invocationProtocol:
                     type: string

@@ -75,14 +75,11 @@ func NewClient(config Config, executor Executor) (*Client, error) {
 		}
 		transport.TLSClientConfig.RootCAs = roots
 	}
-	v2 := *base
-	v2.Path = strings.TrimRight(base.Path, "/") + "/internal/v2/connectors/" + config.ID
-	v2.RawPath = ""
 	executor.InvocationPreview = config.InvocationPreview
-	base.Path = strings.TrimRight(base.Path, "/") + "/internal/v1/connectors/" + config.ID
+	base.Path = strings.TrimRight(base.Path, "/") + "/internal/connectors/" + config.ID
 	base.RawPath = ""
 	return &Client{
-		config: config, requests: base.String() + "/requests", responses: base.String() + "/responses", invocations: v2.String(),
+		config: config, requests: base.String() + "/requests", responses: base.String() + "/responses", invocations: base.String(),
 		http:     &http.Client{Transport: transport, Timeout: 45 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		executor: executor, wait: waitContext,
 	}, nil

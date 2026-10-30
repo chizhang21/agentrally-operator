@@ -14,7 +14,6 @@ import (
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/sandbox"
 
-	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -67,28 +66,11 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 	readyAgent(t, ctx, kube, instance)
 	accepted, execution := instance.Status.Definition.Revision, instance.Status.SandboxUID
 	execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "sh", "-ec", "printf idle-retained > /workspace/canary; sync")
-	lease := &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{Name: "activity", Namespace: instance.Namespace,
-		OwnerReferences: []metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "AgentInstance", Name: instance.Name, UID: instance.UID, Controller: ptr.To(true)}}},
-		Spec: coordinationv1.LeaseSpec{HolderIdentity: ptr.To(string(execution)), LeaseDurationSeconds: ptr.To(int32(120))}}
-	signal := func(state string) {
-		t.Helper()
-		now := time.Now().UTC()
-		lease.Spec.RenewTime = &metav1.MicroTime{Time: now}
-		lease.Annotations = map[string]string{"arally.io/activity-state": state, "arally.io/last-activity-time": now.Format(time.RFC3339Nano)}
-		if lease.ResourceVersion == "" {
-			create(t, ctx, kube, lease)
-		} else {
-			if err := kube.Update(ctx, lease); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
 	var resume []time.Duration
 	for attempt := range 3 {
 		oldPod := instance.Status.PodUID
 		instance.Spec.OperatingMode = sandbox.Suspended
 		update(t, ctx, kube, instance)
-		signal("Idle")
 		await(t, "explicit suspension", func() (bool, error) {
 			err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
 			return conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
@@ -104,7 +86,6 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 		start := time.Now()
 		instance.Spec.OperatingMode = sandbox.Running
 		update(t, ctx, kube, instance)
-		signal("Busy")
 		await(t, "explicit resume with a new process", func() (bool, error) {
 			err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
 			return conditionTrue(instance.Status.Conditions, "Ready", instance.Generation) && instance.Status.PodUID != oldPod, err
@@ -123,8 +104,7 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 	logLatencySamples(t, "resume-observed", resume)
 	instance.Spec.OperatingMode = sandbox.Suspended
 	update(t, ctx, kube, instance)
-	signal("Busy")
-	await(t, "legacy busy signal does not override explicit suspension", func() (bool, error) {
+	await(t, "suspension before maximum lifetime cleanup", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
 		return conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
 	})

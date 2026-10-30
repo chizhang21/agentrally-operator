@@ -62,10 +62,10 @@ func TestPoolClaimContainsOnlyAllocationReference(t *testing.T) {
 			t.Fatalf("cold Sandbox cannot create its Service for %q: %v", name, errors)
 		}
 	}
-	// Upgrades keep the already-recorded native Claim identity for observation/cleanup.
-	w.Status.Provisioning = &agentrallyv1alpha1.AgentInstanceProvisioningStatus{ClaimName: "legacy.name-claim-1234567890abcdef"}
+	// Observation and cleanup use the recorded native Claim identity.
+	w.Status.Provisioning = &agentrallyv1alpha1.AgentInstanceProvisioningStatus{ClaimName: "allocated-claim"}
 	if existing := (&Reconciler{}).allocationClaim(w); existing.GetName() != w.Status.Provisioning.ClaimName {
-		t.Fatal("recorded allocation name changed during upgrade")
+		t.Fatal("recorded allocation identity was ignored")
 	}
 }
 

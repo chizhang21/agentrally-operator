@@ -4,6 +4,7 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/metadata"
 )
 
 const MaxMessageBytes = 4 << 20
@@ -21,7 +23,6 @@ const MaxMessageBytes = 4 << 20
 // Request contains routing metadata and an opaque native Kubernetes body.
 type Request struct {
 	ID               string          `json:"id"`
-	Version          string          `json:"version,omitempty"`
 	Method           string          `json:"method"`
 	Resource         string          `json:"resource"`
 	Namespace        string          `json:"namespace,omitempty"`
@@ -42,6 +43,7 @@ type Response struct {
 
 type Executor struct {
 	Client            dynamic.Interface
+	Metadata          metadata.Interface
 	InvocationPreview bool
 }
 
@@ -53,14 +55,16 @@ func (e Executor) Execute(ctx context.Context, req Request) Response {
 	body, status, err := e.execute(ctx, req)
 	if err != nil {
 		var apiStatus metav1.Status
-		if s, ok := err.(apierrors.APIStatus); ok {
+		var authored *protocolFailure
+		var s apierrors.APIStatus
+		if errors.As(err, &authored) {
+			apiStatus = authored.Status()
+		} else if errors.As(err, &s) {
 			apiStatus = s.Status()
-			if _, trusted := err.(*protocolFailure); !trusted {
-				// Invalid/CEL/webhook errors can echo values from the object body.
-				// Keep machine-readable classification without reflecting those values.
-				apiStatus = metav1.Status{Status: metav1.StatusFailure, Code: apiStatus.Code, Reason: apiStatus.Reason,
-					Message: "Kubernetes rejected the request; inspect the resource and API-server diagnostics"}
-			}
+			// Invalid/CEL/webhook errors can echo values from the object body.
+			// Keep machine-readable classification without reflecting those values.
+			apiStatus = metav1.Status{Status: metav1.StatusFailure, Code: apiStatus.Code, Reason: apiStatus.Reason,
+				Message: "Kubernetes rejected the request; inspect the resource and API-server diagnostics"}
 		} else {
 			apiStatus = apierrors.NewInternalError(fmt.Errorf("kubernetes request failed")).Status()
 		}
@@ -78,10 +82,7 @@ func (e Executor) execute(ctx context.Context, req Request) (json.RawMessage, in
 	if req.Resource == "connectorcapabilities" {
 		return mustJSON(managementCapabilities(e.InvocationPreview)), http.StatusOK, nil
 	}
-	if req.Version == "v2" {
-		return e.executeScoped(ctx, req)
-	}
-	return e.executeNative(ctx, req)
+	return e.executeScoped(ctx, req)
 }
 
 func (e Executor) executeNative(ctx context.Context, req Request) (json.RawMessage, int, error) {
@@ -89,7 +90,7 @@ func (e Executor) executeNative(ctx context.Context, req Request) (json.RawMessa
 	if err != nil {
 		return nil, 0, err
 	}
-	resource := e.Client.Resource(schema.GroupVersionResource{Group: "arally.io", Version: "v1alpha1", Resource: req.Resource})
+	resource := e.Client.Resource(resourceAPI(req.Resource))
 	var client dynamic.ResourceInterface = resource
 	if req.Namespace != "" {
 		client = resource.Namespace(req.Namespace)
@@ -102,11 +103,7 @@ func (e Executor) executeNative(ctx context.Context, req Request) (json.RawMessa
 			return nil, 0, protocolError(http.StatusBadRequest, "BadRequest", "GET must not specify a body")
 		}
 		if req.Name == "" {
-			limit := req.Limit
-			if limit == 0 {
-				limit = 100
-			}
-			result, err = client.List(ctx, metav1.ListOptions{Limit: limit, Continue: req.Continue})
+			result, err = client.List(ctx, listOptions(req))
 		} else {
 			result, err = client.Get(ctx, req.Name, metav1.GetOptions{})
 		}
@@ -149,6 +146,21 @@ func validateRequest(req Request) (string, error) {
 		kind = "AgentInstance"
 	case "agentdefinitions":
 		kind = "AgentDefinition"
+	case "agentworkspaces":
+		kind = "AgentWorkspace"
+		if req.Method != http.MethodGet {
+			return "", protocolError(http.StatusForbidden, "Forbidden", "workspaces are read only")
+		}
+	case "persistentvolumeclaims":
+		kind = "PersistentVolumeClaim"
+		if req.Method != http.MethodGet {
+			return "", protocolError(http.StatusForbidden, "Forbidden", "PVC references are read only")
+		}
+	case "secrets":
+		kind = "Secret"
+		if req.Method != http.MethodGet && req.Method != http.MethodPost {
+			return "", protocolError(http.StatusForbidden, "Forbidden", "Secrets only support creation and metadata reads")
+		}
 	case "clustercapabilities":
 		kind = "ClusterCapabilities"
 		if req.Method != http.MethodGet {
@@ -157,9 +169,9 @@ func validateRequest(req Request) (string, error) {
 	default:
 		return "", protocolError(http.StatusBadRequest, "BadRequest", "unsupported resource")
 	}
-	if req.Resource == "agentinstances" || req.Resource == "agentdefinitions" {
+	if req.Resource == "agentinstances" || req.Resource == "agentdefinitions" || req.Resource == "secrets" || req.Resource == "persistentvolumeclaims" {
 		if req.Namespace == "" || len(validation.IsDNS1123Label(req.Namespace)) != 0 {
-			return "", protocolError(http.StatusBadRequest, "BadRequest", "agentdefinitions and agentinstances require a valid namespace")
+			return "", protocolError(http.StatusBadRequest, "BadRequest", "namespaced resources require a valid namespace")
 		}
 	} else if req.Namespace != "" {
 		return "", protocolError(http.StatusBadRequest, "BadRequest", "cluster scoped resources cannot specify namespace")
@@ -194,16 +206,23 @@ func requestObject(req Request, kind string) (*unstructured.Unstructured, error)
 		return nil, protocolError(http.StatusBadRequest, "BadRequest", "metadata.namespace does not match request namespace")
 	}
 	delete(object.Object, "status")
-	if req.Resource == "agentinstances" {
-		for _, field := range []string{"idleTimeoutSeconds", "activityLeaseRef"} {
-			if _, found, _ := unstructured.NestedFieldNoCopy(object.Object, "spec", "lifecycle", field); found {
-				return nil, protocolError(http.StatusBadRequest, "RemovedActivityContract", "Activity Lease fields have been retired; migrate explicit operatingMode before upgrading")
-			}
-		}
-	}
 	if req.Method == http.MethodPost {
 		if req.Name != "" || object.GetResourceVersion() != "" || object.GetUID() != "" {
 			return nil, protocolError(http.StatusBadRequest, "BadRequest", "create uses the collection endpoint without uid or resourceVersion")
+		}
+		metadata, _, err := unstructured.NestedMap(object.Object, "metadata")
+		if err != nil {
+			return nil, protocolError(http.StatusBadRequest, "BadRequest", "invalid creation metadata")
+		}
+		for field := range metadata {
+			switch field {
+			case "name", "namespace", "labels", "annotations":
+			default:
+				return nil, protocolError(http.StatusBadRequest, "BadRequest", "create metadata only supports name, namespace, labels and annotations")
+			}
+		}
+		if err := markCreation(&object, req.ID); err != nil {
+			return nil, err
 		}
 	} else {
 		if req.Name == "" || req.Name != object.GetName() || object.GetResourceVersion() == "" {
@@ -211,6 +230,39 @@ func requestObject(req Request, kind string) (*unstructured.Unstructured, error)
 		}
 	}
 	return &object, nil
+}
+
+func resourceAPI(name string) schema.GroupVersionResource {
+	if name == "secrets" || name == "persistentvolumeclaims" {
+		return schema.GroupVersionResource{Version: "v1", Resource: name}
+	}
+	return nativeResource(name)
+}
+
+func listOptions(req Request) metav1.ListOptions {
+	limit := req.Limit
+	if limit == 0 {
+		limit = 100
+	}
+	return metav1.ListOptions{Limit: limit, Continue: req.Continue}
+}
+
+const operationAnnotation = "arally.io/connector-operation-id"
+
+func markCreation(object *unstructured.Unstructured, id string) error {
+	if !wireID.MatchString(id) {
+		return protocolError(http.StatusBadRequest, "BadRequest", "create requires a valid operation id")
+	}
+	annotations := object.GetAnnotations()
+	if _, reserved := annotations[operationAnnotation]; reserved {
+		return protocolError(http.StatusBadRequest, "BadRequest", "creation operation annotation is managed by Connector")
+	}
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[operationAnnotation] = id
+	object.SetAnnotations(annotations)
+	return nil
 }
 
 func requestDeleteOptions(req Request) (metav1.DeleteOptions, error) {

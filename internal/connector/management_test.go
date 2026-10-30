@@ -75,18 +75,21 @@ func managementFixture(t *testing.T) (*dynamicfake.FakeDynamicClient, Request) {
 	if err := kube.Tracker().Create(sandbox.GroupVersion.WithResource("sandboxes"), current, ns.Name); err != nil {
 		t.Fatal(err)
 	}
-	return kube, Request{ID: "read", Version: "v2", Method: http.MethodGet, Resource: "instanceobservations", Namespace: ns.Name, Name: instance.Name,
+	return kube, Request{ID: "read", Method: http.MethodGet, Resource: "instanceobservations", Namespace: ns.Name, Name: instance.Name,
 		Scope: &RequestScope{GroupName: group.Name, GroupUID: string(group.UID), NamespaceUID: string(ns.UID)}}
 }
 
-func TestCapabilitiesAndUnsupportedIntentsNeverTouchKubernetes(t *testing.T) {
-	data, err := os.ReadFile("../../tests/fixtures/connector/management-v1-v2.json")
+func TestSharedManagementContract(t *testing.T) {
+	data, err := os.ReadFile("../../tests/fixtures/connector/management.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var fixture struct {
-		Capabilities map[string]any `json:"capabilities"`
-		Unsupported  []Request      `json:"unsupported"`
+		Capabilities      map[string]any    `json:"capabilities"`
+		Unsupported       []Request         `json:"unsupported"`
+		Create            Request           `json:"create"`
+		SecretMetadata    map[string]any    `json:"secretMetadata"`
+		RejectedEnvelopes []json.RawMessage `json:"rejectedEnvelopes"`
 	}
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
@@ -110,6 +113,46 @@ func TestCapabilitiesAndUnsupportedIntentsNeverTouchKubernetes(t *testing.T) {
 	}
 	if len(kube.Actions()) != 0 {
 		t.Fatal("unsupported intent or discovery touched Kubernetes")
+	}
+	for _, body := range fixture.RejectedEnvelopes {
+		client, err := NewClient(testConfig(t), Executor{Client: kube})
+		if err != nil {
+			t.Fatal(err)
+		}
+		client.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return remoteResponse(r, http.StatusOK, string(body)), nil
+		})
+		if _, err := client.poll(t.Context()); err == nil {
+			t.Fatal("shared fixture's rejected envelope was accepted")
+		}
+	}
+	if len(fixture.RejectedEnvelopes) == 0 || fixture.SecretMetadata == nil {
+		t.Fatal("shared management fixture is incomplete")
+	}
+	kube, baseRequest := managementFixture(t)
+	if response := (Executor{Client: kube}).Execute(t.Context(), fixture.Create); response.Status != http.StatusCreated {
+		t.Fatalf("shared create contract was rejected: %s", response.Body)
+	}
+	var expected metav1.PartialObjectMetadata
+	if json.Unmarshal(mustJSON(fixture.SecretMetadata), &expected) != nil || expected.UID == "" || expected.ResourceVersion == "" {
+		t.Fatal("shared Secret metadata fixture has no native identity")
+	}
+	kube.PrependReactor("create", "secrets", func(action ktesting.Action) (bool, runtime.Object, error) {
+		object := action.(ktesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+		object.SetUID(expected.UID)
+		object.SetResourceVersion(expected.ResourceVersion)
+		annotations := object.GetAnnotations()
+		annotations["private"] = "fixture-private-marker"
+		object.SetAnnotations(annotations)
+		object.SetLabels(map[string]string{"private": "fixture-private-marker"})
+		return true, object, nil
+	})
+	request := Request{ID: expected.Annotations[operationAnnotation], Method: http.MethodPost, Resource: "secrets", Namespace: expected.Namespace, Scope: baseRequest.Scope,
+		Body: mustJSON(map[string]any{"apiVersion": "v1", "kind": "Secret", "metadata": map[string]any{"name": expected.Name, "namespace": expected.Namespace}, "stringData": map[string]any{"key": "fixture-private-marker"}})}
+	response := (Executor{Client: kube}).Execute(t.Context(), request)
+	var actual map[string]any
+	if response.Status != http.StatusCreated || json.Unmarshal(response.Body, &actual) != nil || !reflect.DeepEqual(actual, fixture.SecretMetadata) {
+		t.Fatalf("shared Secret metadata contract differs from implementation: %s", response.Body)
 	}
 }
 
@@ -194,9 +237,9 @@ func TestContainerRestartAndIncompleteBindingObservations(t *testing.T) {
 	if _, err := kube.Resource(workloadGVR).Namespace(req.Namespace).Update(context.Background(), object, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	legacy := readObservation(t, kube, req)
-	if legacy.Execution != nil || legacy.State != "" || legacy.Reason != "BindingObservationUnavailable" {
-		t.Fatal("legacy binding guessed a container identity")
+	incomplete := readObservation(t, kube, req)
+	if incomplete.Execution != nil || incomplete.State != "" || incomplete.Reason != "BindingObservationUnavailable" {
+		t.Fatal("incomplete binding guessed a container identity")
 	}
 }
 
@@ -295,36 +338,5 @@ func TestObservationBindsRecreatedInstancesAndRejectsForeignOwners(t *testing.T)
 	after := readObservation(t, kube, req)
 	if after.InstanceID != before.InstanceID || after.GroupUID != before.GroupUID || after.InstanceUID == before.InstanceUID || after.Execution != nil || after.State != "" {
 		t.Fatal("recreation confused stable identity with CR or execution identity")
-	}
-}
-
-func TestRetiredActivityFieldsAreRejectedBeforeNativeWrites(t *testing.T) {
-	for _, version := range []string{"", "v1", "v2"} {
-		for _, method := range []string{http.MethodPost, http.MethodPut} {
-			for _, field := range []string{"idleTimeoutSeconds", "activityLeaseRef"} {
-				kube, req := managementFixture(t)
-				object, _ := kube.Resource(workloadGVR).Namespace(req.Namespace).Get(context.Background(), req.Name, metav1.GetOptions{})
-				_ = unstructured.SetNestedField(object.Object, map[string]any{field: "obsolete"}, "spec", "lifecycle")
-				if method == http.MethodPost {
-					object.SetUID("")
-					object.SetResourceVersion("")
-					req.Name = ""
-				}
-				req.Version, req.Resource, req.Method, req.Body = version, "agentinstances", method, mustJSON(object)
-				if version != "v2" {
-					req.Scope = nil
-				}
-				kube.ClearActions()
-				result := (Executor{Client: kube}).Execute(context.Background(), req)
-				if result.Status != 400 || !strings.Contains(string(result.Body), "RemovedActivityContract") {
-					t.Fatalf("%s %s retired field was silently accepted: %s", version, method, result.Body)
-				}
-				for _, action := range kube.Actions() {
-					if action.GetVerb() != "get" {
-						t.Fatal("retired contract produced a write")
-					}
-				}
-			}
-		}
 	}
 }

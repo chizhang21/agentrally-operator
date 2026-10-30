@@ -4,7 +4,6 @@ package capabilities
 import (
 	"context"
 	"errors"
-	"slices"
 	"time"
 
 	v1 "agentrally/operator/api/v1alpha1"
@@ -83,12 +82,6 @@ func Discover(ctx context.Context, reader client.Reader) v1.ClusterCapabilitiesS
 
 func (o Observer) Refresh(ctx context.Context, report *v1.ClusterCapabilities, dirty Section, force bool) time.Duration {
 	force = force || report.Status.ObservedGeneration != report.Generation || report.Status.CatalogRevision != builtins.revision
-	for _, retired := range []string{"DiscoveryReady", "DiscoverySucceeded", "SnapshotDiscoveryReady"} {
-		meta.RemoveStatusCondition(&report.Status.Conditions, retired)
-	}
-	report.Status.Sections = slices.DeleteFunc(report.Status.Sections, func(section v1.DiscoverySectionObservation) bool {
-		return section.Name == "SnapshotDiscoveryReady"
-	})
 	nextAudit := o.now().Add(RefreshInterval)
 	attempted := false
 	for section := Runtime; section <= Network; section <<= 1 {

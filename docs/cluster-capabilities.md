@@ -191,7 +191,6 @@ The runtime declaration's category/image-contract rules apply to mappings too.
 
 Mappings do not create classes, install components, bypass CSI registration or erase
 native handler mismatches.
-Legacy `arally.io/runtime-type` and `arally.io/storage-type` labels do not classify resources.
 `source`, `rule` and `catalogRevision` identify how automatic results were derived.
 Catalog rules are embedded and maintained with the project; there is no installation-time rule language.
 

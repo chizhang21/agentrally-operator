@@ -47,7 +47,7 @@ func (e Executor) resolveInvocation(ctx context.Context, identity InvocationIden
 	if group.DeletionTimestamp != nil || !controller.ManagedInvocation(&group) {
 		return invocationTarget{}, invocationError("InvocationAccessDisabled")
 	}
-	req := Request{Version: "v2", Method: http.MethodGet, Resource: "instanceobservations", Name: identity.InstanceID, Namespace: namespace, Scope: &identity.Scope}
+	req := Request{Method: http.MethodGet, Resource: "instanceobservations", Name: identity.InstanceID, Namespace: namespace, Scope: &identity.Scope}
 	observed, err := e.observeExecution(ctx, req)
 	if err != nil {
 		return invocationTarget{}, err

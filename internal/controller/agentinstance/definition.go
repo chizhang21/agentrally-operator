@@ -56,7 +56,7 @@ func (r *Reconciler) bindDefinition(ctx context.Context, instance *v1.AgentInsta
 		if current.Name != binding.Name || current.UID != binding.UID {
 			return diagnostics.New("DefinitionIdentityChanged", "The definition identity changed", nil)
 		}
-		if current.Revision != "" && (current.Revision != binding.Revision || current.AgentContainer != "") {
+		if current.Revision != "" {
 			return nil
 		}
 	}

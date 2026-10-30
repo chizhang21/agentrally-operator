@@ -245,11 +245,11 @@ Revision; the resolved capacity fingerprint tracks the reference version.
 Group allocation pause stops new proactive preparation and drains its desired spares to
 zero.
 Already submitted upstream work can finish.
-Pools that have never used the new Definition policy retain the existing pause behavior.
+On-demand pools without a Definition preparation policy keep their configured spare behavior.
 External pools are never scaled by this policy.
 
 Removing a proactive policy does not turn its old pools back into automatically refilled
-legacy capacity.
+on-demand capacity.
 Unused resources follow the Group's idle retention policy.
 An enabled, current Definition request also keeps its pool alive without Instance
 references.

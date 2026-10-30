@@ -117,7 +117,11 @@ func addConnector(mgr ctrl.Manager, cfg *rest.Config, connectorConfig connector.
 	if err != nil {
 		return err
 	}
-	relay, err := connector.NewClient(connectorConfig, connector.Executor{Client: kubeClient})
+	metadataClient, err := connector.NewMetadataClient(connectorKubeConfig)
+	if err != nil {
+		return err
+	}
+	relay, err := connector.NewClient(connectorConfig, connector.Executor{Client: kubeClient, Metadata: metadataClient})
 	if err != nil {
 		return err
 	}

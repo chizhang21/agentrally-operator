@@ -79,7 +79,7 @@ func TestMappingsPreserveNativeEvidenceAndDoNotInventCapabilities(t *testing.T) 
 	}
 }
 
-func TestDiscoveryMigratesLegacyReportWithoutSnapshotReads(t *testing.T) {
+func TestDiscoveryUsesOnlyCurrentSectionsAndSkipsUnchangedAudits(t *testing.T) {
 	base := testClient(t, linuxNode("worker"), csiRegistration("custom.example"))
 	snapshotReads := 0
 	reader := interceptor.NewClient(base, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
@@ -90,25 +90,11 @@ func TestDiscoveryMigratesLegacyReportWithoutSnapshotReads(t *testing.T) {
 		return c.List(ctx, list, opts...)
 	}})
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
-	observed, expired := metav1.NewTime(now), metav1.NewTime(now.Add(-RefreshInterval))
-	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Generation: 1}, Status: v1.ClusterCapabilitiesStatus{
-		ObservedGeneration: 1, ObservedAt: &observed, CatalogRevision: "retired-catalog",
-		Capabilities: []v1.CapabilityObservation{{Name: "VolumeSnapshots", Category: "Storage", Status: "Observed"}},
-	}}
-	for _, name := range []string{Runtime.Condition(), Storage.Condition(), Network.Condition(), "SnapshotDiscoveryReady"} {
-		attempt := &observed
-		if name == "SnapshotDiscoveryReady" {
-			attempt = &expired
-		}
-		report.Status.Sections = append(report.Status.Sections, v1.DiscoverySectionObservation{Name: name, LastAttemptAt: attempt, LastSuccessAt: attempt})
-		meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{Type: name, Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: "ResourcesObserved", LastTransitionTime: observed})
-	}
-	meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{Type: "DiscoveryReady", Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: "ResourcesObserved", LastTransitionTime: observed})
-	meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{Type: "DiscoverySucceeded", Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: "ResourcesObserved", LastTransitionTime: observed})
+	report := &v1.ClusterCapabilities{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
 	observer := Observer{Reader: reader, Now: func() time.Time { return now }}
 	observer.Refresh(context.Background(), report, 0, false)
 	if snapshotReads != 0 || len(report.Status.Sections) != 3 || len(report.Status.Conditions) != 3 {
-		t.Fatal("retired snapshot discovery remained active", snapshotReads, report.Status)
+		t.Fatal("discovery queried a snapshot API or published an unexpected section", snapshotReads, report.Status)
 	}
 	for _, section := range []Section{Runtime, Storage, Network} {
 		if !SectionCurrent(report, section.Condition(), now) {
@@ -117,12 +103,12 @@ func TestDiscoveryMigratesLegacyReportWithoutSnapshotReads(t *testing.T) {
 	}
 	for _, capability := range report.Status.Capabilities {
 		if capability.Name == "VolumeSnapshots" {
-			t.Fatal("retired snapshot capability survived the audit")
+			t.Fatal("unrelated snapshot capability was published")
 		}
 	}
 	before := report.Status.DeepCopy()
 	observer.Reader = interceptor.NewClient(base, interceptor.Funcs{List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
-		t.Fatal("a missing aggregate condition forced a repeated audit")
+		t.Fatal("an unchanged report forced a repeated audit")
 		return nil
 	}})
 	observer.Refresh(t.Context(), report, 0, false)

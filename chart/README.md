@@ -37,7 +37,7 @@ The top-level `resources` values cover both controllers and Connector.
 
 The Operator supports OpenShift's restricted-v2 SCC. Its image runs non-root;
 the chart leaves `runAsUser` and `fsGroup` unset for namespace-assigned values.
-Agent image permissions are covered in [Usage](../docs/usage.md#legacy-agent-images-on-openshift).
+Agent image permissions are covered in [Usage](../docs/usage.md#process-permissions).
 
 ## Monitoring
 
@@ -58,7 +58,7 @@ for your monitoring namespaces. The CNI must enforce NetworkPolicy.
 
 CRDs are part of the Helm release and update with the Operator. Review API schema
 changes before upgrading. Commands for [public charts](../docs/installation.md#upgrade-agentrally),
-[local dev archives and existing CRD adoption](../docs/installation.md#updating-a-dev-build)
+[local dev archives](../docs/installation.md#updating-a-dev-build)
 are in Installation. Those commands preserve explicit values, including private
 image pull Secrets. No separate CRD apply is needed.
 
@@ -68,5 +68,5 @@ The CRDs have `helm.sh/resource-policy: keep`. Uninstall removes the Operator
 but keeps its CRDs and Agent resources. Clean up Agents and Groups while the
 Operator is still running; see [Lifecycle](../docs/usage.md#lifecycle).
 
-Rollback can restore the previous chart's CRD definitions. Check API and stored
-resource compatibility before rolling back; Helm does not migrate stored data.
+Rollback restores a previous chart's CRD definitions and Operator image.
+Review schema differences before rolling back.

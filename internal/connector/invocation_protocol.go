@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	InvocationVersion     = "invocation.v1"
+	InvocationProtocol    = "invocation"
 	MaxInvocationBody     = 1 << 20
 	MaxInvocationResponse = 4 << 20
 	MaxInvocationEnvelope = 6 << 20

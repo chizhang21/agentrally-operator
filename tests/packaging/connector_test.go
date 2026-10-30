@@ -71,9 +71,10 @@ func TestConnectorChartEnablesWorkerInOperator(t *testing.T) {
 		{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"get", "list"}},
 		{APIGroups: []string{"arally.io"}, Resources: []string{"agentgroups", "agentdefinitions"}, Verbs: []string{"create", "delete"}},
 		{APIGroups: []string{"arally.io"}, Resources: []string{"agentinstances"}, Verbs: []string{"create"}},
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"list", "create"}},
 	}
 	if !reflect.DeepEqual(role.Rules, expected) {
-		t.Fatal("connector must only add EndpointSlice reads and missing CR write permissions")
+		t.Fatal("connector must only add EndpointSlice reads, missing CR writes and Secret list/create")
 	}
 	var binding rbacv1.ClusterRoleBinding
 	if err := yaml.Unmarshal(connected["ClusterRoleBinding/agentrally-operator-agentrally-system-connector"], &binding); err != nil {

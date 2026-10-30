@@ -23,7 +23,7 @@ def validate_chart_repo(repository):
     return repository
 
 
-def select_identity(version=None, image=None, image_base=None, dev=False, chart_repo=None):
+def select_identity(version=None, image=None, image_base=None, chart_repo=None):
     # Injected version/image do not depend on a saved build. Keep the independent
     # Chart destination when readable; a corrupt record must not block CI inputs.
     injected = version is not None and image is not None
@@ -38,10 +38,10 @@ def select_identity(version=None, image=None, image_base=None, dev=False, chart_
         parse_image(saved["image"])
     selected_version = validate_version(
         version if version is not None else
-        local_version() if dev or not saved else saved["version"])
+        saved["version"] if saved else local_version())
     if image is not None:
         selected_image = image
-    elif saved and version is None and image_base is None and not dev:
+    elif saved and version is None and image_base is None:
         selected_image = saved["image"]
     else:
         repository = image_base if image_base is not None else (
@@ -76,11 +76,10 @@ if __name__ == "__main__":
     parser.add_argument("--image")
     parser.add_argument("--image-base")
     parser.add_argument("--chart-repo")
-    parser.add_argument("--dev", action="store_true", help="select the default development version")
     args = parser.parse_args()
     try:
         if args.action == "resolve":
-            identity = select_identity(args.version, args.image, args.image_base, args.dev, args.chart_repo)
+            identity = select_identity(args.version, args.image, args.image_base, args.chart_repo)
             print(identity["version"], identity["image"], identity["chart_oci_repo"])
         else:
             if args.version is None or args.image is None:

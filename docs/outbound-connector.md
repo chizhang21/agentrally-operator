@@ -2,16 +2,16 @@
 
 Connector is an optional worker inside the Operator process.
 Enable it with `connector.enabled: true` in the chart; it is disabled by default.
-Only the elected Operator replica polls the backend over HTTPS and forwards AgentRally CR
-operations to Kubernetes.
+Only the elected Operator replica polls the backend over HTTPS.
+Controllers continue reconciling if Connector is disabled or disconnected.
 
-The controllers continue reconciling if Connector is disabled or disconnected.
-Kubernetes validates and stores objects, and the controllers write their status.
+Connector executes restricted Kubernetes management requests.
+Controllers reconcile the resulting CRs and write their status.
+The backend authenticates users, authorizes operations and stores their delivery state.
 
 ## Installation
 
-Create a Secret in the release namespace with a backend-issued `token` and, if needed,
-`ca.crt`.
+Create a Secret in the release namespace with a backend-issued `token` and, if needed, `ca.crt`.
 Reference it in Helm values:
 
 ```yaml
@@ -25,150 +25,176 @@ connector:
 ```
 
 Omit `caFile` for system CA roots.
-
-The image contains one `/operator` binary; Connector uses the same Deployment, container
-and ServiceAccount.
-Enabling it mounts the Secret into Operator Pods and adds the CR write permissions
-needed beyond the controller role, plus read-only EndpointSlice discovery.
-
-Remote writes remain restricted to the CRs listed below.
-Management v2 also exposes verified namespace identity and instance observations.
-
-The top-level `resources` values cover the whole process.
-
 Token changes are read on each request; CA changes need an Operator restart.
 
-The backend must bind credentials to cluster id and reject duplicate active sessions for
-the same id.
+Connector uses the Operator's binary, Deployment and ServiceAccount.
+Enabling it adds CR write permissions, EndpointSlice reads and Secret list/create permissions.
+The top-level `resources` values cover the whole process.
+
+The backend must bind credentials to cluster id and reject duplicate active connections for that id.
 
 ## Transport
 
+There is one current protocol, with no version selector or compatibility fallback.
 Paths are relative to `connector.endpoint`:
 
 | Endpoint | Result |
 | --- | --- |
-| `GET internal/v1/connectors/{id}/requests` | Long poll: 200 with one request or 204 when idle; finish within 30 seconds |
-| `POST internal/v1/connectors/{id}/responses` | Response delivery; any 2xx acknowledges it |
+| `GET internal/connectors/{id}/requests` | Long poll: 200 with one request or 204 when idle; finish within 30 seconds |
+| `POST internal/connectors/{id}/responses` | Response delivery; any 2xx acknowledges it |
 
 Both use Bearer authentication.
-Redirects are rejected; bodies are limited to 4 MiB.
-Malformed poll responses disconnect the session.
+Redirects are rejected; messages are limited to 4 MiB.
+Unknown envelope fields and malformed poll responses disconnect the session.
 
-One worker executes requests serially.
-Errors retain Kubernetes status codes and reasons.
-Native error messages and details are replaced because validation errors may echo submitted values.
-
-The transport paths stay at v1.
-The request envelope's optional `version` selects the management protocol independently.
-Omitting it selects legacy v1.
-
-## Native management v1
-
-Legacy v1 is a trusted cluster-administrator interface.
-It does not enforce Group scope and must not be exposed directly to tenant callers.
-
-| Resource | Scope | Methods |
-| --- | --- | --- |
-| `agentgroups` | Cluster | GET, POST, PUT, DELETE |
-| `agentdefinitions` | Namespace required | GET, POST, PUT, DELETE |
-| `agentinstances` | Namespace required | GET, POST, PUT, DELETE |
-| `clustercapabilities` | Cluster | GET |
-
-A request has `id`, `method`, `resource` and optional `name`, `namespace`, `body`,
-`limit`, `continue`:
-
-```json
-{"id":"capabilities-1","method":"GET","resource":"clustercapabilities","name":"cluster"}
-```
-
-- GET with `name` reads an object; otherwise it lists.
-  `limit` defaults to 100, maximum 500; `continue` uses Kubernetes pagination.
-- POST needs explicit `metadata.name`; `generateName` is rejected.
-- PUT needs the named CR and current `metadata.resourceVersion`.
-- Envelope and body names/namespaces must match.
-  Incoming status is discarded.
-- Native creates and updates request strict API-server field validation.
-  Retired `idleTimeoutSeconds` and `activityLeaseRef` fields return
-  `400 RemovedActivityContract` instead of silently disappearing.
-- DELETE needs native DeleteOptions with UID and resourceVersion preconditions; it
-  requests foreground deletion.
-  Follow [Group deletion order](usage.md#lifecycle).
-
-A response has `id`, `status` and `body`.
-`status` is the Kubernetes operation's HTTP code; `body` is its object or Status error:
-
-```json
-{"id":"capabilities-1","status":200,"body":{"apiVersion":"arally.io/v1alpha1","kind":"ClusterCapabilities","metadata":{"name":"cluster"},"spec":{}}}
-```
-
-An actual capability response also contains [discovery status](cluster-capabilities.md).
-
+One worker executes management requests serially.
+A response contains `id`, `status` and `body`.
+`status` is the Kubernetes operation's HTTP code, separate from the transport ACK.
 A successful DELETE means deletion was requested; finalizers may still be running.
 
-The delivery endpoint's HTTP code is separate from the operation's `status`.
+Errors retain Kubernetes status codes and reasons.
+Native messages and details are replaced because validation errors may echo submitted values.
 
-Connector cannot manage Secrets, PVCs or upstream SandboxTemplates.
-Prepare those through kubectl, GitOps or an administrator.
-
-RuntimeClass names must be real cluster names.
-Connector does not install runtimes.
-
-## Management capability discovery
+## Capability discovery
 
 Use an unscoped request with no name, body or pagination:
 
 ```json
-{"id":"protocol-1","method":"GET","resource":"connectorcapabilities"}
+{"id":"capabilities-1","method":"GET","resource":"connectorcapabilities"}
 ```
 
-The response body has `schemaVersion: management.capabilities/v1`.
-It lists each supported management version and its resource/method matrix.
-It also reports message and pagination limits.
+The response contains a `resources` map from resource name to supported HTTP methods.
+It also reports `maxMessageBytes`, `maxListLimit` and feature flags.
+The [shared fixture](../tests/fixtures/connector/management.json) fixes the complete response.
 
-`invocation`, `observedOperatingMode`, `activityLease`, `processIdentity` and
-`scopedNamespaceCreate` are currently false.
-Unsupported protocol versions and capabilities return `501 Unsupported`.
-An application protocol declaration does not override these capability flags.
+`scopedNamespaceCreate` is true under the management boundary described below.
+Production `invocation`, `exclusiveHandoff`, `observedOperatingMode`, `activityLease` and `processIdentity` remain false.
+Unsupported capabilities return `501 Unsupported`.
+An application protocol declaration does not override these flags.
 
-Old Connectors may reject capability discovery.
-Treat that as legacy management only; do not downgrade scoped or automatic operations to v1.
+## Management scope
 
-## Scoped management v2
-
-Set `version: v2` and provide `scope.groupName` and the expected `scope.groupUID`.
-The backend must authenticate the caller and authorize that Group.
+The backend must authenticate the caller and authorize its cluster and Group access.
 Scope identifiers are identity preconditions, not credentials.
 
-| Resource | Methods | Preconditions |
+| Resource | Methods | Scope and response |
 | --- | --- | --- |
-| `agentgroups` | GET one, POST, PUT, DELETE | Name matches Group scope; POST omits the not-yet-known Group UID |
-| `namespaces` | GET one | Verified Group ownership; only name, UID, resourceVersion and deletion timestamp are returned |
-| `agentdefinitions`, `agentinstances` | GET, PUT, DELETE | Expected namespace UID and matching `spec.agentGroupRef` |
-| `instanceobservations` | GET one | Expected namespace UID and matching Group reference |
-| `clustercapabilities` | GET | Unscoped |
+| `agentgroups` | GET collection | Unscoped administrator inventory; identity metadata only |
+| `agentgroups` | GET one, POST, PUT, DELETE | Group name and UID; POST omits the not-yet-known UID |
+| `namespaces` | GET one | Verified Group namespace identity |
+| `agentdefinitions`, `agentinstances` | GET, POST, PUT, DELETE | Group UID, namespace UID and matching `spec.agentGroupRef.name` |
+| `secrets` | GET, POST | Group and namespace identity; metadata reads and Opaque creation |
+| `persistentvolumeclaims` | GET | Group namespace; selected identity, spec and status fields |
+| `agentworkspaces` | GET | Group and namespace identity; cluster-scoped envelope without `namespace` |
+| `instanceobservations` | GET one | Group and namespace identity |
+| `clustercapabilities` | GET | Unscoped, read-only discovery |
 
-After creating or confirming a Group, discover its namespace identity:
+Group inventory is an administrator operation.
+Do not expose the cluster-wide list to tenant callers.
+After discovering or creating a Group, bind its UID and discover its namespace:
 
 ```json
-{"id":"namespace-1","version":"v2","method":"GET","resource":"namespaces","scope":{"groupName":"demo","groupUID":"<group-uid>"}}
+{"id":"namespace-1","method":"GET","resource":"namespaces","scope":{"groupName":"demo","groupUID":"<group-uid>"}}
 ```
 
 This bootstrap read may omit the Namespace name and expected namespace UID.
 Subsequent namespaced requests must use the returned name and `scope.namespaceUID`.
-A supplied stale UID is always rejected, including during discovery.
+A supplied stale UID is rejected, including during discovery.
 Namespace labels and annotations are not returned.
 
-PUT requires the current object's UID and resourceVersion.
-DELETE requires both in native DeleteOptions.
-Namespaced POST is unsupported because the API server cannot condition creation on
-the parent namespace UID.
-Prepare those resources through an authorized administrator or GitOps workflow.
+Ordinary Group namespaces require the exact Group owner UID.
+Persistent Group namespaces use the pinned `status.namespaceUID` and have no owner reference.
+
+## CR writes
+
+A creation request uses the native CR body:
+
+```json
+{
+  "id": "create-instance-1",
+  "method": "POST",
+  "resource": "agentinstances",
+  "namespace": "agentrally-demo",
+  "scope": {"groupName": "demo", "groupUID": "<group-uid>", "namespaceUID": "<namespace-uid>"},
+  "body": {
+    "apiVersion": "arally.io/v1alpha1",
+    "kind": "AgentInstance",
+    "metadata": {"name": "assistant", "namespace": "agentrally-demo"},
+    "spec": {"agentGroupRef": {"name": "demo"}, "definitionRef": {"name": "assistant"}}
+  }
+}
+```
+
+- POST needs explicit `metadata.name`; `generateName`, UID and resourceVersion are rejected.
+- PUT requires the named CR's current UID and resourceVersion.
+- Envelope and body names/namespaces must match.
+  Incoming status is discarded.
+- CR creation metadata permits only name, namespace, labels and annotations.
+  Updates must preserve controller-owned finalizers and owner references.
+  Connector rejects updates to deleting resources.
+- Creates and updates request strict API-server field validation.
+- DELETE needs native DeleteOptions with UID and resourceVersion preconditions and uses foreground deletion.
+  Follow [Group deletion order](usage.md#lifecycle).
+
+Creation ids must match `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`.
+Connector injects `arally.io/connector-operation-id` into created CRs and Secrets.
+Callers cannot supply that annotation, and CR updates must preserve it.
+The backend must generate and persist the id and must not reuse it for another target or body.
+
+A duplicate name returns AlreadyExists; it never becomes an update.
+After a lost response, compare the observed marker, resource identity and original operation record.
+The marker is a correlation aid, not an authorization credential or exactly-once guarantee.
+It establishes no application readiness or business completion.
 
 An explicit AgentInstance update may carry `intent: {"kind":"Explicit"}`.
-It requests native desired state; success does not confirm that the workload has stopped.
-Observation-driven intents with `kind: Observed` always return Unsupported before
-accessing Kubernetes.
-Clients must disable that policy, rather than retrying it as Explicit or v1.
+Success records desired state; it does not confirm that execution has stopped.
+Observation-driven `Observed` intents remain unsupported.
+
+### Namespace lifecycle boundary
+
+Namespaced requests verify Group UID, Namespace UID and ownership before and after the operation.
+Writes reject a scope already observed to be terminating.
+
+These checks do not form a cross-resource transaction.
+Kubernetes cannot condition a namespaced create on its parent Namespace UID.
+The backend must use one active management connection per cluster.
+Group deletion through this serial worker cannot interleave with a creation.
+
+Before an administrator or GitOps controller deletes, recreates or changes ownership of a Group/Namespace outside this channel, stop that Group's management writes and drain outstanding requests.
+Connector does not guarantee isolation against concurrent administrative namespace replacement.
+`409 ScopeChanged` can be returned after a write has taken effect; it does not prove rollback or prevent Secret exposure in an externally replaced namespace.
+
+## Secret and storage references
+
+Secret POST accepts only an Opaque Secret with `data` or `stringData`.
+Allowed metadata is limited to explicit name and matching namespace.
+Labels, annotations, ownerReferences, finalizers and server-assigned fields are rejected.
+Secret update, delete and service-account-token creation are unavailable.
+
+Secret GET and LIST negotiate PartialObjectMetadata only.
+A server that cannot supply metadata is rejected; Connector does not fall back to a full Secret read.
+The response contains name, namespace, UID, resourceVersion, timestamps and the Connector creation marker when present.
+It omits data, stringData, type, keys and all other annotations and labels.
+Creation returns the same metadata projection.
+
+For an existing Secret, callers must provide the required key explicitly.
+MCP management credentials need a management-side source; this interface cannot extract them from execution-cluster Secrets.
+Metadata negotiation does not change Kubernetes RBAC: the Operator still has the native Secret get permission its controllers need.
+
+PVC queries return identity plus accessModes, volumeMode, storageClassName, requested storage, phase and storage capacity.
+They omit PV names, data sources and arbitrary metadata.
+PVC lifecycle remains driven by AgentInstance workspace declarations and the controllers.
+
+AgentWorkspace queries return spec/status after verifying their immutable Group and Namespace identities.
+Lists use Operator-maintained UID labels as a query index and check spec independently.
+Storage observations do not prove mountability, released writers or recovery readiness.
+
+GET collections use Kubernetes pagination: `limit` defaults to 100 and cannot exceed 500.
+Pass `continue` until empty, including after an empty filtered Workspace page.
+Reference lists omit remaining-item counts.
+
+Connector does not manage upstream SandboxTemplates or install runtimes.
+RuntimeClass names must refer to real cluster resources.
 
 ## Instance observations
 
@@ -182,7 +208,7 @@ The execution ID covers Instance, Sandbox and Pod UIDs, the selected agent conta
 container ID, restart count and start time.
 A restart within the same Pod therefore changes execution identity.
 The container name comes from the accepted Revision, never a guessed sidecar position.
-Until an old binding is backfilled, execution identity is unavailable.
+Execution identity is unavailable until the Controller has recorded a complete accepted binding.
 
 `identityScope` is Container and `processIdentityVerified` is false.
 Replacing an application process inside a live container cannot be detected this way.

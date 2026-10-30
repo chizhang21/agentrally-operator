@@ -8,6 +8,7 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/testutil"
+	"agentrally/operator/internal/workspace"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -21,7 +22,7 @@ func TestStableBindingDoesNotRewriteStatus(t *testing.T) {
 	ctx := t.Context()
 	record := &v1.AgentWorkspace{
 		ObjectMeta: metav1.ObjectMeta{Name: "workspace", UID: "record", Generation: 1},
-		Spec:       v1.AgentWorkspaceSpec{Namespace: "team", InstanceName: "agent", InstanceUID: "instance"},
+		Spec:       v1.AgentWorkspaceSpec{GroupUID: "group", Namespace: "team", NamespaceUID: "namespace", InstanceName: "agent", InstanceUID: "instance"},
 		Status:     v1.AgentWorkspaceStatus{Phase: "Bound", PVCUID: "pvc"},
 	}
 	instance := &v1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "team", UID: "instance"},
@@ -68,6 +69,10 @@ func TestStableBindingDoesNotRewriteStatus(t *testing.T) {
 	if err := kube.Delete(ctx, instance); err != nil {
 		t.Fatal(err)
 	}
+	record.Labels = map[string]string{workspace.GroupUIDLabel: "another-group"}
+	if err := kube.Update(ctx, record); err != nil {
+		t.Fatal(err)
+	}
 	requests := r.mapInstance(ctx, instance)
 	if len(requests) != 1 {
 		t.Fatal("Instance deletion before workspace pin was not mapped")
@@ -81,5 +86,9 @@ func TestStableBindingDoesNotRewriteStatus(t *testing.T) {
 	binding := meta.FindStatusCondition(record.Status.Conditions, "BindingReady")
 	if writes != 1 || binding == nil || binding.Status != metav1.ConditionFalse || binding.Reason != "ReleasePending" {
 		t.Fatal("actual release transition was lost")
+	}
+	discovered := &v1.AgentWorkspaceList{}
+	if err := kube.List(ctx, discovered, client.MatchingLabels{workspace.GroupUIDLabel: "group", workspace.NamespaceUIDLabel: "namespace"}); err != nil || len(discovered.Items) != 1 {
+		t.Fatal("retained workspace disappeared from scoped discovery after Instance deletion", err)
 	}
 }

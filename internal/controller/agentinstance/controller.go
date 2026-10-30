@@ -54,15 +54,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	defer func() { result = r.withExecutionDeadlines(workload, result) }()
-	// Conditions survive CRD field removal. Retire the old activity observer's
-	// condition as well, so it cannot advertise an obsolete control contract.
-	if meta.FindStatusCondition(workload.Status.Conditions, "ActivityReady") != nil {
-		base := workload.DeepCopy()
-		meta.RemoveStatusCondition(&workload.Status.Conditions, "ActivityReady")
-		if err := r.patchStatus(ctx, workload, base); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 	if workload.DeletionTimestamp != nil {
 		return r.finalize(ctx, workload)
 	}

@@ -38,9 +38,9 @@ class BuildStateTests(unittest.TestCase):
         return json.loads((self.root / ".cache/build.json").read_text())
 
     def test_separate_build_push_and_chart_reuse_identity(self):
-        self.make("docker-build", "IMAGE_TAG_BASE=registry.example:5000/operator")
+        self.make("image-build", "IMAGE_TAG_BASE=registry.example:5000/operator")
         selected = self.state()
-        self.make("docker-push")
+        self.make("image-push")
         calls = (self.root / "calls").read_text().splitlines()
         self.assertEqual(calls, [f'build -f Containerfile -t {selected["image"]} .',
                                  f'push {selected["image"]}'])
@@ -51,46 +51,41 @@ class BuildStateTests(unittest.TestCase):
                          f'{selected["version"]} {selected["image"]}')
         self.assertEqual(self.state(), selected)
 
-    def test_version_saves_fixed_dev_identity_and_keeps_repository(self):
-        self.make("version", "IMAGE_TAG_BASE=registry.example/operator")
-        old = self.state()
-        self.make("docker-build")
-        self.assertEqual(self.state(), old)
-        self.make("version", "docker-build")
-        new = self.state()
-        self.assertEqual(old, new)
-        self.assertEqual(new["version"], "0.0.0-dev")
-        self.assertEqual(new["image"], "registry.example/operator:v" + new["version"])
-        self.assertIn(new["image"], (self.root / "calls").read_text())
-        self.make("docker-push")
-        self.assertEqual(self.state(), new)
-        self.assertEqual((self.root / "calls").read_text().splitlines()[-1], f'push {new["image"]}')
-
-    def test_explicit_overrides_and_clean(self):
-        self.make("version", "VERSION=1.2.3", "IMG=registry.example/operator:custom")
+    def test_explicit_overrides_and_clean_preserves_settings_and_evidence(self):
+        self.make("configure", "VERSION=1.2.3", "IMG=registry.example/operator:custom")
         self.assertEqual(self.state(), {"version": "1.2.3", "image": "registry.example/operator:custom",
                                        "chart_oci_repo": "oci://ghcr.io/chizhang21/helm"})
-        self.make("version", "VERSION=2.0.0")
+        self.make("configure", "VERSION=2.0.0")
         self.assertEqual(self.state()["image"], "registry.example/operator:v2.0.0")
-        self.make("docker-build", "IMAGE_TAG_BASE=other.example/operator")
-        self.assertEqual(self.state()["image"], "other.example/operator:v2.0.0")
+        self.make("image-build", "IMAGE_TAG_BASE=other.example/operator")
+        selected = self.state()
+        self.assertEqual(selected["image"], "other.example/operator:v2.0.0")
+        retained = [".cache/tools/tool", ".cache/e2e/run/report.json", ".cache/review/plan.md"]
+        removed = ["dist/operator", "hack/__pycache__/module.pyc", "tests/__pycache__/test.pyc",
+                   ".cache/chart.example/Chart.yaml", ".cache/generated.example/role.yaml"]
+        for name in retained + removed:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixture")
         self.make("clean")
-        self.make("version")
-        self.assertEqual(self.state()["version"], "0.0.0-dev")
-        self.assertTrue(self.state()["image"].startswith("agentrally-operator:"))
+        self.assertEqual(self.state(), selected)
+        for name in retained:
+            self.assertEqual((self.root / name).read_text(), "fixture")
+        for name in removed:
+            self.assertFalse((self.root / name).exists(), name)
 
     def test_invalid_override_preserves_saved_identity(self):
-        self.make("version", "VERSION=1.2.3")
+        self.make("configure", "VERSION=1.2.3")
         selected = self.state()
-        self.make("docker-push", "VERSION=bad", success=False)
-        self.make("docker-push", "IMG=untagged", success=False)
+        self.make("image-push", "VERSION=bad", success=False)
+        self.make("image-push", "IMG=untagged", success=False)
         self.assertEqual(self.state(), selected)
         self.assertFalse((self.root / "calls").exists())
 
     def test_ci_overrides_ignore_local_record(self):
-        self.make("version")
+        self.make("configure")
         (self.root / ".cache/build.json").write_text("invalid json")
-        self.make("version", "VERSION=0.0.0-pr.12.gaaaaaaaaaaaa",
+        self.make("configure", "VERSION=0.0.0-pr.12.gaaaaaaaaaaaa",
                   "IMG=ghcr.io/example/operator:v0.0.0-pr.12.gaaaaaaaaaaaa")
         self.assertEqual(self.state()["image"], "ghcr.io/example/operator:v0.0.0-pr.12.gaaaaaaaaaaaa")
 
@@ -112,7 +107,7 @@ class BuildStateTests(unittest.TestCase):
 
     def test_chart_upload_reuses_version_and_does_not_push_operator_image(self):
         self.stub_chart_upload()
-        self.make("version", "VERSION=0.0.0-pr.12.gaaaaaaaaaaaa",
+        self.make("configure", "VERSION=0.0.0-pr.12.gaaaaaaaaaaaa",
                   "IMG=registry.example:5000/operator:custom")
         selected = self.state()
         destination = "oci://registry.example:5000/team/helm"
@@ -125,7 +120,7 @@ class BuildStateTests(unittest.TestCase):
                          ["push", str(self.root / "dist" /
                                       f'agentrally-operator-{selected["version"]}.tgz'), destination])
         self.assertFalse((self.root / "calls").exists())
-        self.make("docker-push")
+        self.make("image-push")
         self.assertEqual((self.root / "calls").read_text().strip(), f'push {selected["image"]}')
         self.assertEqual(len((self.root / "chart-calls").read_text().splitlines()), 1)
 
@@ -146,7 +141,7 @@ class BuildStateTests(unittest.TestCase):
 
     def test_configure_saves_repositories_independently_without_uploading(self):
         self.stub_chart_upload()
-        self.make("version", "VERSION=1.2.3", "IMG=registry.example/operator:custom")
+        self.make("configure", "VERSION=1.2.3", "IMG=registry.example/operator:custom")
         destination = "oci://charts.example:5000/team/helm"
         self.make("configure", "CHART_OCI_REPO=" + destination)
         self.assertEqual(self.state(), {"version": "1.2.3",
@@ -157,12 +152,12 @@ class BuildStateTests(unittest.TestCase):
         self.assertEqual(self.state()["chart_oci_repo"], destination)
         self.assertFalse((self.root / "calls").exists())
         self.assertFalse((self.root / "chart-calls").exists())
-        self.make("docker-push")
+        self.make("image-push")
         self.make("chart-push")
         self.assertEqual(json.loads((self.root / "chart-calls").read_text())[-1], destination)
         self.assertEqual((self.root / "calls").read_text().strip(),
                          "push images.example/team/operator:v1.2.3")
-        self.make("version")
+        self.make("configure", "VERSION=0.0.0-dev")
         self.assertEqual(self.state(), {"version": "0.0.0-dev",
                                        "image": "images.example/team/operator:v0.0.0-dev",
                                        "chart_oci_repo": destination})
@@ -176,7 +171,7 @@ class BuildStateTests(unittest.TestCase):
         self.assertEqual(self.state()["chart_oci_repo"], "oci://ghcr.io/chizhang21/helm")
 
     def test_invalid_chart_destination_preserves_saved_settings(self):
-        self.make("version")
+        self.make("configure")
         selected = self.state()
         for destination in ["https://charts.example/helm", "oci://charts.example/helm:1.2.3",
                             "oci://charts.example/team helm"]:

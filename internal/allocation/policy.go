@@ -44,7 +44,7 @@ func (m *Manager) reconcilePoolUsage(ctx context.Context, pool *unstructured.Uns
 	return m.patchPool(ctx, pool, base)
 }
 
-// Instance allocation retains the legacy per-pool policy only. Proactive pools
+// Instance allocation applies per-pool policy. Proactive pools
 // and total budgets are exclusively scaled by Group reconciliation.
 func (m *Manager) reconcilePoolPolicy(ctx context.Context, pool *unstructured.Unstructured, group *v1.AgentGroup, used bool) error {
 	if err := m.reconcilePoolUsage(ctx, pool, group, used); err != nil {

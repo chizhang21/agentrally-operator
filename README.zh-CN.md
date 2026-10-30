@@ -80,8 +80,9 @@ cd agentrally-operator
 
 make configure VERSION=0.0.0-dev \
   IMAGE_TAG_BASE=registry.example.com/your-team/agentrally-operator
-DOCKER_DEFAULT_PLATFORM=linux/amd64 make docker-build
-make docker-push
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+make image-build
+make image-push
 make chart-package
 ```
 

@@ -54,7 +54,7 @@ func TestInvocationFailurePreservesManagerReconciliation(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"protocolVersion": connector.InvocationVersion, "nonce": request.Nonce, "connectionEpoch": "reused-epoch"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"protocol": connector.InvocationProtocol, "nonce": request.Nonce, "connectionEpoch": "reused-epoch"})
 		default:
 			w.WriteHeader(http.StatusConflict)
 		}

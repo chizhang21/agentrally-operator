@@ -11,7 +11,6 @@ import (
 	"agentrally/operator/internal/testutil"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -111,34 +110,6 @@ func TestRestartRetainsAcceptedRevisionUntilExplicitUpgrade(t *testing.T) {
 		if err != nil || state.Status.Definition.Revision != wantRevision || state.Status.Definition.InvocationProtocol != wantProtocol || current.Spec.PodTemplate.Spec.Containers[0].Image != wantImage {
 			t.Fatalf("upgrade=%v accepted the wrong revision/protocol/image: %+v, %v", upgrade, state.Status.Definition, err)
 		}
-	}
-}
-
-func TestLegacyBindingBackfillsFromAcceptedRevision(t *testing.T) {
-	group, ns, definition, instance, pod := testutil.Fixture()
-	definition.Spec.AgentContainer = "agent"
-	definition.Spec.InvocationProtocol = "HTTPJSONSSEV1"
-	pod.Spec.Containers = []corev1.Container{{Name: "sidecar", Image: "example/sidecar"}, {Name: "agent", Image: "example/agent:v1"}}
-	c, scheme := clientWithPublishedDefinitions(t, group, ns, definition, instance, nativeTemplate(definition, pod))
-	r := &Reconciler{Client: c, Scheme: scheme}
-	reconcileWithUpstreamSimulation(t, r, instance)
-	state := getAgentInstance(t, c, instance)
-	pinned := state.Status.Definition.Revision
-	state.Status.Definition.AgentContainer, state.Status.Definition.InvocationProtocol = "", ""
-	meta.SetStatusCondition(&state.Status.Conditions, metav1.Condition{Type: "ActivityReady", Status: metav1.ConditionTrue, Reason: "Legacy", Message: "obsolete"})
-	if err := c.Status().Update(ctx, state); err != nil {
-		t.Fatal(err)
-	}
-	definition.Spec.InvocationProtocol = ""
-	definition.Spec.AgentContainer = "sidecar"
-	saveDefinition(t, c, definition)
-	reconcileWithUpstreamSimulation(t, r, instance)
-	state = getAgentInstance(t, c, instance)
-	if state.Status.Definition.Revision != pinned || state.Status.Definition.AgentContainer != "agent" || state.Status.Definition.InvocationProtocol != "HTTPJSONSSEV1" {
-		t.Fatalf("backfill used the latest definition or guessed the first container: %+v", state.Status.Definition)
-	}
-	if meta.FindStatusCondition(state.Status.Conditions, "ActivityReady") != nil {
-		t.Fatal("retired activity condition survived reconciliation")
 	}
 }
 

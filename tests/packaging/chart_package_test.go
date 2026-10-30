@@ -80,7 +80,7 @@ func TestChartReusesSavedImage(t *testing.T) {
 	stage, _ := packageStage(t)
 	before := sourceSnapshot(t, stage)
 	for _, arguments := range [][]string{
-		{"version", "VERSION=1.2.3", "IMG=registry.example.com:5000/operator:custom"},
+		{"configure", "VERSION=1.2.3", "IMG=registry.example.com:5000/operator:custom"},
 		{"chart-package"},
 	} {
 		runMake(t, stage, arguments...)
@@ -95,7 +95,7 @@ func TestChartReusesSavedImage(t *testing.T) {
 
 func buildVersionedChart(t *testing.T, stage, version string) string {
 	t.Helper()
-	args := []string{"version", "chart-package", "IMAGE_TAG_BASE=registry.example.com:5000/agentrally-operator"}
+	args := []string{"configure", "chart-package", "IMAGE_TAG_BASE=registry.example.com:5000/agentrally-operator"}
 	if version != "" {
 		args = append(args, "VERSION="+version)
 	}

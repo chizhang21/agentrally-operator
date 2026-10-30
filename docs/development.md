@@ -14,21 +14,23 @@ Use the Go version in [go.mod](../go.mod), Helm 3.17 or later and Python 3.
 
 | Command | Result |
 | --- | --- |
-| `make check lint` | Check formatting, documentation links, generated files, Go tests/vet/lint and packaging |
+| `make check` | Check formatting, documentation links, generated files, Go tests/vet/lint and packaging |
 | `make build` (or `make`) | Compile `dist/operator`, including the optional Connector, locally without Docker |
-| `make configure` | Save local image and Chart repository settings |
-| `make docker-push` | Upload the built Operator image |
+| `make configure` | Save the local package version, image and Chart repository settings |
+| `make image-build` | Build the Operator image from Containerfile |
+| `make image-push` | Upload the built Operator image |
 | `make chart-package` | Create a local Chart `.tgz` archive |
 | `make chart-push` | Package and upload the Chart to an OCI registry |
 | `make e2e` | Build and test the real upstream lifecycle in a disposable kind cluster |
 | `make generate` | Update API DeepCopy code, `chart/templates/crds/` and `chart/templates/roles.yaml` after changing types or markers |
 | `make help` | Available build targets |
-| `make clean` | Remove `dist/` and `.cache/` |
+| `make clean` | Remove build outputs, temporary staging directories and Python bytecode |
 
 Build tools have overridable versions in [mk/tools.mk](../mk/tools.mk).
 Go dependencies are recorded in `go.mod` and `go.sum`.
 
-`make check` runs `go vet`; `make lint` supplies the remaining static checks.
+`make check` includes `go vet` and golangci-lint.
+Formatting and focused lint helpers remain available as `make fmt` and `make lint`.
 
 For workflow changes, install `actionlint` and ShellCheck on your `PATH`, then run:
 
@@ -64,8 +66,8 @@ repository preserves the other.
 
 Credentials stay in Docker and Helm login stores.
 
-The default local version is `0.0.0-dev`; `make version` selects it again while
-preserving repository settings.
+The default local version is `0.0.0-dev`.
+Use `make configure VERSION=0.0.0-dev` to select it again while preserving repository settings.
 
 To select a release, pass `VERSION=x.y.z` without `v`.
 Prereleases such as `x.y.z-rc.1` are supported; versions are limited to 63 characters
@@ -78,8 +80,8 @@ Build and package locally:
 
 ```sh
 make configure IMAGE_TAG_BASE=YOUR_REGISTRY/agentrally-operator
-make docker-build
-make docker-push
+make image-build
+make image-push
 make chart-package
 ```
 
@@ -88,7 +90,9 @@ The Chart archive is `dist/agentrally-operator-<VERSION>.tgz` and includes the s
 image defaults.
 
 The saved record identifies outputs; it does not prove a build or push succeeded.
-`make clean` removes the record, build outputs and downloaded tools.
+`make clean` removes build outputs, temporary chart/generation staging and Python bytecode.
+It preserves `.cache/build.json`, downloaded tools, test reports and local plans.
+To reset saved package settings, remove `.cache/build.json`.
 
 Repeated dev builds reuse the image tag and overwrite the archive.
 Dev packages set `image.pullPolicy: Always`; after updating an installed build,
@@ -109,8 +113,8 @@ make configure \
   CHART_OCI_REPO=oci://ghcr.io/chizhang21/helm
 docker login ghcr.io --username chizhang21
 helm registry login ghcr.io --username chizhang21
-make docker-build
-make docker-push
+make image-build
+make image-push
 make chart-push
 ```
 
@@ -123,12 +127,15 @@ Use `make configure CHART_OCI_REPO=oci://REGISTRY/NAMESPACE/helm` to change it.
 
 ## Tests
 
-Run `make check lint` before submitting changes.
+Run `make check` before submitting changes.
 Controller unit tests use fake clients; API admission, scheduling, GC and upstream
 controllers need the verification layers below.
 For concurrency changes, also run `go test -race ./internal/...`.
 
 ### API-server integration
+
+These tests start a temporary Kubernetes API server and etcd through envtest.
+They exercise Kubernetes storage and admission instead of fake clients.
 
 Install the [envtest binaries](https://github.com/kubernetes-sigs/controller-tools/releases)
 selected by [CI](../.github/workflows/checks.yml) and set `KUBEBUILDER_ASSETS`.
@@ -137,8 +144,10 @@ selected by [CI](../.github/workflows/checks.yml) and set `KUBEBUILDER_ASSETS`.
 go test -tags=integration ./cmd ./tests/packaging -count=1 -timeout=180s
 ```
 
-This tests Helm installation, CRD upgrade/adoption/uninstall retention, example admission,
+This tests Helm installation, CRD updates and uninstall retention, example admission,
 Group policy convergence and Connector leader handoff/readiness.
+Connector management also uses the rendered Operator RBAC to create CRs and Secrets,
+query scoped storage pages and verify that a lost ACK does not replay a write.
 Missing binaries fail explicitly.
 These tests do not exercise a scheduler, CNI, CSI or Kubernetes garbage collector.
 

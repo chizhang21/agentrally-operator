@@ -29,9 +29,7 @@ jobs:
           actionlint
       - name: Download checked dependencies
         run: go mod download
-      - name: Lint Go code
-        run: make lint
-      - name: Test source, generated files and Helm chart
+      - name: Check source and Helm chart; build the Operator
         run: make check build
       - name: Test CRD lifecycle and Connector election with an isolated API server
         run: |

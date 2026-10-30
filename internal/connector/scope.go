@@ -8,6 +8,7 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -63,9 +64,15 @@ func (e Executor) scopedNamespace(ctx context.Context, req Request, discover boo
 	if err != nil {
 		return nil, err
 	}
+	if req.Method != http.MethodGet && group.GetDeletionTimestamp() != nil {
+		return nil, protocolError(http.StatusConflict, "Conflict", "Group is terminating")
+	}
 	requested := req.Namespace
 	if discover {
 		requested = req.Name
+	}
+	if req.Resource == "agentworkspaces" && requested == "" {
+		requested = name
 	}
 	if requested != name && !(discover && requested == "") {
 		return nil, scopeForbidden()
@@ -82,7 +89,7 @@ func (e Executor) scopedNamespace(ctx context.Context, req Request, discover boo
 		return nil, err
 	}
 	if err := controller.CheckGroupNamespace(namespace, &typed); err != nil {
-		return nil, err
+		return nil, scopeForbidden()
 	}
 	return namespace, nil
 }
@@ -122,15 +129,10 @@ func (e Executor) executeScoped(ctx context.Context, req Request) (json.RawMessa
 		return nil, 0, protocolError(http.StatusBadRequest, "BadRequest", "unsupported method")
 	}
 	if req.Resource == "agentgroups" {
-		return e.executeScopedGroup(ctx, req, kind)
-	}
-	if req.Method == http.MethodPost {
-		if len(req.Body) != 0 {
-			if _, err := requestObject(req, kind); err != nil {
-				return nil, 0, err
-			}
+		if req.Method == http.MethodGet && req.Name == "" && req.Scope == nil {
+			return e.metadataRead(ctx, req)
 		}
-		return nil, 0, unsupported("Scoped namespaced creation has no namespace UID precondition; this capability is unavailable")
+		return e.executeScopedGroup(ctx, req, kind)
 	}
 	ns, err := e.scopedNamespace(ctx, req, false)
 	if err != nil {
@@ -139,7 +141,17 @@ func (e Executor) executeScoped(ctx context.Context, req Request) (json.RawMessa
 	if req.Method != http.MethodGet && ns.GetDeletionTimestamp() != nil {
 		return nil, 0, protocolError(http.StatusConflict, "Conflict", "Namespace is terminating")
 	}
-	if req.Name != "" {
+	if req.Method == http.MethodPost && req.Resource != "secrets" {
+		object, err := requestObject(req, kind)
+		if err != nil {
+			return nil, 0, err
+		}
+		if err := checkGroupReference(object, req.Scope.GroupName); err != nil {
+			return nil, 0, err
+		}
+	}
+	cr := req.Resource == "agentdefinitions" || req.Resource == "agentinstances"
+	if req.Name != "" && cr {
 		object, err := e.Client.Resource(nativeResource(req.Resource)).Namespace(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, 0, err
@@ -151,11 +163,24 @@ func (e Executor) executeScoped(ctx context.Context, req Request) (json.RawMessa
 			return nil, 0, err
 		}
 	}
-	data, code, err := e.executeNative(ctx, req)
+	var data json.RawMessage
+	var code int
+	switch req.Resource {
+	case "secrets":
+		if req.Method == http.MethodPost {
+			data, code, err = e.createSecret(ctx, req)
+		} else {
+			data, code, err = e.metadataRead(ctx, req)
+		}
+	case "persistentvolumeclaims", "agentworkspaces":
+		data, code, err = e.storageRead(ctx, req, ns)
+	default:
+		data, code, err = e.executeNative(ctx, req)
+	}
 	if err != nil {
 		return nil, 0, err
 	}
-	if req.Method == http.MethodGet {
+	if req.Method == http.MethodGet && cr {
 		if err := checkResponseGroup(data, req.Name == "", req.Scope.GroupName); err != nil {
 			return nil, 0, err
 		}
@@ -189,6 +214,9 @@ func (e Executor) executeScopedGroup(ctx context.Context, req Request, kind stri
 		if err != nil {
 			return nil, 0, err
 		}
+		if req.Method == http.MethodPut && group.GetDeletionTimestamp() != nil {
+			return nil, 0, protocolError(http.StatusConflict, "Conflict", "Group is terminating")
+		}
 		if err := scopedWritePreconditions(req, kind, group); err != nil {
 			return nil, 0, err
 		}
@@ -207,12 +235,21 @@ func (e Executor) executeScopedGroup(ctx context.Context, req Request, kind stri
 func scopedWritePreconditions(req Request, kind string, current *unstructured.Unstructured) error {
 	switch req.Method {
 	case http.MethodPut:
+		if current.GetDeletionTimestamp() != nil {
+			return protocolError(http.StatusConflict, "Conflict", "Deleting resources cannot be updated through Connector")
+		}
 		body, err := requestObject(req, kind)
 		if err != nil {
 			return err
 		}
 		if body.GetUID() == "" || body.GetUID() != current.GetUID() {
 			return scopeForbidden()
+		}
+		if body.GetAnnotations()[operationAnnotation] != current.GetAnnotations()[operationAnnotation] {
+			return protocolError(http.StatusBadRequest, "BadRequest", "creation operation annotation must be preserved")
+		}
+		if !equality.Semantic.DeepEqual(body.GetFinalizers(), current.GetFinalizers()) || !equality.Semantic.DeepEqual(body.GetOwnerReferences(), current.GetOwnerReferences()) {
+			return protocolError(http.StatusBadRequest, "BadRequest", "resource ownership and finalizers are managed by controllers")
 		}
 		if req.Resource != "agentgroups" {
 			return checkGroupReference(body, req.Scope.GroupName)

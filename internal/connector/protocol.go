@@ -22,14 +22,8 @@ type ControlIntent struct {
 	ObservedAt          string `json:"observedAt,omitempty"`
 }
 
-type managementVersion struct {
-	Version   string              `json:"version"`
-	Resources map[string][]string `json:"resources"`
-}
-
 type capabilityDocument struct {
-	SchemaVersion         string              `json:"schemaVersion"`
-	Management            []managementVersion `json:"management"`
+	Resources             map[string][]string `json:"resources"`
 	MaxMessageBytes       int                 `json:"maxMessageBytes"`
 	MaxListLimit          int                 `json:"maxListLimit"`
 	InvocationPreview     bool                `json:"invocationPreview"`
@@ -44,18 +38,14 @@ type capabilityDocument struct {
 func managementCapabilities(preview bool) capabilityDocument {
 	crud := []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 	get := []string{http.MethodGet}
-	update := []string{http.MethodGet, http.MethodPut, http.MethodDelete}
 	return capabilityDocument{
-		InvocationPreview: preview,
-		SchemaVersion:     "management.capabilities/v1", MaxMessageBytes: MaxMessageBytes, MaxListLimit: 500,
-		Management: []managementVersion{
-			{Version: "v1", Resources: map[string][]string{
-				"agentgroups": crud, "agentdefinitions": crud, "agentinstances": crud, "clustercapabilities": get,
-			}},
-			{Version: "v2", Resources: map[string][]string{
-				"agentgroups": crud, "agentdefinitions": update, "agentinstances": update, "clustercapabilities": get,
-				"namespaces": get, "instanceobservations": get,
-			}},
+		InvocationPreview:     preview,
+		ScopedNamespaceCreate: true,
+		MaxMessageBytes:       MaxMessageBytes, MaxListLimit: 500,
+		Resources: map[string][]string{
+			"agentgroups": crud, "agentdefinitions": crud, "agentinstances": crud, "clustercapabilities": get,
+			"namespaces": get, "instanceobservations": get, "agentworkspaces": get,
+			"persistentvolumeclaims": get, "secrets": {http.MethodGet, http.MethodPost},
 		},
 	}
 }
@@ -75,14 +65,8 @@ func unsupported(message string) error {
 }
 
 func validateProtocol(req Request) error {
-	if req.Version != "" && req.Version != "v1" && req.Version != "v2" {
-		return unsupported("Unsupported management protocol version")
-	}
 	if len(req.Continue) > 16*1024 {
 		return protocolError(http.StatusBadRequest, "BadRequest", "continue token exceeds connector limit")
-	}
-	if req.Version != "v2" && (req.Scope != nil || req.Intent != nil || req.ObservationScope != "") {
-		return protocolError(http.StatusBadRequest, "BadRequest", "scopes, intents and observations require management v2")
 	}
 	if req.ObservationScope != "" {
 		if req.Resource != "instanceobservations" || req.Method != http.MethodGet {

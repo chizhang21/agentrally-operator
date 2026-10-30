@@ -49,12 +49,12 @@ func TestResponseRetryDoesNotReplayWriteAndReloadsToken(t *testing.T) {
 		}
 		if req.Method == "GET" {
 			polls++
-			if polls != 1 || req.URL.Path != "/agentrally/internal/v1/connectors/cluster-one/requests" {
+			if polls != 1 || req.URL.Path != "/agentrally/internal/connectors/cluster-one/requests" {
 				t.Fatal("polled again before acknowledging executed operation")
 			}
-			return remoteResponse(req, 200, `{"id":"write-1","method":"POST","resource":"agentgroups","body":{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"demo"},"spec":{"namespace":"agentrally-demo"}}}`), nil
+			return remoteResponse(req, 200, `{"id":"write-1","method":"POST","resource":"agentgroups","scope":{"groupName":"demo"},"body":{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"demo"},"spec":{"namespace":"agentrally-demo"}}}`), nil
 		}
-		if req.Method != "POST" || req.URL.Path != "/agentrally/internal/v1/connectors/cluster-one/responses" || req.Header.Get("Content-Type") != "application/json" {
+		if req.Method != "POST" || req.URL.Path != "/agentrally/internal/connectors/cluster-one/responses" || req.Header.Get("Content-Type") != "application/json" {
 			t.Fatal("invalid response endpoint")
 		}
 		data, err := io.ReadAll(req.Body)
@@ -255,7 +255,7 @@ func TestInvocationWorkerFailureKeepsManagementRunning(t *testing.T) {
 				return
 			}
 			handshakes.Add(1)
-			_ = json.NewEncoder(w).Encode(map[string]string{"protocolVersion": InvocationVersion, "nonce": request.Nonce, "connectionEpoch": "reused-epoch"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"protocol": InvocationProtocol, "nonce": request.Nonce, "connectionEpoch": "reused-epoch"})
 		default:
 			// End the first session so a second handshake must reject epoch reuse.
 			w.WriteHeader(http.StatusConflict)

@@ -72,7 +72,7 @@ func (c *Client) invocationHandshake(ctx context.Context) (*invocationConnection
 		return nil, err
 	}
 	nonce := hex.EncodeToString(nonceBytes)
-	body := mustJSON(map[string]string{"protocolVersion": InvocationVersion, "nonce": nonce})
+	body := mustJSON(map[string]string{"protocol": InvocationProtocol, "nonce": nonce})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.invocations+"/sessions", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -89,11 +89,11 @@ func (c *Client) invocationHandshake(ctx context.Context) (*invocationConnection
 		return nil, invocationError("HandshakeFailed")
 	}
 	var session struct {
-		ProtocolVersion string `json:"protocolVersion"`
+		Protocol        string `json:"protocol"`
 		Nonce           string `json:"nonce"`
 		ConnectionEpoch string `json:"connectionEpoch"`
 	}
-	if decodeInvocationJSON(data, &session) != nil || session.ProtocolVersion != InvocationVersion || session.Nonce != nonce || !wireID.MatchString(session.ConnectionEpoch) {
+	if decodeInvocationJSON(data, &session) != nil || session.Protocol != InvocationProtocol || session.Nonce != nonce || !wireID.MatchString(session.ConnectionEpoch) {
 		return nil, invocationError("InvalidHandshake")
 	}
 	return &invocationConnection{client: c, epoch: session.ConnectionEpoch, token: token}, nil

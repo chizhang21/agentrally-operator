@@ -42,13 +42,13 @@ Administrators must control who can create policies and Pods with Operator ident
 ## Authenticated sessions
 
 All paths below are relative to `connector.endpoint` and start with
-`/internal/v2/connectors/{id}`.
+`/internal/connectors/{id}`.
 They use the existing Bearer credential over HTTPS and reject redirects.
-The management v1 worker runs separately from invocation and control polling.
+The management worker runs separately from invocation and control polling.
 
 | Path | Method | Contract |
 | --- | --- | --- |
-| `/sessions` | POST | Send `protocolVersion: invocation.v1` and a random `nonce`. Return both unchanged and a new `connectionEpoch`. |
+| `/sessions` | POST | Send `protocol: invocation` and a random `nonce`. Return both unchanged and a new `connectionEpoch`. |
 | `/invocations` | GET | Return one command, or 204 when idle. Finish long polls within 30 seconds. |
 | `/controls` | GET | Independent gate/cancel polling, with the same long-poll contract. |
 | `/invocations/{requestId}/result` | POST | Accept a JSON transport result; 2xx acknowledges receipt. |
@@ -187,7 +187,7 @@ The elected replica's Connector readiness check fails, while management polling
 and core reconciliation continue.
 Restart the Operator after correcting the backend failure to re-enable the preview.
 
-The [shared fixture](../tests/fixtures/connector/invocation-v1.json) and reference-backend
+The [shared fixture](../tests/fixtures/connector/invocation.json) and reference-backend
 tests cover the Operator transport contract.
 Production rollout still requires real Orchestrator integration and the combined
 1 CPU / 512 MiB load test: 16 SSE streams at 16 KiB/s for five minutes, one slow reader,

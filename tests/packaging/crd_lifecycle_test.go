@@ -23,13 +23,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	nodev1 "k8s.io/api/node/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -67,7 +67,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	runHelm(t, kubeconfig, "install", "agentrally-operator", chart, "-n", "agentrally-system", "--create-namespace")
 
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{v1.AddToScheme, apiextensionsv1.AddToScheme, corev1.AddToScheme, appsv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{v1.AddToScheme, apiextensionsv1.AddToScheme, corev1.AddToScheme, appsv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, rbacv1.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}
@@ -96,6 +96,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	verifyPodAdmissionDefaults(t, k8s)
 	t.Run("group-limit-range", func(t *testing.T) { verifyGroupLimitRangeConvergence(t, k8s, scheme) })
 	t.Run("group-network-policy", func(t *testing.T) { verifyGroupNetworkPolicyConvergence(t, k8s, scheme) })
+	t.Run("connector-management", func(t *testing.T) { verifyConnectorManagement(t, cfg, scheme, k8s) })
 
 	group := &v1.AgentGroup{}
 	group.Name = "retained"
@@ -112,13 +113,7 @@ func TestHelmCRDLifecycle(t *testing.T) {
 	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(group), &v1.AgentGroup{}); err != nil {
 		t.Fatalf("uninstall removed existing AgentGroup: %v", err)
 	}
-	verifyLegacyAdoption(t, k8s, kubeconfig, chart)
-	if err := k8s.Get(context.Background(), key, crd); err != nil || crd.UID != uid || crd.Annotations["meta.helm.sh/release-name"] != "agentrally-legacy" || crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Description != "schema updated by helm upgrade" {
-		t.Fatalf("retained CRD was not adopted in place: %v", err)
-	}
-	if err := k8s.Get(context.Background(), client.ObjectKeyFromObject(group), &v1.AgentGroup{}); err != nil {
-		t.Fatalf("adoption removed existing AgentGroup: %v", err)
-	}
+
 }
 
 func verifyManifestAdmission(t *testing.T, kube client.Client) {
@@ -369,64 +364,6 @@ func verifySchemaUpgrade(t *testing.T, k8s client.Client, kubeconfig, chart stri
 		t.Fatalf("CRD was not upgraded in place: %v", err)
 	}
 	return uid
-}
-
-func verifyLegacyAdoption(t *testing.T, k8s client.Client, kubeconfig, chart string) {
-	t.Helper()
-	for key := range renderChartObjects(t, chart) {
-		if !strings.HasPrefix(key, "CustomResourceDefinition/") {
-			continue
-		}
-		name := strings.TrimPrefix(key, "CustomResourceDefinition/")
-		retained := &apiextensionsv1.CustomResourceDefinition{}
-		if err := k8s.Get(context.Background(), client.ObjectKey{Name: name}, retained); err != nil {
-			t.Fatal(err)
-		}
-		delete(retained.Annotations, "meta.helm.sh/release-name")
-		delete(retained.Annotations, "meta.helm.sh/release-namespace")
-		delete(retained.Labels, "app.kubernetes.io/managed-by")
-		if err := k8s.Update(context.Background(), retained); err != nil {
-			t.Fatal(err)
-		}
-		// An earlier manual SSA upgrade may also own the schema. Helm must still
-		// adopt and update it through its normal patch operation without conflict.
-		applied := &apiextensionsv1.CustomResourceDefinition{
-			TypeMeta:   metav1.TypeMeta{APIVersion: apiextensionsv1.SchemeGroupVersion.String(), Kind: "CustomResourceDefinition"},
-			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec:       *retained.Spec.DeepCopy(),
-		}
-		applied.Spec.Versions[0].Schema.OpenAPIV3Schema.Description = "schema applied before adoption"
-		fields, err := runtime.DefaultUnstructuredConverter.ToUnstructured(applied)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := k8s.Apply(context.Background(), client.ApplyConfigurationFromUnstructured(&unstructured.Unstructured{Object: fields}), client.FieldOwner("agentrally-operator-install"), client.ForceOwnership); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Old charts installed CRDs from crds/, outside the release manifest.
-	stage, _ := packageStage(t)
-	legacy := filepath.Join(stage, "chart")
-	if err := os.Mkdir(filepath.Join(legacy, "crds"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	objects := renderChartObjects(t, legacy)
-	for key, data := range objects {
-		if !strings.HasPrefix(key, "CustomResourceDefinition/") {
-			continue
-		}
-		plural := strings.TrimSuffix(strings.TrimPrefix(key, "CustomResourceDefinition/"), "."+v1.GroupVersion.Group)
-		name := v1.GroupVersion.Group + "_" + plural + ".yaml"
-		if err := os.WriteFile(filepath.Join(legacy, "crds", name), data, 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Remove(filepath.Join(legacy, "templates/crds", name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	runHelm(t, kubeconfig, "install", "agentrally-legacy", legacy, "-n", "agentrally-system")
-	runHelm(t, kubeconfig, "upgrade", "agentrally-legacy", chart, "-n", "agentrally-system", "--take-ownership")
-	runHelm(t, kubeconfig, "upgrade", "agentrally-legacy", chart, "-n", "agentrally-system")
 }
 
 func isolatedKubeconfig(t *testing.T, cfg *rest.Config) string {

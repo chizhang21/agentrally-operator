@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestRevisionIdentityCompatibility(t *testing.T) {
+func TestPublishedRevisionRoundTrip(t *testing.T) {
 	object := &v1.AgentDefinition{
 		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "agentrally-team", UID: "definition-uid"},
 		Spec: v1.AgentDefinitionSpec{
@@ -34,17 +34,11 @@ func TestRevisionIdentityCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// This persisted identity predates the shared hashing helper. Keep publication
-	// and reads compatible with the existing serialized revision format.
-	const revision = "8f9aa1f87a8c2692c8c154f98d94229ea08d10c202eb97d3938a167262175460"
-	if published.ID != revision {
-		t.Fatalf("publication identity changed: got %s, want %s", published.ID, revision)
-	}
-	stored, err := definition.Read(t.Context(), kube, object, revision)
+	stored, err := definition.Read(t.Context(), kube, object, published.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !equality.Semantic.DeepEqual(stored.Spec, object.Spec) || stored.Template.GetName() != published.Template.GetName() {
-		t.Fatal("reading the existing revision changed its configuration or identity")
+		t.Fatal("reading the published revision changed its configuration or identity")
 	}
 }

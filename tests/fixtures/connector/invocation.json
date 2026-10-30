@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "invocation.v1",
+  "protocol": "invocation",
   "scope": {"groupName":"team","groupUID":"group-id","namespaceUID":"namespace-id"},
   "start": {
     "connectionEpoch":"fixture-epoch",

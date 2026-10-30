@@ -9,7 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// CheckGroupNamespace selects one ownership contract; initialization cannot use the legacy path.
+// CheckGroupNamespace verifies either Group ownership or a pinned persistent namespace.
 func CheckGroupNamespace(namespace client.Object, group *v1.AgentGroup) error {
 	if !group.Spec.PersistentWorkspaces {
 		return CheckOwner(namespace, group)

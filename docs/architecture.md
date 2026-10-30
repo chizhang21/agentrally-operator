@@ -178,7 +178,9 @@ Stop requests and in-flight deadlines are handled before new-configuration depen
 Published Definitions without proactive demand wait for Group/template events.
 Prepared capacity, credential references and read-only upstream observations also use bounded polling.
 Indexes route dependency events without performing remote reads inside handlers.
-Secrets bypass the informer cache and use reference-only GET permissions.
+Controllers read Secrets by explicit reference, bypassing the informer cache.
+Enabling Connector adds Secret list/create permissions for its restricted management interface.
+Remote reads negotiate metadata only and never fall back to Secret content.
 
 Conditions distinguish allocation, configuration application, health and desired intent.
 Available follows current execution health.

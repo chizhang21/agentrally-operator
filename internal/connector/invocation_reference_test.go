@@ -100,7 +100,7 @@ func (b *referenceBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/sessions") {
 		var request map[string]string
-		if json.NewDecoder(r.Body).Decode(&request) != nil || request["protocolVersion"] != "invocation.v1" {
+		if json.NewDecoder(r.Body).Decode(&request) != nil || request["protocol"] != "invocation" {
 			w.WriteHeader(400)
 			return
 		}
@@ -112,7 +112,7 @@ func (b *referenceBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		b.epoch = &referenceEpoch{id: fmt.Sprintf("epoch-%d", b.next), closed: make(chan struct{}), calls: make(chan []byte, 10), controls: make(chan []byte, 10)}
 		id := b.epoch.id
 		b.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]string{"protocolVersion": "invocation.v1", "nonce": request["nonce"], "connectionEpoch": id})
+		_ = json.NewEncoder(w).Encode(map[string]string{"protocol": "invocation", "nonce": request["nonce"], "connectionEpoch": id})
 		return
 	}
 	b.mu.Lock()
@@ -227,7 +227,7 @@ func referenceClient(t *testing.T, b *referenceBackend) (*Client, *httptest.Serv
 }
 
 func TestSharedInvocationFixtureAndConsumerRejectsBrokenStreams(t *testing.T) {
-	data, err := os.ReadFile("../../tests/fixtures/connector/invocation-v1.json")
+	data, err := os.ReadFile("../../tests/fixtures/connector/invocation.json")
 	if err != nil {
 		t.Fatal(err)
 	}

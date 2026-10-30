@@ -23,6 +23,8 @@ import (
 
 const Finalizer = "arally.io/workspace-protection"
 const UIDAnnotation = "arally.io/workspace-uid"
+const GroupUIDLabel = "arally.io/group-uid"
+const NamespaceUIDLabel = "arally.io/namespace-uid"
 
 func Name(group types.UID, instance string) string {
 	return fmt.Sprintf("agentrally-workspace-%x", sha256.Sum256([]byte(string(group)+"/"+instance)))[:52]
@@ -65,6 +67,7 @@ func Ensure(ctx context.Context, c client.Client, reader client.Reader, scheme *
 		}
 		record.Spec = desired
 		record.Finalizers = []string{Finalizer}
+		record.Labels = map[string]string{GroupUIDLabel: string(group.UID), NamespaceUIDLabel: string(ns.UID)}
 		if err := c.Create(ctx, record); err != nil {
 			return err
 		}

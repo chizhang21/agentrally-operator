@@ -148,11 +148,10 @@ Unpause the Group to allow new allocations.
 This does not suspend allocated agents.
 For Definitions with an explicit prewarming policy, it also drains desired spare capacity
 to zero; upstream work already submitted can finish.
-Legacy pools without this policy retain their existing spare behavior.
+On-demand pools without a Definition preparation policy keep their configured spare behavior.
 
 Restart cleanup can finish while paused; the replacement waits for unpause.
 
-<a id="legacy-agent-images-on-openshift"></a>
 
 ### Agent process identity
 
@@ -283,7 +282,7 @@ See
 ### Platform-managed persistent workspaces (preview)
 
 New Groups can enable `spec.persistentWorkspaces: true` at creation.
-This choice cannot change later and does not migrate an existing Group or its PVCs.
+Choose this policy when creating the Group; the field is immutable.
 
 An Instance in that Group can request its own persistent workspace:
 
@@ -538,8 +537,6 @@ The optional `lifecycle` block in [full/instance.yaml](../examples/full/instance
 The earliest applicable execution deadline wins.
 The Operator applies explicit `operatingMode` changes; it does not infer idleness from traffic or Leases.
 Observation-driven automatic suspension is currently unsupported.
-For upgrades from the old Activity Lease contract, see
-[upgrade guidance](installation.md#upgrade-agentrally).
 
 Sandbox-owned workspace PVCs are removed with execution; externally supplied Secrets and
 externally managed workspace PVCs remain.

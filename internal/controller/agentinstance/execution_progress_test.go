@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"agentrally/operator/internal/diagnostics"
 	"agentrally/operator/internal/sandbox"
 	"agentrally/operator/internal/testutil"
 
@@ -130,12 +131,12 @@ func TestExecutionDiagnosticsPreserveConditionTransitionTimes(t *testing.T) {
 func TestExecutionStallThresholdAndCoreReadiness(t *testing.T) {
 	now := time.Now().UTC()
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(now.Add(-6 * time.Minute))}, Status: corev1.PodStatus{Phase: corev1.PodPending}}
-	if issue := podDiagnostic(pod, now); issue == nil || issue.Reason != "PodStartupStalled" {
+	if issue := diagnostics.Pod(pod, now); issue == nil || issue.Reason != "PodStartupStalled" {
 		t.Fatalf("startup stall not diagnosed: %+v", issue)
 	}
 	pod.Status.Phase = corev1.PodRunning
 	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.ContainersReady, Status: corev1.ConditionFalse, LastTransitionTime: pod.CreationTimestamp}}
-	if issue := podDiagnostic(pod, now); issue == nil || issue.Reason != "ReadinessStalled" {
+	if issue := diagnostics.Pod(pod, now); issue == nil || issue.Reason != "ReadinessStalled" {
 		t.Fatalf("readiness stall not diagnosed: %+v", issue)
 	}
 	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}

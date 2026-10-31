@@ -2,6 +2,8 @@
 
 See [Installation](../docs/installation.md) for public and local installation.
 All settings are in [values.yaml](values.yaml).
+For optional backend integration, start with [connector-values.example.yaml](connector-values.example.yaml).
+Credential setup and the backend contract are in [Connector integration](../docs/outbound-connector.md).
 
 ## Chart sources
 

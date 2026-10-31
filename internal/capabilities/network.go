@@ -12,6 +12,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// NetworkProviderName identifies catalog candidates without making API reads or
+// evaluating namespace trust and effective policy configuration.
+func NetworkProviderName(daemon *appsv1.DaemonSet) string {
+	if daemon == nil {
+		return ""
+	}
+	rule, _ := networkRule(daemon)
+	return rule.Provider
+}
+
 func networkProvider(ctx context.Context, reader client.Reader, ds appsv1.DaemonSet) (v1.NetworkPolicyProviderObservation, bool, error) {
 	rule, recognized := networkRule(&ds)
 	p := v1.NetworkPolicyProviderObservation{Name: ds.Name, Namespace: ds.Namespace, Provider: rule.Provider, Status: "Unknown", Source: "BuiltInCatalog", Rule: "network/" + rule.Provider}

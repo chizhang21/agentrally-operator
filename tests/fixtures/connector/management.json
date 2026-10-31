@@ -9,6 +9,8 @@
     "activityLease": false,
     "processIdentity": false,
     "scopedNamespaceCreate": true,
+    "instanceDiagnostics": true,
+    "secretCreateTypes": ["Opaque", "kubernetes.io/dockerconfigjson"],
     "resources": {
       "agentgroups": [
         "GET",
@@ -45,7 +47,13 @@
       ],
       "secrets": [
         "GET",
-        "POST"
+        "POST",
+        "DELETE"
+      ],
+      "configmaps": [
+        "GET",
+        "POST",
+        "DELETE"
       ]
     }
   },
@@ -111,6 +119,56 @@
         "arally.io/connector-operation-id": "create-secret-1"
       }
     }
+  },
+  "createConfigMap": {
+    "id": "create-settings",
+    "method": "POST",
+    "resource": "configmaps",
+    "namespace": "agentrally-team",
+    "scope": {"groupName": "team", "groupUID": "group-id", "namespaceUID": "namespace-id"},
+    "body": {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "settings", "namespace": "agentrally-team"}, "data": {"MODE": "example"}}
+  },
+  "configMapMetadata": {
+    "apiVersion": "meta.k8s.io/v1",
+    "kind": "PartialObjectMetadata",
+    "metadata": {"name": "settings", "namespace": "agentrally-team", "uid": "configmap-uid", "resourceVersion": "43", "annotations": {"arally.io/connector-operation-id": "create-settings"}}
+  },
+  "instanceDiagnostic": {
+    "stage": "Runtime",
+    "reason": "PodReady",
+    "message": "The current execution Pod is running and ready",
+    "resource": {"kind": "Pod", "name": "warm-pod", "uid": "pod-id", "resourceVersion": "1"}
+  },
+  "deleteSecret": {
+    "id": "delete-secret-1",
+    "method": "DELETE",
+    "resource": "secrets",
+    "namespace": "agentrally-team",
+    "name": "provider",
+    "scope": {
+      "groupName": "team",
+      "groupUID": "group-id",
+      "namespaceUID": "namespace-id"
+    },
+    "body": {
+      "preconditions": {"uid": "secret-uid", "resourceVersion": "42"}
+    }
+  },
+  "deleteConfigMap": {
+    "id": "delete-settings",
+    "method": "DELETE",
+    "resource": "configmaps",
+    "namespace": "agentrally-team",
+    "name": "settings",
+    "scope": {"groupName": "team", "groupUID": "group-id", "namespaceUID": "namespace-id"},
+    "body": {"preconditions": {"uid": "configmap-uid", "resourceVersion": "43"}}
+  },
+  "deleteStatus": {
+    "apiVersion": "v1",
+    "kind": "Status",
+    "metadata": {},
+    "status": "Success",
+    "code": 202
   },
   "rejectedEnvelopes": [
     {

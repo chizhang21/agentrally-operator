@@ -2,10 +2,12 @@
 package connector
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -158,8 +160,13 @@ func validateRequest(req Request) (string, error) {
 		}
 	case "secrets":
 		kind = "Secret"
-		if req.Method != http.MethodGet && req.Method != http.MethodPost {
-			return "", protocolError(http.StatusForbidden, "Forbidden", "Secrets only support creation and metadata reads")
+		if req.Method != http.MethodGet && req.Method != http.MethodPost && req.Method != http.MethodDelete {
+			return "", protocolError(http.StatusForbidden, "Forbidden", "Secrets only support creation, guarded deletion and metadata reads")
+		}
+	case "configmaps":
+		kind = "ConfigMap"
+		if req.Method != http.MethodGet && req.Method != http.MethodPost && req.Method != http.MethodDelete {
+			return "", protocolError(http.StatusForbidden, "Forbidden", "ConfigMaps only support creation, guarded deletion and metadata reads")
 		}
 	case "clustercapabilities":
 		kind = "ClusterCapabilities"
@@ -169,7 +176,7 @@ func validateRequest(req Request) (string, error) {
 	default:
 		return "", protocolError(http.StatusBadRequest, "BadRequest", "unsupported resource")
 	}
-	if req.Resource == "agentinstances" || req.Resource == "agentdefinitions" || req.Resource == "secrets" || req.Resource == "persistentvolumeclaims" {
+	if req.Resource == "agentinstances" || req.Resource == "agentdefinitions" || req.Resource == "secrets" || req.Resource == "configmaps" || req.Resource == "persistentvolumeclaims" {
 		if req.Namespace == "" || len(validation.IsDNS1123Label(req.Namespace)) != 0 {
 			return "", protocolError(http.StatusBadRequest, "BadRequest", "namespaced resources require a valid namespace")
 		}
@@ -233,7 +240,7 @@ func requestObject(req Request, kind string) (*unstructured.Unstructured, error)
 }
 
 func resourceAPI(name string) schema.GroupVersionResource {
-	if name == "secrets" || name == "persistentvolumeclaims" {
+	if name == "secrets" || name == "configmaps" || name == "persistentvolumeclaims" {
 		return schema.GroupVersionResource{Version: "v1", Resource: name}
 	}
 	return nativeResource(name)
@@ -267,10 +274,13 @@ func markCreation(object *unstructured.Unstructured, id string) error {
 
 func requestDeleteOptions(req Request) (metav1.DeleteOptions, error) {
 	var options metav1.DeleteOptions
-	if req.Name == "" || json.Unmarshal(req.Body, &options) != nil || options.Preconditions == nil ||
+	decoder := json.NewDecoder(bytes.NewReader(req.Body))
+	decoder.DisallowUnknownFields()
+	if req.Name == "" || len(req.Body) > MaxMessageBytes || decoder.Decode(&options) != nil || decoder.Decode(new(any)) != io.EOF ||
+		options.APIVersion != "" && options.APIVersion != "v1" || options.Kind != "" && options.Kind != "DeleteOptions" || options.Preconditions == nil ||
 		options.Preconditions.UID == nil || *options.Preconditions.UID == "" ||
 		options.Preconditions.ResourceVersion == nil || *options.Preconditions.ResourceVersion == "" {
-		return metav1.DeleteOptions{}, protocolError(http.StatusBadRequest, "BadRequest", "delete requires name and UID/resourceVersion preconditions")
+		return metav1.DeleteOptions{}, protocolError(http.StatusBadRequest, "BadRequest", "delete requires name and strict DeleteOptions with UID/resourceVersion preconditions")
 	}
 	//nolint:staticcheck // Reject deprecated orphaning requests rather than silently accepting them.
 	if options.GracePeriodSeconds != nil || options.OrphanDependents != nil || len(options.DryRun) != 0 || options.IgnoreStoreReadErrorWithClusterBreakingPotential != nil {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"agentrally/operator/internal/controller"
+	"agentrally/operator/internal/diagnostics"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,11 +50,11 @@ func latestPodEventDiagnostic(pod *corev1.Pod, events []corev1.Event) *execution
 	}
 	switch latest.Reason {
 	case "FailedMount":
-		return &executionDiagnostic{"VolumeMountFailed", "Kubelet reported a volume mount failure for this Pod; ask the cluster administrator to inspect PVC binding, CSI/node mount events and storage access"}
+		return &executionDiagnostic{Reason: "VolumeMountFailed", Message: "Kubelet reported a volume mount failure for this Pod; ask the cluster administrator to inspect PVC binding, CSI/node mount events and storage access"}
 	case "FailedAttachVolume", "FailedMapVolume":
-		return &executionDiagnostic{"VolumeAttachFailed", "A volume attach or map failure was reported for this Pod; inspect CSI, volume access modes and attachment to other nodes"}
+		return &executionDiagnostic{Reason: "VolumeAttachFailed", Message: "A volume attach or map failure was reported for this Pod; inspect CSI, volume access modes and attachment to other nodes"}
 	case "FailedCreatePodSandBox", "FailedCreatePodSandbox":
-		return &executionDiagnostic{"PodSandboxCreationFailed", "Kubelet reported Pod sandbox creation failure; ask the cluster administrator to inspect RuntimeClass, node container runtime and CNI events"}
+		return &executionDiagnostic{Reason: "PodSandboxCreationFailed", Message: "Kubelet reported Pod sandbox creation failure; ask the cluster administrator to inspect RuntimeClass, node container runtime and CNI events"}
 	}
 	return nil
 }
@@ -84,7 +85,7 @@ func executionScheduledCondition(pod *corev1.Pod, generation int64) *metav1.Cond
 		Reason: "PodScheduled", Message: "The execution Pod is assigned to a node",
 	}
 	if condition.Status == corev1.ConditionFalse {
-		diagnostic := schedulingDiagnostic(condition)
+		diagnostic := diagnostics.Scheduling(condition)
 		result.Reason, result.Message = diagnostic.Reason, diagnostic.Message
 	} else if condition.Status != corev1.ConditionTrue {
 		result.Status, result.Reason, result.Message = metav1.ConditionUnknown, "SchedulingPending", "Waiting for the scheduler to observe the execution Pod"

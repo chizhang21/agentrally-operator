@@ -1,4 +1,7 @@
-# Outbound Connector
+# Connector integration
+
+Use the [Helm values example](../chart/connector-values.example.yaml) to enable Connector.
+This document defines the protocol a backend must implement to manage resources through it.
 
 Connector is an optional worker inside the Operator process.
 Enable it with `connector.enabled: true` in the chart; it is disabled by default.
@@ -11,24 +14,26 @@ The backend authenticates users, authorizes operations and stores their delivery
 
 ## Installation
 
-Create a Secret in the release namespace with a backend-issued `token` and, if needed, `ca.crt`.
-Reference it in Helm values:
+Edit [connector-values.example.yaml](../chart/connector-values.example.yaml) with your backend endpoint and assigned cluster id.
+The backend must implement the transport and management contracts below.
 
-```yaml
-connector:
-  enabled: true
-  endpoint: https://agentrally.example.com/
-  id: production-cluster
-  credentialsSecret: agentrally-connector-credentials
-  # For a private backend CA:
-  caFile: /var/run/agentrally-connector/ca.crt
+For an existing release in `agentrally-system`, create the referenced Secret from a backend-issued token file:
+
+```sh
+kubectl -n agentrally-system create secret generic agentrally-connector-credentials \
+  --from-file=token=/path/to/backend-token
 ```
 
-Omit `caFile` for system CA roots.
+Add `-f chart/connector-values.example.yaml` to the [Helm upgrade command](installation.md#upgrade-agentrally).
+For a first installation, create the release namespace and credentials before running Helm with these values.
+
+System CA roots are used by default.
+For a private backend CA, add `--from-file=ca.crt=/path/to/backend-ca.crt` when creating the Secret and uncomment `caFile` in the example.
 Token changes are read on each request; CA changes need an Operator restart.
 
 Connector uses the Operator's binary, Deployment and ServiceAccount.
-Enabling it adds CR write permissions, EndpointSlice reads and Secret list/create permissions.
+Enabling it adds CR write permissions, EndpointSlice reads and Secret list/create/delete permissions.
+It also adds ConfigMap create/delete permissions; the Controller's existing ConfigMap reads and watch remain unchanged.
 The top-level `resources` values cover the whole process.
 
 The backend must bind credentials to cluster id and reject duplicate active connections for that id.
@@ -65,9 +70,11 @@ Use an unscoped request with no name, body or pagination:
 
 The response contains a `resources` map from resource name to supported HTTP methods.
 It also reports `maxMessageBytes`, `maxListLimit` and feature flags.
+`secretCreateTypes` lists the allowed Secret creation types: `Opaque` and `kubernetes.io/dockerconfigjson`.
 The [shared fixture](../tests/fixtures/connector/management.json) fixes the complete response.
 
 `scopedNamespaceCreate` is true under the management boundary described below.
+`instanceDiagnostics` is true: instance observations include a safe primary diagnostic.
 Production `invocation`, `exclusiveHandoff`, `observedOperatingMode`, `activityLease` and `processIdentity` remain false.
 Unsupported capabilities return `501 Unsupported`.
 An application protocol declaration does not override these flags.
@@ -83,7 +90,8 @@ Scope identifiers are identity preconditions, not credentials.
 | `agentgroups` | GET one, POST, PUT, DELETE | Group name and UID; POST omits the not-yet-known UID |
 | `namespaces` | GET one | Verified Group namespace identity |
 | `agentdefinitions`, `agentinstances` | GET, POST, PUT, DELETE | Group UID, namespace UID and matching `spec.agentGroupRef.name` |
-| `secrets` | GET, POST | Group and namespace identity; metadata reads and Opaque creation |
+| `secrets` | GET, POST, DELETE | Group and namespace identity; metadata reads, restricted credential creation and guarded deletion |
+| `configmaps` | GET, POST, DELETE | Group and namespace identity; configuration creation, metadata reads and guarded deletion |
 | `persistentvolumeclaims` | GET | Group namespace; selected identity, spec and status fields |
 | `agentworkspaces` | GET | Group and namespace identity; cluster-scoped envelope without `namespace` |
 | `instanceobservations` | GET one | Group and namespace identity |
@@ -134,10 +142,11 @@ A creation request uses the native CR body:
   Connector rejects updates to deleting resources.
 - Creates and updates request strict API-server field validation.
 - DELETE needs native DeleteOptions with UID and resourceVersion preconditions and uses foreground deletion.
+  Unknown fields and other deletion options are rejected.
   Follow [Group deletion order](usage.md#lifecycle).
 
 Creation ids must match `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`.
-Connector injects `arally.io/connector-operation-id` into created CRs and Secrets.
+Connector injects `arally.io/connector-operation-id` into created CRs, Secrets and ConfigMaps.
 Callers cannot supply that annotation, and CR updates must preserve it.
 The backend must generate and persist the id and must not reuse it for another target or body.
 
@@ -166,10 +175,16 @@ Connector does not guarantee isolation against concurrent administrative namespa
 
 ## Secret and storage references
 
-Secret POST accepts only an Opaque Secret with `data` or `stringData`.
+Secret POST accepts `Opaque` (the default) and `kubernetes.io/dockerconfigjson`.
+Opaque accepts `data`, `stringData` or both, using Kubernetes' normal merge semantics.
+Registry credentials require exactly one `.dockerconfigjson` entry in either map.
+The other map must be absent or empty.
+Kubernetes validates the embedded JSON and native Secret size limit.
+Successful creation does not verify registry authentication or image pull access.
+
 Allowed metadata is limited to explicit name and matching namespace.
 Labels, annotations, ownerReferences, finalizers and server-assigned fields are rejected.
-Secret update, delete and service-account-token creation are unavailable.
+Secret update, patch and service-account-token creation are unavailable.
 
 Secret GET and LIST negotiate PartialObjectMetadata only.
 A server that cannot supply metadata is rejected; Connector does not fall back to a full Secret read.
@@ -177,9 +192,52 @@ The response contains name, namespace, UID, resourceVersion, timestamps and the 
 It omits data, stringData, type, keys and all other annotations and labels.
 Creation returns the same metadata projection.
 
+Secret DELETE requires the current name, Group/Namespace scope and native DeleteOptions:
+
+```json
+{
+  "id": "delete-secret-1",
+  "method": "DELETE",
+  "resource": "secrets",
+  "namespace": "agentrally-demo",
+  "name": "model-key-old",
+  "scope": {"groupName": "demo", "groupUID": "<group-uid>", "namespaceUID": "<namespace-uid>"},
+  "body": {"preconditions": {"uid": "<secret-uid>", "resourceVersion": "<secret-resource-version>"}}
+}
+```
+
+Connector reads metadata only and requires a valid Connector creation marker.
+Unmarked external or GitOps Secrets remain referenceable but cannot be deleted through this interface.
+The backend must authorize cleanup and compare the marker with its saved creation operation.
+The marker is an accidental-deletion guard, not proof of ownership.
+
+Stale UID or resourceVersion returns 409 before deletion.
+Both preconditions also reach Kubernetes, protecting against changes after the metadata read.
+Unavailable or unsafe metadata fails closed without reading the full Secret or attempting deletion.
+Success returns a generic 202 Status; finalizers may still retain the object.
+Deleting a Secret does not revoke upstream credentials or remove values already held by a process.
+
 For an existing Secret, callers must provide the required key explicitly.
 MCP management credentials need a management-side source; this interface cannot extract them from execution-cluster Secrets.
 Metadata negotiation does not change Kubernetes RBAC: the Operator still has the native Secret get permission its controllers need.
+
+The backend owns rotation and cleanup timing.
+Create a new named Secret, switch references and replace affected executions before retiring the old one.
+Consider suspended or retained instances pinned to older Revisions as well as the current Definition.
+The Operator does not scan references or restart Pods in response to Secret changes.
+The initial Connector token still comes from the installation workflow.
+
+ConfigMap POST accepts native `data`, `binaryData` and optional `immutable`.
+Empty ConfigMaps are valid.
+Only explicit name and matching namespace are allowed in metadata.
+Kubernetes validates keys, data/binaryData overlap and total size.
+Creates return identity metadata; GET/LIST never return configuration content.
+The backend retains the content and key names from its own writes.
+
+ConfigMap DELETE uses the same creation-marker, UID/resourceVersion and scope protections as Secret deletion.
+Unmarked external ConfigMaps remain referenceable but cannot be deleted through Connector.
+PUT, PATCH, remote watch and automatic configuration reload are unavailable.
+The backend creates a new named configuration and switches references before cleanup.
 
 PVC queries return identity plus accessModes, volumeMode, storageClassName, requested storage, phase and storage capacity.
 They omit PV names, data sources and arbitrary metadata.
@@ -203,6 +261,15 @@ Group UID, the accepted Definition binding and any verifiable current execution.
 The backend combines its authenticated cluster identity with Group UID and instance ID
 to identify a logical instance.
 Recreating the same name produces a different CR UID.
+
+`diagnostic` contains `stage`, `reason`, safe `message` and the verified source resource's
+`kind`, `name`, `uid` and `resourceVersion`.
+It summarizes configuration, allocation, startup, runtime or cleanup evidence.
+Configuration diagnoses describe the current desired generation; execution identity
+and health describe the accepted execution and may remain healthy during a configuration error.
+Stale configuration conditions are ignored; an in-progress restart remains visible across spec updates.
+Missing evidence produces an Observation diagnostic, never a guessed healthy state.
+Raw Pod/Event messages, logs and private metadata are omitted.
 
 The execution ID covers Instance, Sandbox and Pod UIDs, the selected agent container,
 container ID, restart count and start time.
@@ -238,6 +305,7 @@ Transport errors retry with bounded backoff.
 
 After executing a write, Connector retries the in-memory response until acknowledged,
 without re-executing the write.
+This applies to both POST and DELETE.
 The backend must accept duplicate responses for the same request id.
 
 A process restart can lose an unacknowledged response.

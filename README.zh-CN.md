@@ -58,45 +58,35 @@ AgentRally 通过 agent-sandbox 将该选择传递到执行 Pod。
 
 ## 快速开始
 
-以下步骤从源码构建 Operator，并安装本地打包的 Helm Chart。
+安装已发布的 Helm Chart，然后创建第一个 Agent。
 
 ### 前提条件
 
 - Kubernetes 集群，以及管理 CRD 和集群 RBAC 的权限。
 - 已安装 agent-sandbox **Core 和 Extensions v1.0.5**，步骤见
   [上游安装说明](docs/installation.md#install-upstream-agent-sandbox)。
-- 本机安装 kubectl、Helm 3.17 或更高版本、Docker、Make 和 Python 3。
-- 一个你能推送镜像、集群能拉取镜像的容器镜像仓库。
+- 本机安装 kubectl、Helm 3.17 或更高版本，以及获取以下示例所需的 Git。
 
-### 1. 构建并打包 Operator
+### 1. 安装 Operator
 
-将 `registry.example.com/your-team` 替换为你的镜像仓库路径，并提前登录该仓库。
+将 `x.y.z` 替换为你要安装的已发布 Chart 版本。
 
-以下命令构建 Linux amd64 镜像，与 Chart 默认节点选择器一致。
+```sh
+CHART_VERSION=x.y.z
+helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
+  --version "$CHART_VERSION" \
+  -n agentrally-system --create-namespace --wait --timeout 5m
+```
+
+私有仓库凭据和自定义配置见[安装文档](docs/installation.md)。
+从源码构建见[开发文档](docs/development.md#package-versions)。
+
+### 2. 部署 Agent
 
 ```sh
 git clone https://github.com/chizhang21/agentrally-operator.git
 cd agentrally-operator
-
-make configure VERSION=0.0.0-dev \
-  IMAGE_TAG_BASE=registry.example.com/your-team/agentrally-operator
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
-make image-build
-make image-push
-make chart-package
 ```
-
-### 2. 安装 Operator
-
-使用私有 Operator 镜像时，先准备[拉取凭据](docs/installation.md#private-images)，
-并按说明为以下命令添加 `imagePullSecrets` 参数。
-
-```sh
-helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
-  -n agentrally-system --create-namespace --wait --timeout 5m
-```
-
-### 3. 部署 Agent
 
 在 Operator 仓库的本地副本中，
 将 [definition.yaml](examples/basic/definition.yaml) 中的占位镜像替换为你的 Agent 镜像，

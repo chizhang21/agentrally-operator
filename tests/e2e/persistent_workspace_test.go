@@ -22,8 +22,10 @@ import (
 )
 
 func TestPersistentWorkspaceFoundation(t *testing.T) {
+	ran := false
 	for _, propagation := range []metav1.DeletionPropagation{metav1.DeletePropagationForeground, metav1.DeletePropagationBackground} {
 		t.Run(string(propagation), func(t *testing.T) {
+			ran = true
 			ctx := context.Background()
 			kube, kubeconfig := e2eClient(t)
 			group := &v1.AgentGroup{ObjectMeta: metav1.ObjectMeta{Name: "persistent-" + strings.ToLower(string(propagation))}, Spec: v1.AgentGroupSpec{
@@ -177,6 +179,9 @@ func TestPersistentWorkspaceFoundation(t *testing.T) {
 			}
 			// The disposable cluster owns these intentionally retained objects. No purge path is exercised.
 		})
+	}
+	if !ran {
+		t.Skip("no workspace scenarios selected")
 	}
 }
 

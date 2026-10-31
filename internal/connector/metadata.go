@@ -15,7 +15,7 @@ import (
 
 // NewMetadataClient disables client-go's full-object content negotiation fallback.
 // The API server must support PartialObjectMetadata; a 406 is never retried as a
-// full Secret read. Metadata RBAC still uses the native get/list verbs.
+// full-object read. Metadata RBAC still uses the native get/list verbs.
 func NewMetadataClient(config *rest.Config) (metadata.Interface, error) {
 	config = rest.CopyConfig(config)
 	config.Wrap(func(base http.RoundTripper) http.RoundTripper { return metadataTransport{base} })
@@ -73,16 +73,24 @@ func metadataObject(object metav1.Object) metav1.PartialObjectMetadata {
 	return metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "meta.k8s.io/v1", Kind: "PartialObjectMetadata"}, ObjectMeta: identityMetadata(object)}
 }
 
+func (e Executor) metadataResource(req Request) (metadata.ResourceInterface, error) {
+	if e.Metadata == nil {
+		return nil, unsupported("Metadata discovery is not configured")
+	}
+	resource := e.Metadata.Resource(resourceAPI(req.Resource))
+	if req.Namespace != "" {
+		return resource.Namespace(req.Namespace), nil
+	}
+	return resource, nil
+}
+
 func (e Executor) metadataRead(ctx context.Context, req Request) (json.RawMessage, int, error) {
 	if len(req.Body) != 0 {
 		return nil, 0, protocolError(http.StatusBadRequest, "BadRequest", "GET must not specify a body")
 	}
-	if e.Metadata == nil {
-		return nil, 0, unsupported("Metadata discovery is not configured")
-	}
-	var resource metadata.ResourceInterface = e.Metadata.Resource(resourceAPI(req.Resource))
-	if req.Namespace != "" {
-		resource = e.Metadata.Resource(resourceAPI(req.Resource)).Namespace(req.Namespace)
+	resource, err := e.metadataResource(req)
+	if err != nil {
+		return nil, 0, err
 	}
 	if req.Name != "" {
 		object, err := resource.Get(ctx, req.Name, metav1.GetOptions{})

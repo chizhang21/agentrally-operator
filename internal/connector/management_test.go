@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/rest"
 	ktesting "k8s.io/client-go/testing"
 	"k8s.io/utils/ptr"
 )
@@ -85,11 +86,17 @@ func TestSharedManagementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var fixture struct {
-		Capabilities      map[string]any    `json:"capabilities"`
-		Unsupported       []Request         `json:"unsupported"`
-		Create            Request           `json:"create"`
-		SecretMetadata    map[string]any    `json:"secretMetadata"`
-		RejectedEnvelopes []json.RawMessage `json:"rejectedEnvelopes"`
+		Capabilities       map[string]any    `json:"capabilities"`
+		Unsupported        []Request         `json:"unsupported"`
+		Create             Request           `json:"create"`
+		SecretMetadata     map[string]any    `json:"secretMetadata"`
+		CreateConfigMap    Request           `json:"createConfigMap"`
+		ConfigMapMetadata  map[string]any    `json:"configMapMetadata"`
+		InstanceDiagnostic map[string]any    `json:"instanceDiagnostic"`
+		DeleteSecret       Request           `json:"deleteSecret"`
+		DeleteConfigMap    Request           `json:"deleteConfigMap"`
+		DeleteStatus       map[string]any    `json:"deleteStatus"`
+		RejectedEnvelopes  []json.RawMessage `json:"rejectedEnvelopes"`
 	}
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
@@ -126,10 +133,17 @@ func TestSharedManagementContract(t *testing.T) {
 			t.Fatal("shared fixture's rejected envelope was accepted")
 		}
 	}
-	if len(fixture.RejectedEnvelopes) == 0 || fixture.SecretMetadata == nil {
+	if len(fixture.RejectedEnvelopes) == 0 || fixture.SecretMetadata == nil || fixture.DeleteSecret.ID == "" || fixture.DeleteStatus == nil {
 		t.Fatal("shared management fixture is incomplete")
 	}
 	kube, baseRequest := managementFixture(t)
+	observationResponse := (Executor{Client: kube}).Execute(t.Context(), baseRequest)
+	var observed struct {
+		Diagnostic map[string]any `json:"diagnostic"`
+	}
+	if observationResponse.Status != http.StatusOK || json.Unmarshal(observationResponse.Body, &observed) != nil || fixture.InstanceDiagnostic == nil || !reflect.DeepEqual(observed.Diagnostic, fixture.InstanceDiagnostic) {
+		t.Fatalf("shared instance diagnostic differs from implementation: %s", observationResponse.Body)
+	}
 	if response := (Executor{Client: kube}).Execute(t.Context(), fixture.Create); response.Status != http.StatusCreated {
 		t.Fatalf("shared create contract was rejected: %s", response.Body)
 	}
@@ -137,22 +151,50 @@ func TestSharedManagementContract(t *testing.T) {
 	if json.Unmarshal(mustJSON(fixture.SecretMetadata), &expected) != nil || expected.UID == "" || expected.ResourceVersion == "" {
 		t.Fatal("shared Secret metadata fixture has no native identity")
 	}
-	kube.PrependReactor("create", "secrets", func(action ktesting.Action) (bool, runtime.Object, error) {
-		object := action.(ktesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
-		object.SetUID(expected.UID)
-		object.SetResourceVersion(expected.ResourceVersion)
-		annotations := object.GetAnnotations()
-		annotations["private"] = "fixture-private-marker"
-		object.SetAnnotations(annotations)
-		object.SetLabels(map[string]string{"private": "fixture-private-marker"})
-		return true, object, nil
-	})
+	assertCreatedReference := func(request Request, expectedBody map[string]any) {
+		t.Helper()
+		var identity metav1.PartialObjectMetadata
+		if json.Unmarshal(mustJSON(expectedBody), &identity) != nil || identity.UID == "" || identity.ResourceVersion == "" {
+			t.Fatal("shared reference fixture has no native identity")
+		}
+		kube.PrependReactor("create", request.Resource, func(action ktesting.Action) (bool, runtime.Object, error) {
+			object := action.(ktesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+			object.SetUID(identity.UID)
+			object.SetResourceVersion(identity.ResourceVersion)
+			annotations := object.GetAnnotations()
+			annotations["private"] = "fixture-private-marker"
+			object.SetAnnotations(annotations)
+			object.SetLabels(map[string]string{"private": "fixture-private-marker"})
+			return true, object, nil
+		})
+		response := (Executor{Client: kube}).Execute(t.Context(), request)
+		var actual map[string]any
+		if response.Status != http.StatusCreated || json.Unmarshal(response.Body, &actual) != nil || !reflect.DeepEqual(actual, expectedBody) {
+			t.Fatalf("shared reference create contract differs from implementation: %s", response.Body)
+		}
+	}
 	request := Request{ID: expected.Annotations[operationAnnotation], Method: http.MethodPost, Resource: "secrets", Namespace: expected.Namespace, Scope: baseRequest.Scope,
 		Body: mustJSON(map[string]any{"apiVersion": "v1", "kind": "Secret", "metadata": map[string]any{"name": expected.Name, "namespace": expected.Namespace}, "stringData": map[string]any{"key": "fixture-private-marker"}})}
-	response := (Executor{Client: kube}).Execute(t.Context(), request)
-	var actual map[string]any
-	if response.Status != http.StatusCreated || json.Unmarshal(response.Body, &actual) != nil || !reflect.DeepEqual(actual, fixture.SecretMetadata) {
-		t.Fatalf("shared Secret metadata contract differs from implementation: %s", response.Body)
+	assertCreatedReference(request, fixture.SecretMetadata)
+	assertCreatedReference(fixture.CreateConfigMap, fixture.ConfigMapMetadata)
+	for _, scenario := range []struct {
+		request  Request
+		metadata map[string]any
+	}{{fixture.DeleteSecret, fixture.SecretMetadata}, {fixture.DeleteConfigMap, fixture.ConfigMapMetadata}} {
+		metadata, err := NewMetadataClient(&rest.Config{Host: "https://kube.example", Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			response := remoteResponse(r, http.StatusOK, string(mustJSON(scenario.metadata)))
+			response.Header.Set("Content-Type", "application/json")
+			return response, nil
+		})})
+		if err != nil {
+			t.Fatal(err)
+		}
+		kube.PrependReactor("delete", scenario.request.Resource, func(ktesting.Action) (bool, runtime.Object, error) { return true, nil, nil })
+		response := (Executor{Client: kube, Metadata: metadata}).Execute(t.Context(), scenario.request)
+		var actual map[string]any
+		if response.Status != http.StatusAccepted || json.Unmarshal(response.Body, &actual) != nil || !reflect.DeepEqual(actual, fixture.DeleteStatus) {
+			t.Fatalf("shared reference delete contract differs from implementation: %s", response.Body)
+		}
 	}
 }
 
@@ -233,6 +275,14 @@ func TestContainerRestartAndIncompleteBindingObservations(t *testing.T) {
 		t.Fatal("same-Pod container restart did not invalidate execution identity")
 	}
 	object, _ := kube.Resource(workloadGVR).Namespace(req.Namespace).Get(context.Background(), req.Name, metav1.GetOptions{})
+	conditional := req
+	conditional.Method, conditional.Resource = http.MethodPut, "agentinstances"
+	conditional.Intent = &ControlIntent{Kind: "Observed", ExpectedExecutionID: first.Execution.ID, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	conditional.Body = mustJSON(object)
+	kube.ClearActions()
+	if response := (Executor{Client: kube}).Execute(t.Context(), conditional); response.Status != http.StatusNotImplemented || len(kube.Actions()) != 0 {
+		t.Fatal("stale observation must stay unsupported without a verified final execution constraint")
+	}
 	unstructured.RemoveNestedField(object.Object, "status", "definition", "agentContainer")
 	if _, err := kube.Resource(workloadGVR).Namespace(req.Namespace).Update(context.Background(), object, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)

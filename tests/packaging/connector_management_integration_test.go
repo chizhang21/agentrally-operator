@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
@@ -63,6 +62,18 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 	config := rest.CopyConfig(adminConfig)
 	config.Impersonate = rest.ImpersonationConfig{UserName: "system:serviceaccount:agentrally-system:agentrally-operator",
 		Groups: []string{"system:serviceaccounts", "system:serviceaccounts:agentrally-system", "system:authenticated"}}
+	var secretDeletes, configMapDeletes atomic.Int32
+	config.Wrap(func(next http.RoundTripper) http.RoundTripper {
+		return managementRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/secrets/") {
+				secretDeletes.Add(1)
+			}
+			if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/configmaps/") {
+				configMapDeletes.Add(1)
+			}
+			return next.RoundTrip(r)
+		})
+	})
 	kube, err := dynamic.NewForConfig(config)
 	if err != nil {
 		t.Fatal(err)
@@ -79,9 +90,9 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 	}
 	commands := make(chan connector.Request)
 	responses := make(chan connector.Response, 1)
-	var ackAttempts atomic.Int32
+	var ackAttempts, deleteACKAttempts, configMapACKAttempts, configMapDeleteACKAttempts atomic.Int32
 	var responseMu sync.Mutex
-	var firstResponse []byte
+	firstResponses := map[string][]byte{}
 	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer local-management-test" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -102,16 +113,27 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if response.ID == "create-secret" {
+			var attempts *atomic.Int32
+			switch response.ID {
+			case "create-secret":
+				attempts = &ackAttempts
+			case "delete-secret":
+				attempts = &deleteACKAttempts
+			case "create-configmap":
+				attempts = &configMapACKAttempts
+			case "delete-configmap":
+				attempts = &configMapDeleteACKAttempts
+			}
+			if attempts != nil {
 				responseMu.Lock()
-				if ackAttempts.Add(1) == 1 {
-					firstResponse = append([]byte(nil), data...)
+				if attempts.Add(1) == 1 {
+					firstResponses[response.ID] = append([]byte(nil), data...)
 					responseMu.Unlock()
 					w.WriteHeader(http.StatusServiceUnavailable)
 					return
 				}
-				if !bytes.Equal(firstResponse, data) {
-					t.Error("response retry changed the executed create result")
+				if !bytes.Equal(firstResponses[response.ID], data) {
+					t.Error("response retry changed the executed write result")
 				}
 				responseMu.Unlock()
 			}
@@ -216,11 +238,16 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 			t.Fatal("Secret discovery returned content fields")
 		}
 	}
+	verifyRegistrySecrets(t, ctx, admin, namespace.Name, scope, send)
+	verifyConfigMapCreation(t, ctx, admin, secretRequest, send)
+	if configMapACKAttempts.Load() != 2 {
+		t.Fatal("ConfigMap creation ACK failure did not retry the same result")
+	}
 	definitionRequest := connector.Request{ID: "create-definition", Method: http.MethodPost, Resource: "agentdefinitions", Namespace: namespace.Name, Scope: scope,
-		Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentDefinition","metadata":{"name":"agent","namespace":"` + namespace.Name + `"},"spec":{"agentGroupRef":{"name":"connector-team"},"template":"generic","container":{"image":"example/agent","env":[{"name":"API_KEY","valueFrom":{"secretKeyRef":{"name":"credentials","key":"key"}}}]}}}`)}
+		Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentDefinition","metadata":{"name":"agent","namespace":"` + namespace.Name + `"},"spec":{"agentGroupRef":{"name":"connector-team"},"template":"generic","container":{"image":"example/agent","env":[{"name":"API_KEY","valueFrom":{"secretKeyRef":{"name":"credentials","key":"key"}}},{"name":"MODE","valueFrom":{"configMapKeyRef":{"name":"settings","key":"mode"}}}]}}}`)}
 	definitionResponse := send(definitionRequest, http.StatusCreated)
 	definitionObject := &v1.AgentDefinition{}
-	if json.Unmarshal(definitionResponse.Body, definitionObject) != nil || definitionObject.Spec.Container == nil || len(definitionObject.Spec.Container.Env) != 1 || definitionObject.Spec.Container.Env[0].ValueFrom == nil || definitionObject.Spec.Container.Env[0].ValueFrom.SecretKeyRef == nil || definitionObject.Spec.Container.Env[0].ValueFrom.SecretKeyRef.Name != "credentials" {
+	if json.Unmarshal(definitionResponse.Body, definitionObject) != nil || definitionObject.Spec.Container == nil || len(definitionObject.Spec.Container.Env) != 2 || definitionObject.Spec.Container.Env[0].ValueFrom == nil || definitionObject.Spec.Container.Env[0].ValueFrom.SecretKeyRef == nil || definitionObject.Spec.Container.Env[0].ValueFrom.SecretKeyRef.Name != "credentials" || definitionObject.Spec.Container.Env[1].ValueFrom == nil || definitionObject.Spec.Container.Env[1].ValueFrom.ConfigMapKeyRef == nil || definitionObject.Spec.Container.Env[1].ValueFrom.ConfigMapKeyRef.Name != "settings" {
 		t.Fatal("definition creation changed native credential references")
 	}
 	unknownField := definitionRequest
@@ -245,6 +272,7 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 	if json.Unmarshal(instanceResponse.Body, instance) != nil || instance.UID == "" || instance.Status.SandboxName != "" {
 		t.Fatal("instance lost identity or accepted controller status")
 	}
+	verifyConnectorDiagnostics(t, ctx, admin, instanceRequest, send)
 	invalid := instanceRequest
 	wrongScope := *scope
 	wrongScope.NamespaceUID = "different-namespace"
@@ -351,7 +379,12 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 	deletion := read
 	deletion.ID, deletion.Method, deletion.Body = "delete-instance", http.MethodDelete, options
 	send(deletion, http.StatusAccepted)
-	if err := kube.Resource(schema.GroupVersionResource{Version: "v1", Resource: "secrets"}).Namespace(namespace.Name).Delete(ctx, "credentials", metav1.DeleteOptions{}); !apierrors.IsForbidden(err) {
-		t.Fatalf("Connector role unexpectedly grants Secret deletion: %v", err)
+	verifyConfigMapDeletion(t, ctx, admin, config, secretRequest, send)
+	if configMapDeleteACKAttempts.Load() != 2 || configMapDeletes.Load() != 3 {
+		t.Fatalf("ConfigMap deletion replayed or bypassed guards: ACKs=%d, deletes=%d", configMapDeleteACKAttempts.Load(), configMapDeletes.Load())
+	}
+	verifySecretDeletion(t, ctx, admin, config, secretRequest, send)
+	if deleteACKAttempts.Load() != 2 || secretDeletes.Load() != 3 {
+		t.Fatalf("Secret deletion replayed or a rejected request reached Kubernetes: ACKs=%d, deletes=%d", deleteACKAttempts.Load(), secretDeletes.Load())
 	}
 }

@@ -179,7 +179,8 @@ Published Definitions without proactive demand wait for Group/template events.
 Prepared capacity, credential references and read-only upstream observations also use bounded polling.
 Indexes route dependency events without performing remote reads inside handlers.
 Controllers read Secrets by explicit reference, bypassing the informer cache.
-Enabling Connector adds Secret list/create permissions for its restricted management interface.
+Enabling Connector adds Secret list/create/delete permissions for its restricted management interface.
+ConfigMap create/delete permissions are also gated by Connector; existing Controller reads and watches are retained.
 Remote reads negotiate metadata only and never fall back to Secret content.
 
 Conditions distinguish allocation, configuration application, health and desired intent.

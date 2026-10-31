@@ -9,7 +9,6 @@ for tool in "$KIND" docker kubectl helm go curl python3 timeout; do
 done
 export E2E_CNI=${E2E_CNI:-kindnet}
 export E2E_SNAPSHOTS=${E2E_SNAPSHOTS:-false}
-export E2E_OPENCLAW=${E2E_OPENCLAW:-false}
 export E2E_RUNTIME_CLASS=${E2E_RUNTIME_CLASS:-}
 if [[ -n ${E2E_RUNTIME_MANIFEST:-} && ! -f "$E2E_RUNTIME_MANIFEST" ]]; then
   echo 'E2E_RUNTIME_MANIFEST must name a local runtime installation manifest.' >&2
@@ -25,21 +24,6 @@ if [[ -n ${E2E_KIND_CONFIG:-} && "$E2E_CNI" == cilium ]]; then
 fi
 case "$E2E_CNI" in kindnet|cilium) ;; *) echo 'E2E_CNI must be kindnet or cilium.' >&2; exit 1 ;; esac
 case "$E2E_SNAPSHOTS" in true|false) ;; *) echo 'E2E_SNAPSHOTS must be true or false.' >&2; exit 1 ;; esac
-case "$E2E_OPENCLAW" in true|false) ;; *) echo 'E2E_OPENCLAW must be true or false.' >&2; exit 1 ;; esac
-if [[ "$E2E_OPENCLAW" == true ]]; then
-  if [[ -z ${E2E_OPENCLAW_DIR:-} ]]; then
-    echo 'Set E2E_OPENCLAW_DIR to the openclaw directory in an agentrally-examples checkout.' >&2
-    exit 1
-  fi
-  for manifest in group.yaml definition.yaml instance.yaml workspace.yaml; do
-    if [[ ! -f "$E2E_OPENCLAW_DIR/$manifest" ]]; then
-      echo "Missing OpenClaw manifest: $E2E_OPENCLAW_DIR/$manifest" >&2
-      exit 1
-    fi
-  done
-  E2E_OPENCLAW_DIR=$(cd "$E2E_OPENCLAW_DIR" && pwd)
-  export E2E_OPENCLAW_DIR
-fi
 chart=${E2E_CHART:-chart}
 if [[ ! -f "$chart" && ! -f "$chart/Chart.yaml" ]]; then
   echo 'E2E_CHART must name a local Chart directory or archive.' >&2
@@ -166,13 +150,6 @@ docker pull --platform="$platform" docker.io/library/busybox:1.37.0
 export E2E_DIGEST_IMAGE
 E2E_DIGEST_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/library/busybox:1.37.0)
 load_image docker.io/library/busybox:1.37.0
-if [[ "$E2E_OPENCLAW" == true ]]; then
-  openclaw_image=$(awk '$1 == "image:" { print $2; exit }' "$E2E_OPENCLAW_DIR/definition.yaml")
-  test -n "$openclaw_image"
-  docker pull --platform="$platform" "$openclaw_image"
-  load_image "$openclaw_image"
-fi
-
 upstream="$temporary/upstream.yaml"
 curl -fsSL --retry 3 https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml -o "$upstream"
 echo "b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970  $upstream" | sha256sum --check
@@ -188,6 +165,7 @@ helm install agentrally-operator "$chart" -n agentrally-system --create-namespac
   --set-string image.repository="$repository" --set-string image.tag="$tag" \
   --set image.pullPolicy=IfNotPresent --wait --timeout=240s
 phase=tests
+GOWORK=off go test -tags=e2e ./tests/e2e -list . > "$logs/tests.txt"
 set +e
 AGENTRALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
   go test -json -tags=e2e ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v \

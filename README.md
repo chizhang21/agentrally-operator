@@ -65,47 +65,35 @@ templates and applying runtime changes to existing agents.
 
 ## Quick start
 
-This walkthrough builds the Operator from source and installs a local Helm chart.
+Install a published Helm chart, then create your first agent.
 
 ### Prerequisites
 
 - A Kubernetes cluster and permission to manage CRDs and cluster RBAC.
 - agent-sandbox **Core and Extensions v1.0.5**, installed using the
   [upstream installation steps](docs/installation.md#install-upstream-agent-sandbox).
-- kubectl, Helm 3.17 or later, Docker, Make and Python 3 on your workstation.
-- A container registry you can push to and your cluster can pull from.
+- kubectl, Helm 3.17 or later, and Git for the examples below.
 
-### 1. Build and package the Operator
+### 1. Install the Operator
 
-Replace `registry.example.com/your-team` with your registry path and log in to that
-registry before building.
+Replace `x.y.z` with the published Chart version you want to install.
 
-These commands target Linux amd64, matching the chart's default node selector.
+```sh
+CHART_VERSION=x.y.z
+helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
+  --version "$CHART_VERSION" \
+  -n agentrally-system --create-namespace --wait --timeout 5m
+```
+
+For private registry credentials and custom values, see [Installation](docs/installation.md).
+To build from source, see [Development](docs/development.md#package-versions).
+
+### 2. Deploy an agent
 
 ```sh
 git clone https://github.com/chizhang21/agentrally-operator.git
 cd agentrally-operator
-
-make configure VERSION=0.0.0-dev \
-  IMAGE_TAG_BASE=registry.example.com/your-team/agentrally-operator
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
-make image-build
-make image-push
-make chart-package
 ```
-
-### 2. Install the Operator
-
-For a private Operator image, prepare
-[pull credentials](docs/installation.md#private-images) first and add the documented
-`imagePullSecrets` option to this command.
-
-```sh
-helm install agentrally-operator ./dist/agentrally-operator-0.0.0-dev.tgz \
-  -n agentrally-system --create-namespace --wait --timeout 5m
-```
-
-### 3. Deploy an agent
 
 From a local Operator checkout, replace the placeholder image in
 [definition.yaml](examples/basic/definition.yaml) with your agent image.
@@ -163,7 +151,7 @@ See [Lifecycle](docs/usage.md#lifecycle) for commands and retention settings.
 | Understand resource ownership and reconciliation | [Architecture](docs/architecture.md) |
 | Build, test or package changes | [Development](docs/development.md) |
 | Inspect CI and release workflows | [GitHub Workflows](.github/workflows) |
-| Enable optional backend integration | [Outbound Connector](docs/outbound-connector.md) |
+| Enable optional backend integration | [Helm values example](chart/connector-values.example.yaml) · [Connector protocol](docs/outbound-connector.md) |
 
 ## Project status
 

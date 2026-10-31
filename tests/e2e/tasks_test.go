@@ -21,6 +21,7 @@ func TestTaskCompletionPolicies(t *testing.T) {
 	kube, _ := e2eClient(t)
 	ctx := t.Context()
 	group := readyGroup(t, ctx, kube, "task-policies")
+	ran := false
 	for _, tc := range []struct {
 		name           string
 		exitCode       int
@@ -32,6 +33,7 @@ func TestTaskCompletionPolicies(t *testing.T) {
 		{"failed-expired", 9, ptr.To(false), "Retain"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			ran = true
 			template := sandbox.ExtensionObject("SandboxTemplate")
 			template.SetName(tc.name)
 			template.SetNamespace(group.Status.Namespace)
@@ -101,4 +103,7 @@ func TestTaskCompletionPolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDeleted(t, ctx, kube, group)
+	if !ran {
+		t.Skip("no task scenarios selected")
+	}
 }

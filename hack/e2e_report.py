@@ -12,28 +12,6 @@ import sys
 import time
 
 
-CHILD_CASES = {
-    "TestPersistentWorkspaceFoundation": ("Foreground", "Background"),
-    "TestTaskCompletionPolicies": ("successful", "failed-retained", "failed-expired"),
-    "TestConnectorOnlyTraffic": ("operator-identity", "wrong-pod", "wrong-namespace"),
-}
-SKIP_REASONS = {
-    "TestKataRuntimeLifecycle": "Requires E2E_RUNTIME_CLASS and an installed Kata runtime",
-    "TestNetworkPolicyTraffic": "Requires E2E_CNI=cilium",
-    "TestNativeEgressTraffic": "Requires E2E_CNI=cilium",
-    "TestConnectorOnlyTraffic": "Requires E2E_CNI=cilium",
-    "TestSnapshotWorkspaceRestore": "Requires E2E_SNAPSHOTS=true",
-    "TestOpenClawLifecycle": "Requires the opt-in OpenClaw example profile",
-}
-PROFILES = {
-    "kata": "TestKataRuntimeLifecycle",
-    "networkPolicy": "TestNetworkPolicyTraffic",
-    "nativeEgress": "TestNativeEgressTraffic",
-    "connectorOnly": "TestConnectorOnlyTraffic",
-    "snapshotRestore": "TestSnapshotWorkspaceRestore",
-}
-
-
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -125,8 +103,9 @@ def stream(directory, source):
     return 0 if valid else 1
 
 
-def test_results(lines):
-    tests, packages = {}, {}
+def test_results(lines, expected=()):
+    tests = {name: {"name": name, "status": "not-run"} for name in expected}
+    packages = {}
     started = set()
     started_packages = set()
     valid = True
@@ -139,6 +118,7 @@ def test_results(lines):
                 if action == "run":
                     valid = valid and name not in started
                     started.add(name)
+                    test["status"] = "incomplete"
                 if action in ("pass", "fail", "skip"):
                     valid = valid and name in started and test["status"] == "incomplete"
                     test.update(status={"pass": "passed", "fail": "failed", "skip": "skipped"}[action], elapsedSeconds=event.get("Elapsed", 0))
@@ -151,26 +131,13 @@ def test_results(lines):
                 packages[event["Package"]] = action
         except (ValueError, AttributeError):
             valid = False
-    for name, test in tests.items():
-        if test["status"] == "skipped":
-            test["reason"] = SKIP_REASONS.get(name, "TestSkipped; inspect local logs")
     complete = valid and bool(packages) and all(value == "pass" for value in packages.values())
     complete = complete and all(test["status"] != "incomplete" for test in tests.values())
-    executed = [test for name, test in tests.items() if "/" not in name and name != "TestE2ETargetGuard" and
-                test["status"] == "passed" and (name not in CHILD_CASES or any(
-                    tests.get(name + "/" + child, {}).get("status") == "passed" for child in CHILD_CASES[name]))]
-    profiles = {}
-    for profile, name in PROFILES.items():
-        state = tests.get(name, {"status": "not-run"})["status"]
-        cases = {child: tests.get(name + "/" + child, {"status": "not-run"})["status"] for child in CHILD_CASES.get(name, ())}
-        if state == "passed" and cases and not all(status == "passed" for status in cases.values()):
-            state = "incomplete"
-        profiles[profile] = {"status": state, "test": name, "cases": cases,
-                             "reason": SKIP_REASONS.get(name, "TestSkipped") if state == "skipped" else
-                             "TestNotRun" if state == "not-run" else
-                             "RequiredSubcasesNotVerified" if state == "incomplete" else state}
-    return {"tests": list(tests.values()), "profiles": profiles,
-            "complete": complete, "executedScenarios": len(executed)}
+    # Count executed leaves, not passing parent groups whose children all skipped.
+    parents = {name.rpartition("/")[0] for name in tests if "/" in name}
+    executed = sum(test["status"] == "passed" and name not in parents and
+                   name.split("/", 1)[0] != "TestE2ETargetGuard" for name, test in tests.items())
+    return {"tests": list(tests.values()), "complete": complete, "executedScenarios": executed}
 
 
 def chart_identity(chart):
@@ -193,7 +160,9 @@ def chart_identity(chart):
 
 def finish(directory, phase, exit_code, image, chart, cleanup):
     events = directory / "tests.jsonl"
-    evidence = test_results(events.read_text().splitlines() if events.exists() else [])
+    listing = directory / "tests.txt"
+    expected = [name for name in listing.read_text().splitlines() if name.startswith("Test")] if listing.exists() else []
+    evidence = test_results(events.read_text().splitlines() if events.exists() else [], expected)
     failed = any(test["status"] == "failed" for test in evidence["tests"])
     passed = exit_code == 0 and phase == "tests" and cleanup == "passed" and evidence["complete"] and evidence["executedScenarios"] > 0 and not failed
     result = "passed" if passed else "failed" if exit_code != 0 or failed or cleanup == "failed" else "incomplete"
@@ -218,13 +187,10 @@ def finish(directory, phase, exit_code, image, chart, cleanup):
     write_json(directory / "report.json", report)
     rows = ["# AgentRally Operator E2E", "", f"Result: {result}. Phase: {phase}. Exit: {code}.",
             f"Finished: {report['finishedAt']}. Cleanup: {cleanup}.", "",
-            "| Test | Result | Seconds | Reason |", "| --- | --- | --- | --- |"]
-    rows += [f"| {test['name']} | {test['status']} | {test.get('elapsedSeconds', '')} | {test.get('reason', '')} |" for test in evidence["tests"]]
-    rows += ["", "| Optional check | Result | Reason |", "| --- | --- | --- |"]
-    rows += [f"| {name} | {value['status']} | {value['reason']} |" for name, value in evidence["profiles"].items()]
-    rows += ["", "Skipped or absent checks are not verification. Environment discovery is configuration evidence.",
-             "The source commit identifies the test checkout; provided images have independent provenance.",
-             "Real Orchestrator integration, fencing and the joint resource budget remain separate gates."]
+            "| Test | Result | Seconds |", "| --- | --- | --- |"]
+    rows += [f"| {test['name']} | {test['status']} | {test.get('elapsedSeconds', '')} |" for test in evidence["tests"]]
+    rows += ["", "Skipped and not-run tests are not verification. Inspect local logs for skip reasons.",
+             "Environment discovery is configuration evidence; provided images have independent provenance."]
     (directory / "summary.md").write_text("\n".join(rows) + "\n")
     print(f"E2E evidence: {directory / 'report.json'} ({result})")
     return code

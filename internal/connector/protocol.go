@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -33,6 +34,8 @@ type capabilityDocument struct {
 	ActivityLease         bool                `json:"activityLease"`
 	ProcessIdentity       bool                `json:"processIdentity"`
 	ScopedNamespaceCreate bool                `json:"scopedNamespaceCreate"`
+	SecretCreateTypes     []corev1.SecretType `json:"secretCreateTypes"`
+	InstanceDiagnostics   bool                `json:"instanceDiagnostics"`
 }
 
 func managementCapabilities(preview bool) capabilityDocument {
@@ -41,11 +44,14 @@ func managementCapabilities(preview bool) capabilityDocument {
 	return capabilityDocument{
 		InvocationPreview:     preview,
 		ScopedNamespaceCreate: true,
+		SecretCreateTypes:     secretCreateTypes,
+		InstanceDiagnostics:   true,
 		MaxMessageBytes:       MaxMessageBytes, MaxListLimit: 500,
 		Resources: map[string][]string{
 			"agentgroups": crud, "agentdefinitions": crud, "agentinstances": crud, "clustercapabilities": get,
 			"namespaces": get, "instanceobservations": get, "agentworkspaces": get,
-			"persistentvolumeclaims": get, "secrets": {http.MethodGet, http.MethodPost},
+			"persistentvolumeclaims": get, "secrets": {http.MethodGet, http.MethodPost, http.MethodDelete},
+			"configmaps": {http.MethodGet, http.MethodPost, http.MethodDelete},
 		},
 	}
 }

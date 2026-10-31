@@ -175,7 +175,7 @@ func (r *Reconciler) cleanupDiagnostic(ctx context.Context, w *v1.AgentInstance)
 			return "CleanupObservationBlocked", "Cannot verify execution Pod cleanup; inspect ownership and read permissions"
 		}
 		if pod != nil && pod.DeletionTimestamp != nil {
-			diagnostic := terminationDiagnostic(pod, r.now())
+			diagnostic := diagnostics.Termination(pod, r.now())
 			return diagnostic.Reason, diagnostic.Message
 		}
 	}

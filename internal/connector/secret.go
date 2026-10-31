@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
+
+var secretCreateTypes = []corev1.SecretType{corev1.SecretTypeOpaque, corev1.SecretTypeDockerConfigJson}
 
 func (e Executor) createSecret(ctx context.Context, req Request) (json.RawMessage, int, error) {
 	// A narrow DTO excludes arbitrary annotations, service-account references,
@@ -30,23 +31,24 @@ func (e Executor) createSecret(ctx context.Context, req Request) (json.RawMessag
 	if len(req.Body) > MaxMessageBytes || decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF ||
 		input.APIVersion != "v1" || input.Kind != "Secret" || req.Name != "" ||
 		len(validation.IsDNS1123Subdomain(input.Metadata.Name)) != 0 || input.Metadata.Namespace != req.Namespace ||
-		input.Type != "" && input.Type != corev1.SecretTypeOpaque || len(input.Data)+len(input.StringData) == 0 {
-		return nil, 0, protocolError(http.StatusBadRequest, "BadRequest", "create requires an explicitly named Opaque Secret with data and only supported metadata fields")
+		len(input.Data)+len(input.StringData) == 0 {
+		return nil, 0, protocolError(http.StatusBadRequest, "BadRequest", "create requires an explicitly named Secret with data and only supported metadata fields")
+	}
+	if input.Type == "" {
+		input.Type = corev1.SecretTypeOpaque
+	}
+	if !slices.Contains(secretCreateTypes, input.Type) {
+		return nil, 0, protocolError(http.StatusBadRequest, "BadRequest", "Secret creation only supports Opaque and kubernetes.io/dockerconfigjson")
+	}
+	if input.Type == corev1.SecretTypeDockerConfigJson {
+		_, dataKey := input.Data[corev1.DockerConfigJsonKey]
+		_, stringKey := input.StringData[corev1.DockerConfigJsonKey]
+		if len(input.Data)+len(input.StringData) != 1 || !dataKey && !stringKey {
+			return nil, 0, protocolError(http.StatusBadRequest, "BadRequest", "registry Secret requires only .dockerconfigjson in either data or stringData")
+		}
 	}
 	secret := &corev1.Secret{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 		ObjectMeta: metav1.ObjectMeta{Name: input.Metadata.Name, Namespace: input.Metadata.Namespace},
-		Type:       corev1.SecretTypeOpaque, Data: input.Data, StringData: input.StringData, Immutable: input.Immutable}
-	fields, err := runtime.DefaultUnstructuredConverter.ToUnstructured(secret)
-	if err != nil {
-		return nil, 0, err
-	}
-	object := &unstructured.Unstructured{Object: fields}
-	if err := markCreation(object, req.ID); err != nil {
-		return nil, 0, err
-	}
-	created, err := e.Client.Resource(resourceAPI("secrets")).Namespace(req.Namespace).Create(ctx, object, metav1.CreateOptions{FieldValidation: metav1.FieldValidationStrict})
-	if err != nil {
-		return nil, 0, err
-	}
-	return mustJSON(metadataObject(created)), http.StatusCreated, nil
+		Type:       input.Type, Data: input.Data, StringData: input.StringData, Immutable: input.Immutable}
+	return e.createReference(ctx, req, secret)
 }

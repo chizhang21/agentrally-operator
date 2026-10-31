@@ -44,6 +44,7 @@ func TestConnectorOnlyTraffic(t *testing.T) {
 	if condition == nil || condition.Status != metav1.ConditionUnknown {
 		t.Fatal("configuration claimed traffic enforcement", condition)
 	}
+	ran := false
 	for _, scenario := range []struct {
 		name, namespace string
 		matching        bool
@@ -54,6 +55,7 @@ func TestConnectorOnlyTraffic(t *testing.T) {
 		{"wrong-namespace", group.Status.Namespace, true, "denied"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
+			ran = true
 			labels := map[string]string{"app.kubernetes.io/name": "unrelated"}
 			if scenario.matching {
 				labels = map[string]string{"app.kubernetes.io/name": "agentrally-operator", "app.kubernetes.io/instance": "agentrally-operator", "app.kubernetes.io/component": "manager"}
@@ -96,4 +98,7 @@ func TestConnectorOnlyTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDeleted(t, ctx, kube, group)
+	if !ran {
+		t.Skip("no traffic scenarios selected")
+	}
 }

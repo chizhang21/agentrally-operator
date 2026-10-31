@@ -2,6 +2,7 @@
 
 This directory contains basic deployment manifests and full configuration references.
 Complete applications belong in [agentrally-examples](https://github.com/chizhang21/agentrally-examples/tree/main/operator).
+Operator Helm configuration has a separate [Connector values example](../chart/connector-values.example.yaml).
 
 ## Basic deployment
 

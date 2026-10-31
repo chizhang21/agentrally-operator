@@ -141,7 +141,8 @@ func (e Executor) executeScoped(ctx context.Context, req Request) (json.RawMessa
 	if req.Method != http.MethodGet && ns.GetDeletionTimestamp() != nil {
 		return nil, 0, protocolError(http.StatusConflict, "Conflict", "Namespace is terminating")
 	}
-	if req.Method == http.MethodPost && req.Resource != "secrets" {
+	cr := req.Resource == "agentdefinitions" || req.Resource == "agentinstances"
+	if req.Method == http.MethodPost && cr {
 		object, err := requestObject(req, kind)
 		if err != nil {
 			return nil, 0, err
@@ -150,7 +151,6 @@ func (e Executor) executeScoped(ctx context.Context, req Request) (json.RawMessa
 			return nil, 0, err
 		}
 	}
-	cr := req.Resource == "agentdefinitions" || req.Resource == "agentinstances"
 	if req.Name != "" && cr {
 		object, err := e.Client.Resource(nativeResource(req.Resource)).Namespace(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 		if err != nil {
@@ -166,10 +166,17 @@ func (e Executor) executeScoped(ctx context.Context, req Request) (json.RawMessa
 	var data json.RawMessage
 	var code int
 	switch req.Resource {
-	case "secrets":
-		if req.Method == http.MethodPost {
-			data, code, err = e.createSecret(ctx, req)
-		} else {
+	case "secrets", "configmaps":
+		switch req.Method {
+		case http.MethodPost:
+			if req.Resource == "secrets" {
+				data, code, err = e.createSecret(ctx, req)
+			} else {
+				data, code, err = e.createConfigMap(ctx, req)
+			}
+		case http.MethodDelete:
+			data, code, err = e.deleteCreatedReference(ctx, req)
+		default:
 			data, code, err = e.metadataRead(ctx, req)
 		}
 	case "persistentvolumeclaims", "agentworkspaces":

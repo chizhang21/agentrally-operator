@@ -1,0 +1,10 @@
+# Helm values for optional backend integration.
+# Replace endpoint and id with the values assigned by your backend.
+connector:
+  enabled: true
+  endpoint: https://agentrally.example.com/
+  id: example-cluster
+  # Existing Secret in the release namespace, containing the token key.
+  credentialsSecret: agentrally-connector-credentials
+  # For a private backend CA, add ca.crt to the Secret and uncomment:
+  # caFile: /var/run/agentrally-connector/ca.crt

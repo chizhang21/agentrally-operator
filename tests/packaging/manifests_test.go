@@ -32,50 +32,44 @@ type manifestResource struct {
 	object *unstructured.Unstructured
 }
 
-// Always check this repository's CR examples. Selecting an external checkout
-// adds application manifests without becoming a default CI dependency.
+// Check this repository's basic and full CR examples.
 func manifestResources(t *testing.T) []manifestResource {
 	t.Helper()
-	roots := []string{"../../examples"}
-	if directory := os.Getenv("AGENTRALLY_EXAMPLES_DIR"); directory != "" {
-		roots = append(roots, directory)
-	}
+	const root = "../../examples"
 	var manifests []manifestResource
-	for _, root := range roots {
-		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
-				return filepath.SkipDir
-			}
-			if entry.IsDir() || filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
-				return nil
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			relative, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			decoder := yamlutil.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
-			for document := 1; ; document++ {
-				object := &unstructured.Unstructured{}
-				if err := decoder.Decode(object); err == io.EOF {
-					return nil
-				} else if err != nil {
-					return fmt.Errorf("%s document %d: %w", path, document, err)
-				}
-				if len(object.Object) != 0 {
-					manifests = append(manifests, manifestResource{path: fmt.Sprintf("%s/%d", relative, document), object: object})
-				}
-			}
-		})
-		if err != nil {
-			t.Fatal(err)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		decoder := yamlutil.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
+		for document := 1; ; document++ {
+			object := &unstructured.Unstructured{}
+			if err := decoder.Decode(object); err == io.EOF {
+				return nil
+			} else if err != nil {
+				return fmt.Errorf("%s document %d: %w", path, document, err)
+			}
+			if len(object.Object) != 0 {
+				manifests = append(manifests, manifestResource{path: fmt.Sprintf("%s/%d", relative, document), object: object})
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if len(manifests) == 0 {
 		t.Fatal("manifest resources are missing")

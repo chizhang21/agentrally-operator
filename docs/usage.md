@@ -489,7 +489,7 @@ An optional `AgentDefinition.spec.invocationProtocol: HTTPJSONSSEV1` declares an
 application protocol and becomes part of its immutable revision.
 It does not enable invocation transport.
 Controlled testing additionally requires the default-off [invocation preview](invocation-protocol.md) and a ConnectorOnly Group.
-The [Connector capability query](outbound-connector.md#management-capability-discovery)
+The [Connector capability query](outbound-connector.md#capability-discovery)
 reports which operations this Operator actually supports.
 
 ConfigurationApplied checks the owned Pod's creation revision; it does not prove

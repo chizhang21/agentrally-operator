@@ -69,8 +69,9 @@ AgentRally reads this API only for instances using snapshot sources; it is not a
 dependency.
 See [workspace initialization](usage.md#initialize-from-a-volumesnapshot).
 
-See [chart values](../chart/values.yaml) for available settings, and
-[Connector setup](outbound-connector.md#installation) for backend integration.
+See [chart values](../chart/values.yaml) for available settings.
+Optional backend integration has a [Helm values example](../chart/connector-values.example.yaml)
+and [credential setup](outbound-connector.md#installation).
 Continue with [deploying an agent](usage.md).
 
 ### Upgrade AgentRally

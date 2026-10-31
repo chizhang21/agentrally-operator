@@ -41,7 +41,7 @@ class E2EEvidenceTests(unittest.TestCase):
             "no matching tests": events(),
             "all skipped": events(("TestKataRuntimeLifecycle", "skip")),
             "only target guard": events(("TestE2ETargetGuard", "pass")),
-            "no selected child": events(("TestPersistentWorkspaceFoundation", "pass")),
+            "all children skipped": events(("TestScenarioGroup", "pass"), ("TestScenarioGroup/skipped", "skip")),
             "no terminal result": events(("TestOperatorLifecycle", None)),
             "package interrupted": events(("TestOperatorLifecycle", "pass"), package=None),
             "package failed": events(("TestOperatorLifecycle", "pass"), package="fail"),
@@ -56,20 +56,21 @@ class E2EEvidenceTests(unittest.TestCase):
                 self.assertNotEqual(code, 0)
                 self.assertNotEqual(result["result"], "passed")
 
-    def test_partial_profiles_remain_incomplete_and_raw_output_is_not_published(self):
+    def test_skipped_unselected_and_child_tests_are_reported_without_raw_output(self):
         lines = events(("TestOperatorLifecycle", "pass"), ("TestKataRuntimeLifecycle", "skip"),
                        ("TestConnectorOnlyTraffic", "pass"), ("TestConnectorOnlyTraffic/operator-identity", "pass"))
         lines.insert(1, json.dumps({"Action": "output", "Test": "TestKataRuntimeLifecycle",
                                    "Output": "credential-prompt-sse-canary"}))
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
+            (directory / "tests.txt").write_text("TestOperatorLifecycle\nTestKataRuntimeLifecycle\nTestConnectorOnlyTraffic\nTestSnapshotWorkspaceRestore\n")
             code, result = self.finish(directory, lines)
             self.assertEqual(code, 0)
-            self.assertEqual(result["profiles"]["kata"]["status"], "skipped")
-            self.assertIn("E2E_RUNTIME_CLASS", result["profiles"]["kata"]["reason"])
-            self.assertEqual(result["profiles"]["snapshotRestore"]["status"], "not-run")
-            self.assertEqual(result["profiles"]["connectorOnly"]["status"], "incomplete")
-            self.assertEqual(result["profiles"]["connectorOnly"]["cases"]["wrong-pod"], "not-run")
+            tests = {test["name"]: test["status"] for test in result["tests"]}
+            self.assertEqual(tests["TestKataRuntimeLifecycle"], "skipped")
+            self.assertEqual(tests["TestSnapshotWorkspaceRestore"], "not-run")
+            self.assertEqual(tests["TestConnectorOnlyTraffic/operator-identity"], "passed")
+            self.assertEqual(result["executedScenarios"], 2)
             for name in ("report.json", "summary.md"):
                 self.assertNotIn("credential-prompt-sse-canary", (directory / name).read_text())
 
@@ -123,7 +124,7 @@ class E2EEvidenceTests(unittest.TestCase):
             (logs / "tests.jsonl").write_text("\n".join(events(("TestKataRuntimeLifecycle", "pass"))))
             env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
                    "KIND": str(tools / "kind"), "E2E_IMAGE": "fixture:v1", "E2E_LOG_DIR": str(logs),
-                   "E2E_OPENCLAW": "false", "E2E_CNI": "kindnet", "E2E_SNAPSHOTS": "false",
+                   "E2E_CNI": "kindnet", "E2E_SNAPSHOTS": "false",
                    "E2E_CHART": str(ROOT / "chart")}
             for key in ("E2E_KIND_CONFIG", "E2E_RUNTIME_MANIFEST", "E2E_RUNTIME_CLASS"):
                 env.pop(key, None)
@@ -136,7 +137,7 @@ class E2EEvidenceTests(unittest.TestCase):
                 result = json.loads(path.read_text())
                 self.assertEqual(result["result"], "failed")
                 self.assertEqual(result["phase"], "build")
-                self.assertEqual(result["profiles"]["kata"]["status"], "not-run")
+                self.assertEqual(result["tests"], [])
 
 
 if __name__ == "__main__":

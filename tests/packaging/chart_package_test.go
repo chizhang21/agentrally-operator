@@ -67,8 +67,9 @@ func TestVersionedCharts(t *testing.T) {
 			before := sourceSnapshot(t, stage)
 			actual := buildVersionedChart(t, stage, version)
 			archive := filepath.Join(stage, "dist", "agentrally-operator-"+actual+".tgz")
-			verifyChartVersion(t, archive, actual)
-			verifyPackagedResources(t, archive, "registry.example.com:5000/agentrally-operator:v"+actual)
+			objects := renderChartObjects(t, archive)
+			verifyChartVersion(t, archive, actual, objects)
+			verifyPackagedResources(t, objects, "registry.example.com:5000/agentrally-operator:v"+actual)
 			if !reflect.DeepEqual(before, sourceSnapshot(t, stage)) {
 				t.Fatal("packaging modified source files")
 			}
@@ -76,18 +77,14 @@ func TestVersionedCharts(t *testing.T) {
 	}
 }
 
-func TestChartReusesSavedImage(t *testing.T) {
+func TestChartUsesExplicitImage(t *testing.T) {
 	stage, _ := packageStage(t)
 	before := sourceSnapshot(t, stage)
-	for _, arguments := range [][]string{
-		{"configure", "VERSION=1.2.3", "IMG=registry.example.com:5000/operator:custom"},
-		{"chart-package"},
-	} {
-		runMake(t, stage, arguments...)
-	}
+	runMake(t, stage, "chart-package", "VERSION=1.2.3", "IMG=registry.example.com:5000/operator:custom")
 	archive := filepath.Join(stage, "dist", "agentrally-operator-1.2.3.tgz")
-	verifyChartVersion(t, archive, "1.2.3")
-	verifyPackagedResources(t, archive, "registry.example.com:5000/operator:custom")
+	objects := renderChartObjects(t, archive)
+	verifyChartVersion(t, archive, "1.2.3", objects)
+	verifyPackagedResources(t, objects, "registry.example.com:5000/operator:custom")
 	if !reflect.DeepEqual(before, sourceSnapshot(t, stage)) {
 		t.Fatal("packaging modified source files")
 	}
@@ -95,22 +92,18 @@ func TestChartReusesSavedImage(t *testing.T) {
 
 func buildVersionedChart(t *testing.T, stage, version string) string {
 	t.Helper()
-	args := []string{"configure", "chart-package", "IMAGE_TAG_BASE=registry.example.com:5000/agentrally-operator"}
+	args := []string{"chart-package", "IMAGE_TAG_BASE=registry.example.com:5000/agentrally-operator"}
 	if version != "" {
 		args = append(args, "VERSION="+version)
 	}
-	out := runMake(t, stage, args...)
-	actual, _, _ := strings.Cut(string(out), "\n")
-	if version != "" && actual != version {
-		t.Fatalf("package version %q, want %q", actual, version)
+	runMake(t, stage, args...)
+	if version == "" {
+		version = "0.0.0-dev"
 	}
-	if version == "" && actual != "0.0.0-dev" {
-		t.Fatalf("local version is not the fixed dev version: %q", actual)
-	}
-	return actual
+	return version
 }
 
-func verifyChartVersion(t *testing.T, archive, version string) {
+func verifyChartVersion(t *testing.T, archive, version string, objects map[string][]byte) {
 	t.Helper()
 	out, err := exec.Command("helm", "show", "chart", archive).CombinedOutput()
 	if err != nil {
@@ -124,7 +117,6 @@ func verifyChartVersion(t *testing.T, archive, version string) {
 		t.Fatalf("chart version differs from selected version: %+v (%v)", chart, err)
 	}
 	var deployment appsv1.Deployment
-	objects := renderChartObjects(t, archive)
 	if err := yaml.Unmarshal(objects["Deployment/agentrally-operator"], &deployment); err != nil {
 		t.Fatal(err)
 	}
@@ -145,9 +137,8 @@ func verifyChartVersion(t *testing.T, archive, version string) {
 	}
 }
 
-func verifyPackagedResources(t *testing.T, archive, image string) {
+func verifyPackagedResources(t *testing.T, objects map[string][]byte, image string) {
 	t.Helper()
-	objects := renderChartObjects(t, archive)
 	crds := 0
 	for key := range objects {
 		if strings.HasPrefix(key, "CustomResourceDefinition/") {
@@ -185,7 +176,7 @@ func TestChartBuildPreservesSourceConfiguration(t *testing.T) {
 			t.Fatalf("chart package: %v\n%s", err, out)
 		}
 		archive := filepath.Join(stage, "dist", "agentrally-operator-1.2.3.tgz")
-		verifyPackagedResources(t, archive, image)
+		verifyPackagedResources(t, renderChartObjects(t, archive), image)
 	}
 	if !reflect.DeepEqual(before, sourceSnapshot(t, stage)) {
 		t.Fatal("packaging modified source files")

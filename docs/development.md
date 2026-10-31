@@ -16,7 +16,6 @@ Use the Go version in [go.mod](../go.mod), Helm 3.17 or later and Python 3.
 | --- | --- |
 | `make check` | Check formatting, documentation links, generated files, Go tests/vet/lint and packaging |
 | `make build` (or `make`) | Compile `dist/operator`, including the optional Connector, locally without Docker |
-| `make configure` | Save the local package version, image and Chart repository settings |
 | `make image-build` | Build the Operator image from Containerfile |
 | `make image-push` | Upload the built Operator image |
 | `make chart-package` | Create a local Chart `.tgz` archive |
@@ -58,72 +57,66 @@ The source chart uses `0.0.0` placeholders.
 Packaging stamps temporary copies, leaving source files unchanged.
 Dependency and API versions are independent.
 
-The selected version, image reference and Chart OCI destination are saved in
-`.cache/build.json` and reused by later build/upload commands.
-Explicit `VERSION`, `IMG`, `IMAGE_TAG_BASE` and `CHART_OCI_REPO` override the record.
-`make configure` updates these settings without building or uploading; changing one
-repository preserves the other.
+Make uses these defaults:
 
+| Variable | Default |
+| --- | --- |
+| `VERSION` | `0.0.0-dev` |
+| `IMAGE_TAG_BASE` | `agentrally-operator` |
+| `IMG` | `$(IMAGE_TAG_BASE):v$(VERSION)` |
+| `CHART_OCI_REPO` | `oci://ghcr.io/chizhang21/helm` |
+
+Pass overrides to each command, export them in your shell, or run related targets
+in one Make invocation.
+Build settings are not saved between commands.
 Credentials stay in Docker and Helm login stores.
 
-The default local version is `0.0.0-dev`.
-Use `make configure VERSION=0.0.0-dev` to select it again while preserving repository settings.
-
-To select a release, pass `VERSION=x.y.z` without `v`.
-Prereleases such as `x.y.z-rc.1` are supported; versions are limited to 63 characters
-and cannot contain `+metadata`, so Kubernetes version labels are valid.
-
+Use `VERSION=x.y.z` without `v` for releases.
+Prereleases such as `x.y.z-rc.1` are supported.
+Versions are limited to 63 characters and cannot contain `+metadata` so Kubernetes
+version labels remain valid.
 Image tags add `v`; Chart versions do not.
-`IMG` can supply a complete image reference, including a digest.
+`IMG` overrides the complete image reference, including a digest.
 
-Build and package locally:
+Build and package for Linux amd64, matching the Chart's default node selector:
 
 ```sh
-make configure IMAGE_TAG_BASE=YOUR_REGISTRY/agentrally-operator
-make image-build
-make image-push
-make chart-package
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+make image-build image-push chart-package \
+  VERSION=0.0.0-dev IMAGE_TAG_BASE=YOUR_REGISTRY/agentrally-operator
 ```
 
-Docker stores the built image locally.
+Log in to your registry before pushing.
+Docker retains the image locally.
 The Chart archive is `dist/agentrally-operator-<VERSION>.tgz` and includes the selected
 image defaults.
 
-The saved record identifies outputs; it does not prove a build or push succeeded.
-`make clean` removes build outputs, temporary chart/generation staging and Python bytecode.
-It preserves `.cache/build.json`, downloaded tools, test reports and local plans.
-To reset saved package settings, remove `.cache/build.json`.
+`make clean` removes build outputs, temporary Chart/generation staging and Python bytecode.
+Downloaded tools and local test reports are retained.
 
 Repeated dev builds reuse the image tag and overwrite the archive.
-Dev packages set `image.pullPolicy: Always`; after updating an installed build,
-[restart its Deployment](installation.md#updating-a-dev-build) to pull the image.
-
-To install an archive, first
-[install Core and Extensions](installation.md#install-upstream-agent-sandbox), then
-follow [local installation](installation.md#local-development-and-testing).
+Dev packages set `image.pullPolicy: Always`.
+To install or update them, follow [local installation](installation.md#local-development-and-testing).
 
 ## Upload image and Chart
 
 Image and Chart repositories are independent.
-Set their addresses, log in, then build and upload:
+Log in, then build and upload with explicit settings:
 
 ```sh
-make configure \
-  IMAGE_TAG_BASE=ghcr.io/chizhang21/agentrally-operator \
-  CHART_OCI_REPO=oci://ghcr.io/chizhang21/helm
-docker login ghcr.io --username chizhang21
-helm registry login ghcr.io --username chizhang21
-make image-build
-make image-push
-make chart-push
+docker login ghcr.io --username YOUR_GITHUB_USER
+helm registry login ghcr.io --username YOUR_GITHUB_USER
+make image-build image-push chart-push \
+  VERSION=x.y.z \
+  IMAGE_TAG_BASE=ghcr.io/YOUR_GITHUB_USER/agentrally-operator \
+  CHART_OCI_REPO=oci://ghcr.io/YOUR_GITHUB_USER/helm
 ```
 
 `chart-push` packages the archive before publishing it with Helm's native OCI format.
-`CHART_OCI_REPO` is the parent path, without a Chart name or tag; Helm adds
-`agentrally-operator:<VERSION>`.
-The default parent is `oci://ghcr.io/chizhang21/helm`, so a dev Chart is published as
-`ghcr.io/chizhang21/helm/agentrally-operator:0.0.0-dev`.
-Use `make configure CHART_OCI_REPO=oci://REGISTRY/NAMESPACE/helm` to change it.
+`CHART_OCI_REPO` is the parent path, without a Chart name or tag.
+Helm adds `agentrally-operator:<VERSION>`.
+For CI publication, push a tag such as `vx.y.z`; the release workflow selects matching
+image and Chart versions from that tag.
 
 ## Tests
 
@@ -197,8 +190,9 @@ Every initialized run has a new directory under `.cache/e2e/`.
 `report.json` and `summary.md` distinguish pass, failure, skip and not-run.
 `environment.json` contains whitelisted component/version observations.
 The report distinguishes an image built from the checkout from an externally supplied image.
-The ingress and native-egress profiles have independent results.
-Empty selections and incomplete selected subcases cannot pass.
+The test inventory comes from `go test -list`; it needs no separate registration.
+Selected subtests are listed individually.
+Empty selections, skipped-only runs and interrupted tests cannot pass.
 
 Raw application output and resource dumps remain local.
 CI uploads only the report, summary and safe environment record.
@@ -243,28 +237,6 @@ The StorageClass must use Delete reclaim policy.
 It neither installs runtimes nor deletes the existing cluster.
 After a failure, inspect the reported Group for resources still awaiting runtime cleanup.
 Other E2E tests accept only the driver's disposable Kind context.
-
-### External application fixtures
-
-Basic/full CR references are validated by default.
-To add an external examples checkout to schema/reference checks:
-
-```sh
-AGENTRALLY_EXAMPLES_DIR=/path/to/agentrally-examples/operator \
-go test ./tests/packaging -run 'TestAllManifests|TestManifestReferences' -count=1 -v
-```
-
-The optional OpenClaw smoke test uses that project's actual manifests:
-
-```sh
-E2E_OPENCLAW=true \
-E2E_OPENCLAW_DIR=/path/to/agentrally-examples/operator/openclaw \
-E2E_TEST='^TestOpenClawLifecycle$' make e2e
-```
-
-It checks application startup and retained state with temporary credentials.
-No external channel or model account is configured.
-The Operator's normal build and tests require no external checkout.
 
 ### Persistent workspace foundation
 

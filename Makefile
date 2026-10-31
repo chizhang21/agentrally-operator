@@ -1,21 +1,9 @@
-# Resolve without writing; packaging targets save the selected identity below.
-# Explicit version, image and Chart destination override the local build record.
-ifneq ($(filter configure image-build image-push chart-package chart-push,$(MAKECMDGOALS)),)
-BUILD_IDENTITY := $(shell python3 -B hack/build_state.py resolve \
-  $(if $(filter undefined,$(origin VERSION)),,--version "$(VERSION)") \
-  $(if $(filter undefined,$(origin IMG)),,--image "$(IMG)") \
-  $(if $(filter undefined,$(origin IMAGE_TAG_BASE)),,--image-base "$(IMAGE_TAG_BASE)") \
-  $(if $(filter undefined,$(origin CHART_OCI_REPO)),,--chart-repo "$(CHART_OCI_REPO)"))
-ifeq ($(BUILD_IDENTITY),)
-$(error Cannot select package identity; check the inputs or remove .cache/build.json to reset saved settings)
-endif
-VERSION := $(word 1,$(BUILD_IDENTITY))
-IMG := $(word 2,$(BUILD_IDENTITY))
-CHART_OCI_REPO := $(word 3,$(BUILD_IDENTITY))
-export VERSION IMG
-endif
+VERSION ?= 0.0.0-dev
 IMAGE_TAG_BASE ?= agentrally-operator
+IMG ?= $(IMAGE_TAG_BASE):v$(VERSION)
+CHART_OCI_REPO ?= oci://ghcr.io/chizhang21/helm
 CONTAINER_TOOL ?= docker
+export VERSION
 
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
@@ -23,15 +11,9 @@ SHELL = /usr/bin/env bash -o pipefail
 
 ##@ Development
 
-.PHONY: help configure save-build-state generate fmt test e2e run check lint verify-generated clean
+.PHONY: help generate fmt test e2e run check lint verify-generated clean
 help: ## List commands.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  %-20s %s\n", $$1, $$2 } /^##@/ { printf "\n%s\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
-
-# Version selection happens above; this internal target only saves that identity.
-save-build-state:
-	@python3 -B hack/build_state.py save --version "$(VERSION)" --image "$(IMG)" --chart-repo "$(CHART_OCI_REPO)"
-
-configure: save-build-state ## Save package version, image and Chart repository settings.
 
 generate: controller-gen ## Generate DeepCopy code, chart CRDs and RBAC.
 	GOWORK=off $(CONTROLLER_GEN) object paths="./api/..."
@@ -77,13 +59,13 @@ build: ## Compile the operator binary, including the optional Connector.
 	mkdir -p dist
 	GOWORK=off go build -trimpath -o dist/operator ./cmd
 
-image-build: save-build-state ## Build the operator image.
+image-build: ## Build the operator image.
 	$(CONTAINER_TOOL) build -f Containerfile -t "$(IMG)" .
 
-image-push: save-build-state ## Push the operator image.
+image-push: ## Push the operator image.
 	$(CONTAINER_TOOL) push "$(IMG)"
 
-chart-package: save-build-state ## Package a versioned chart with the selected image defaults.
+chart-package: ## Package a versioned chart with the selected image defaults.
 	bash hack/package-chart.sh "$(IMG)" "$(CURDIR)/dist"
 
 chart-push: chart-package ## Package and push the chart to CHART_OCI_REPO.

@@ -47,6 +47,7 @@ type InstanceObservation struct {
 	Reason                  string                `json:"reason"`
 	ObservedAt              string                `json:"observedAt"`
 	Invocation              invocationObservation `json:"invocation"`
+	Diagnostic              InstanceDiagnostic    `json:"diagnostic"`
 }
 
 type invocationObservation struct {
@@ -157,6 +158,7 @@ func (e Executor) observeExecution(ctx context.Context, req Request) (*observedE
 		sandboxUID = current.GetUID()
 	}
 	observeInstanceState(&observation, &instance, pod, sandboxUID)
+	observation.Diagnostic = observationDiagnostic(&observation, &instance, pod, time.Now())
 	if err := reads.verify(ctx); err != nil {
 		return nil, err
 	}

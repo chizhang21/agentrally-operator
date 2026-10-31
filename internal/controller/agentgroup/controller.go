@@ -146,19 +146,8 @@ func (r *Reconciler) finalize(ctx context.Context, group *v1.AgentGroup) (ctrl.R
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := controller.CheckGroupNamespace(ns, group); err != nil && !bootstrapNamespace(ns, group) {
+	if err := controller.CheckOwner(ns, group); err != nil {
 		return ctrl.Result{}, err
-	}
-	if group.Spec.PersistentWorkspaces {
-		workspaces := &v1.AgentWorkspaceList{}
-		if err := reader.List(ctx, workspaces); err != nil {
-			return ctrl.Result{}, err
-		}
-		for _, workspace := range workspaces.Items {
-			if workspace.Spec.GroupUID == group.UID {
-				return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "WorkspaceRetained", "Persistent workspaces prevent Group cleanup", nil)
-			}
-		}
 	}
 	pools := allocation.Manager{Client: r.Client, Reader: r.Reader, Scheme: r.Scheme}
 	if pending, err := pools.Prune(ctx, group); err != nil {
@@ -181,7 +170,7 @@ func (r *Reconciler) finalize(ctx context.Context, group *v1.AgentGroup) (ctrl.R
 		message := fmt.Sprintf("Remove definitions, instances, allocation Claims, Sandboxes and PVCs from %s before deleting the group", ns.Name)
 		return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, group, false, "GroupInUse", message, nil)
 	}
-	done, err := r.deleteNamespace(ctx, ns, group)
+	done, err := controller.DeleteOwned(ctx, r.Client, ns, group)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -241,27 +230,4 @@ func groupMemberChanges() predicate.Predicate {
 			!equality.Semantic.DeepEqual(before.Status.Provisioning, after.Status.Provisioning) ||
 			controller.SummarizeInstances([]v1.AgentInstance{*before}) != controller.SummarizeInstances([]v1.AgentInstance{*after})
 	}}
-}
-
-func (r *Reconciler) deleteNamespace(ctx context.Context, ns *corev1.Namespace, group *v1.AgentGroup) (bool, error) {
-	if !group.Spec.PersistentWorkspaces {
-		return controller.DeleteOwned(ctx, r.Client, ns, group)
-	}
-	if ns.DeletionTimestamp != nil {
-		return false, nil
-	}
-	uid, rv := ns.UID, ns.ResourceVersion
-	return false, client.IgnoreNotFound(r.Delete(ctx, ns, &client.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid, ResourceVersion: &rv}}))
-}
-
-// bootstrapNamespace permits cleanup of initialization interrupted by deletion.
-// Allocation must continue to require the fully detached, pinned namespace.
-func bootstrapNamespace(ns *corev1.Namespace, group *v1.AgentGroup) bool {
-	if !group.Spec.PersistentWorkspaces || ns.Name != group.NamespaceName() || len(ns.OwnerReferences) != 1 ||
-		(group.Status.NamespaceUID != "" && group.Status.NamespaceUID != ns.UID) {
-		return false
-	}
-	owner := metav1.GetControllerOf(ns)
-	return owner != nil && owner.APIVersion == v1.GroupVersion.String() && owner.Kind == "AgentGroup" &&
-		owner.Name == group.Name && owner.UID == group.UID
 }

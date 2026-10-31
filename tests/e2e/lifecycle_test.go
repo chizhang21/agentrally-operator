@@ -268,6 +268,21 @@ func TestOperatorLifecycle(t *testing.T) {
 	claim.Spec.Lifecycle = nil
 	create(t, ctx, kube, claim)
 	awaitReady()
+	deletedInstanceUID, deletedPVCUID := claim.UID, allocatedWorkspace(t, ctx, kube, claim).UID
+	if err := kube.Delete(ctx, claim); err != nil {
+		t.Fatal(err)
+	}
+	awaitDeleted(t, ctx, kube, claim)
+	awaitExecutionRemoved(t, ctx, kube, ns)
+	claim = &v1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: claim.Name, Namespace: ns}, Spec: *claim.Spec.DeepCopy()}
+	create(t, ctx, kube, claim)
+	awaitReady()
+	if claim.UID == deletedInstanceUID || allocatedWorkspace(t, ctx, kube, claim).UID == deletedPVCUID {
+		t.Fatal("a recreated Instance reused the deleted identity or PVC")
+	}
+	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/workspace/session"); out != "fresh" {
+		t.Fatal("a recreated Instance did not start with a fresh workspace", out)
+	}
 	if err := kube.Delete(ctx, claim); err != nil {
 		t.Fatal(err)
 	}

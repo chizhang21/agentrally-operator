@@ -39,7 +39,7 @@ func renderedCRD(t *testing.T, plural string) *apiextensionsv1.CustomResourceDef
 // Fake clients do not apply CRD pruning. Exercise the API-server's pruning code
 // so labels, annotations and native scheduling/container fields survive admission.
 func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
-	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "instance.yaml"}, {"clustercapabilities", "clustercapabilities", ""}, {"agentworkspace", "agentworkspaces", ""}} {
+	for _, sampleType := range []struct{ kind, plural, file string }{{"agentgroup", "agentgroups", "group.yaml"}, {"agentdefinition", "agentdefinitions", "definition.yaml"}, {"agentinstance", "agentinstances", "instance.yaml"}, {"clustercapabilities", "clustercapabilities", ""}} {
 		kind := sampleType.kind
 		t.Run(kind, func(t *testing.T) {
 			crd := renderedCRD(t, sampleType.plural)
@@ -64,9 +64,7 @@ func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
 				t.Fatal(errors)
 			}
 			var sample []byte
-			if kind == "agentworkspace" {
-				sample, err = yaml.Marshal(&v1.AgentWorkspace{TypeMeta: metav1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "AgentWorkspace"}, ObjectMeta: metav1.ObjectMeta{Name: "workspace"}, Spec: v1.AgentWorkspaceSpec{GroupName: "demo", GroupUID: "group", Namespace: "agentrally-demo", NamespaceUID: "namespace", InstanceName: "instance", InstanceUID: "instance-uid", Definition: v1.DefinitionBinding{Name: "agent", UID: "definition", Revision: "revision", TemplateName: "template"}, RevisionUID: "template-uid", RetentionSeconds: 3600, VolumeClaimTemplate: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}}}}})
-			} else if sampleType.file == "" {
+			if sampleType.file == "" {
 				sample, err = yaml.Marshal(&v1.ClusterCapabilities{TypeMeta: metav1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "ClusterCapabilities"}, ObjectMeta: metav1.ObjectMeta{Name: "cluster"}})
 			} else {
 				sample, err = os.ReadFile("../../examples/basic/" + sampleType.file)
@@ -550,27 +548,5 @@ func TestInstanceDefinitionAndWorkspaceAdmission(t *testing.T) {
 	definitionAccepts := admissionChecker(t, "agentdefinitions")
 	if definitionAccepts(map[string]interface{}{"agentGroupRef": base["agentGroupRef"], "template": "assistant", "container": map[string]interface{}{"image": "example/assistant:v1"}, "workspace": base["workspace"]}) {
 		t.Fatal("reusable definition accepted a user-specific workspace")
-	}
-}
-
-func TestPersistentWorkspaceModeCannotChange(t *testing.T) {
-	group := admissionTransitionChecker(t, "agentgroups")
-	if group(map[string]interface{}{"persistentWorkspaces": true}, map[string]interface{}{"persistentWorkspaces": false}) {
-		t.Fatal("existing Group can opt into different ownership")
-	}
-	instance := admissionTransitionChecker(t, "agentinstances")
-	legacy := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "team"}, "definitionRef": map[string]interface{}{"name": "agent"}}
-	persistent := runtime.DeepCopyJSON(legacy)
-	persistent["workspace"] = map[string]interface{}{"mountPath": "/workspace", "persistence": map[string]interface{}{"retentionSeconds": int64(3600)}, "volumeClaimTemplate": map[string]interface{}{"accessModes": []interface{}{"ReadWriteOnce"}, "resources": map[string]interface{}{"requests": map[string]interface{}{"storage": "1Gi"}}}}
-	if !instance(persistent, nil) || !instance(persistent, persistent) {
-		t.Fatal("valid persistent configuration rejected")
-	}
-	if instance(persistent, legacy) || instance(legacy, persistent) {
-		t.Fatal("existing Instance can change storage mode")
-	}
-	changed := runtime.DeepCopyJSON(persistent)
-	changed["workspace"].(map[string]interface{})["persistence"].(map[string]interface{})["retentionSeconds"] = int64(0)
-	if instance(changed, persistent) {
-		t.Fatal("persistent retention configuration is mutable")
 	}
 }

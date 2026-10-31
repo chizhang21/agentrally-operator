@@ -148,7 +148,7 @@ func (r *Reconciler) readyGroup(ctx context.Context, workload *v1.AgentInstance)
 	if err := r.Get(ctx, client.ObjectKey{Name: workload.Namespace}, ns); err != nil {
 		return nil, false, err
 	}
-	if err := controller.CheckGroupNamespace(ns, group); err != nil {
+	if err := controller.CheckOwner(ns, group); err != nil {
 		return nil, false, err
 	}
 	if ns.DeletionTimestamp != nil && !suspending {

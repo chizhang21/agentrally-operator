@@ -22,16 +22,13 @@ import (
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/connector"
 	"agentrally/operator/internal/controller/agentgroup"
-	"agentrally/operator/internal/definition"
-	"agentrally/operator/internal/sandbox"
-	"agentrally/operator/internal/workspace"
 
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
@@ -191,7 +188,7 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 		}
 	}
 	groupRequest := connector.Request{ID: "create-group", Method: http.MethodPost, Resource: "agentgroups", Scope: &connector.RequestScope{GroupName: "connector-team"},
-		Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"connector-team"},"spec":{"persistentWorkspaces":true,"quota":{"hard":{"requests.cpu":"1"}}}}`)}
+		Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentGroup","metadata":{"name":"connector-team"},"spec":{"quota":{"hard":{"requests.cpu":"1"}}}}`)}
 	createdGroup := send(groupRequest, http.StatusCreated)
 	group := &v1.AgentGroup{}
 	if err := json.Unmarshal(createdGroup.Body, group); err != nil || group.UID == "" {
@@ -266,11 +263,11 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 	}
 	send(unknownField, http.StatusBadRequest)
 	instanceRequest := connector.Request{ID: "create-instance", Method: http.MethodPost, Resource: "agentinstances", Namespace: namespace.Name, Scope: scope,
-		Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstance","metadata":{"name":"agent","namespace":"` + namespace.Name + `"},"spec":{"agentGroupRef":{"name":"connector-team"},"definitionRef":{"name":"agent"},"workspace":{"mountPath":"/workspace","persistence":{"retentionSeconds":3600},"volumeClaimTemplate":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"1Gi"}}}}},"status":{"sandboxName":"forged"}}`)}
+		Body: json.RawMessage(`{"apiVersion":"arally.io/v1alpha1","kind":"AgentInstance","metadata":{"name":"agent","namespace":"` + namespace.Name + `"},"spec":{"agentGroupRef":{"name":"connector-team"},"definitionRef":{"name":"agent"},"workspace":{"mountPath":"/workspace","volumeClaimTemplate":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"1Gi"}}}}},"status":{"sandboxName":"forged"}}`)}
 	instanceResponse := send(instanceRequest, http.StatusCreated)
 	instance := &v1.AgentInstance{}
-	if json.Unmarshal(instanceResponse.Body, instance) != nil || instance.UID == "" || instance.Status.SandboxName != "" {
-		t.Fatal("instance lost identity or accepted controller status")
+	if json.Unmarshal(instanceResponse.Body, instance) != nil || instance.UID == "" || instance.Status.SandboxName != "" || instance.Spec.Workspace == nil {
+		t.Fatal("instance lost identity or workspace configuration, or accepted controller status")
 	}
 	verifyConnectorDiagnostics(t, ctx, admin, instanceRequest, send)
 	invalid := instanceRequest
@@ -278,78 +275,46 @@ func verifyConnectorManagement(t *testing.T, adminConfig *rest.Config, scheme *r
 	wrongScope.NamespaceUID = "different-namespace"
 	invalid.ID, invalid.Scope = "stale-namespace", &wrongScope
 	send(invalid, http.StatusForbidden)
-	// Prepare a real persistent record/PVC through the existing workspace owner.
-	template := sandbox.ExtensionObject("SandboxTemplate")
-	template.SetName("management-fixture")
-	template.SetUID(types.UID("00000000-0000-4000-8000-000000000003"))
-	revision := &definition.Revision{ID: strings.Repeat("a", 64), DefinitionUID: definitionObject.UID, Template: template}
-	if err := workspace.Ensure(ctx, controllerClient, controllerClient, scheme, instance, group, revision); err != nil {
-		t.Fatal("workspace creation:", err)
-	}
-	secondRequest := instanceRequest
-	var secondBody unstructured.Unstructured
-	if err := json.Unmarshal(instanceRequest.Body, &secondBody); err != nil {
+	// Native PVCs are observed under the namespace scope, never created by the Operator.
+	foreignNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "agentrally-connector-foreign-storage"}}
+	if err := admin.Create(ctx, foreignNamespace); err != nil {
 		t.Fatal(err)
 	}
-	secondBody.SetName("second-agent")
-	secondRequest.ID = "create-second-instance"
-	secondRequest.Body, err = json.Marshal(&secondBody)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondResponse := send(secondRequest, http.StatusCreated)
-	second := &v1.AgentInstance{}
-	if err := json.Unmarshal(secondResponse.Body, second); err != nil {
-		t.Fatal(err)
-	}
-	if err := workspace.Ensure(ctx, controllerClient, controllerClient, scheme, second, group, revision); err != nil {
-		t.Fatal("second workspace creation:", err)
-	}
-	// A retained record from another Group must not enter this Group's pages.
-	foreign := &v1.AgentWorkspace{}
-	if err := admin.Get(ctx, client.ObjectKey{Name: instance.Status.Workspace.WorkspaceName}, foreign); err != nil {
-		t.Fatal(err)
-	}
-	foreign.ObjectMeta = metav1.ObjectMeta{Name: "foreign-workspace", Labels: map[string]string{workspace.GroupUIDLabel: "another-group", workspace.NamespaceUIDLabel: "another-namespace"}}
-	foreign.Spec.GroupName, foreign.Spec.GroupUID = "other-team", "another-group"
-	foreign.Spec.Namespace, foreign.Spec.NamespaceUID = "agentrally-other-team", "another-namespace"
-	foreign.Spec.InstanceName, foreign.Spec.InstanceUID = "other-agent", "another-instance"
-	foreign.Status = v1.AgentWorkspaceStatus{}
-	if err := admin.Create(ctx, foreign); err != nil {
-		t.Fatal(err)
-	}
-	for _, query := range []connector.Request{
-		{ID: "pvcs", Method: http.MethodGet, Resource: "persistentvolumeclaims", Namespace: namespace.Name, Scope: scope, Limit: 1},
-		{ID: "workspaces", Method: http.MethodGet, Resource: "agentworkspaces", Scope: scope, Limit: 1},
+	for _, fixture := range []struct{ name, namespace string }{
+		{"first", namespace.Name}, {"second", namespace.Name}, {"foreign-storage", foreignNamespace.Name},
 	} {
-		seen := map[string]bool{}
-		baseID := query.ID
-		pages := 0
-		for {
-			query.ID = fmt.Sprintf("%s-%d", baseID, pages)
-			response := send(query, http.StatusOK)
-			var list unstructured.UnstructuredList
-			if json.Unmarshal(response.Body, &list) != nil || len(list.Items) > 1 || strings.Contains(string(response.Body), "remainingItemCount") || strings.Contains(string(response.Body), foreign.Name) {
-				t.Fatalf("storage page escaped scope or limit: %s", response.Body)
-			}
-			for _, item := range list.Items {
-				if seen[item.GetName()] {
-					t.Fatal("storage pagination repeated a record")
-				}
-				seen[item.GetName()] = true
-			}
-			pages++
-			query.Continue = list.GetContinue()
-			if query.Continue == "" {
-				break
-			}
-			if pages > 5 {
-				t.Fatal("storage pagination did not terminate")
-			}
+		pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: fixture.name, Namespace: fixture.namespace,
+			Annotations: map[string]string{"private": "sensitive-storage-marker"}},
+			Spec: *instance.Spec.Workspace.VolumeClaimTemplate.DeepCopy()}
+		if err := admin.Create(ctx, pvc); err != nil {
+			t.Fatal(err)
 		}
-		if len(seen) != 2 || pages < 2 {
-			t.Fatalf("storage pagination omitted records or continuation: %s, records=%d pages=%d", query.Resource, len(seen), pages)
+	}
+	query := connector.Request{ID: "pvcs", Method: http.MethodGet, Resource: "persistentvolumeclaims", Namespace: namespace.Name, Scope: scope, Limit: 1}
+	seen := map[string]bool{}
+	for page := 0; ; page++ {
+		if page > 5 {
+			t.Fatal("PVC pagination did not terminate")
 		}
+		query.ID = fmt.Sprintf("pvcs-%d", page)
+		response := send(query, http.StatusOK)
+		var list unstructured.UnstructuredList
+		if json.Unmarshal(response.Body, &list) != nil || len(list.Items) > 1 || strings.Contains(string(response.Body), "remainingItemCount") || strings.Contains(string(response.Body), "foreign-storage") || strings.Contains(string(response.Body), "sensitive-storage-marker") {
+			t.Fatalf("PVC page escaped scope or exposed private fields: %s", response.Body)
+		}
+		for _, item := range list.Items {
+			if seen[item.GetName()] {
+				t.Fatal("PVC pagination repeated a record")
+			}
+			seen[item.GetName()] = true
+		}
+		query.Continue = list.GetContinue()
+		if query.Continue == "" {
+			break
+		}
+	}
+	if len(seen) != 2 || !seen["first"] || !seen["second"] {
+		t.Fatal("PVC pagination omitted records", seen)
 	}
 	if err := admin.Get(ctx, client.ObjectKeyFromObject(instance), instance); err != nil {
 		t.Fatal(err)

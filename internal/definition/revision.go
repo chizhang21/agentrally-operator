@@ -115,10 +115,8 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	result.SetLabels(map[string]string{UIDLabel: string(object.UID)})
 	result.SetAnnotations(map[string]string{SpecAnnotation: string(spec), RevisionAnnotation: id})
 	result.Object["spec"] = runtime.DeepCopyJSONValue(template.Object["spec"])
-	if !object.Status.StandaloneRevisions {
-		if err := ctrl.SetControllerReference(object, result, scheme); err != nil {
-			return nil, err
-		}
+	if err := ctrl.SetControllerReference(object, result, scheme); err != nil {
+		return nil, err
 	}
 	existing := sandbox.ExtensionObject("SandboxTemplate")
 	err = reader.Get(ctx, client.ObjectKeyFromObject(result), existing)
@@ -135,7 +133,7 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	if err != nil {
 		return nil, err
 	}
-	if err := CheckPublicationOwner(existing, object); err != nil {
+	if err := controller.CheckOwner(existing, object); err != nil {
 		return nil, err
 	}
 	if existing.GetDeletionTimestamp() != nil || existing.GetAnnotations()[SpecAnnotation] != string(spec) || existing.GetAnnotations()[RevisionAnnotation] != id || !equality.Semantic.DeepEqual(existing.Object["spec"], result.Object["spec"]) {
@@ -159,7 +157,7 @@ func Verify(object *v1.AgentDefinition, template *unstructured.Unstructured, rev
 	if template.GetNamespace() != object.Namespace || template.GetName() != Name(object.UID, revision) {
 		return nil, diagnostics.New("DefinitionRevisionConflict", "The published revision identity does not match", nil)
 	}
-	if err := CheckPublicationOwner(template, object); err != nil {
+	if err := controller.CheckOwner(template, object); err != nil {
 		return nil, err
 	}
 	if template.GetDeletionTimestamp() != nil || template.GetAnnotations()[RevisionAnnotation] != revision {
@@ -191,15 +189,4 @@ func revisionID(spec json.RawMessage, native any) (string, error) {
 	}
 	sum := sha256.Sum256(input)
 	return hex.EncodeToString(sum[:]), nil
-}
-
-// CheckPublicationOwner uses the Definition's controller-written ownership mode.
-func CheckPublicationOwner(template *unstructured.Unstructured, object *v1.AgentDefinition) error {
-	if !object.Status.StandaloneRevisions {
-		return controller.CheckOwner(template, object)
-	}
-	if len(template.GetOwnerReferences()) != 0 || template.GetNamespace() != object.Namespace || template.GetLabels()[UIDLabel] != string(object.UID) {
-		return diagnostics.New("DefinitionRevisionConflict", "Standalone publication ownership does not match", nil)
-	}
-	return nil
 }

@@ -35,9 +35,6 @@ type executionConfiguration struct {
 func (r *Reconciler) prepareExecutionConfiguration(ctx context.Context, instance *v1.AgentInstance, group *v1.AgentGroup, mode string) (executionConfiguration, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := r.preparePersistentWorkspace(ctx, instance, group, mode); err != nil {
-		return executionConfiguration{}, err
-	}
 	config, err := r.resolveExecutionConfiguration(ctx, instance, mode)
 	if err != nil || config.Fallback {
 		return config, err

@@ -170,7 +170,7 @@ E2E_SNAPSHOTS=true make e2e
 The suite covers publication/revision pinning, dependency rotation, Group policies,
 allocation, prewarming, suspend/resume, replacement, expiry and ownership cleanup.
 Generic native-template tasks verify completion policies.
-Workspace checks distinguish execution-private, external and platform-persistent storage.
+Workspace checks distinguish execution-private volumes from externally managed PVCs.
 See [tests/e2e](../tests/e2e) for individual scenarios.
 Latency samples are smoke measurements, rather than production performance guarantees.
 
@@ -238,16 +238,16 @@ It neither installs runtimes nor deletes the existing cluster.
 After a failure, inspect the reported Group for resources still awaiting runtime cleanup.
 Other E2E tests accept only the driver's disposable Kind context.
 
-### Persistent workspace foundation
+### Workspace lifecycle checks
 
 ```sh
-E2E_TEST='^TestPersistentWorkspaceFoundation$' make e2e
+E2E_TEST='^(TestOperatorLifecycle|TestRetainedWorkspaceUpgrade)$' make e2e
 ```
 
-This checks same-Instance storage reuse and retained namespace/revision/PVC identity
-through foreground/background parent deletion under the actual Operator ServiceAccount.
-The disposable cluster removes intentionally retained resources at the end.
-The bootstrap-deletion case also checks interrupted namespace identity pinning.
+These checks exercise creation, suspension/resumption and deletion with ordinary
+volumeClaimTemplates and external PVCs.
+They verify retained data across suspension, a fresh private PVC after Instance
+recreation, and external PVC retention after Instance deletion.
 
 Results establish the tested versions and paths only.
 Kind or envtest cannot substitute for a specific Kata, production CSI or CNI acceptance run.

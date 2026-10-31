@@ -28,9 +28,6 @@ spec:
     # existingClaimRef:
     #   name: your-pvc
     # exclusive: true
-    # Preview, requiring Group persistentWorkspaces; recovery and GC are unavailable.
-    # persistence:
-    #   retentionSeconds: 0
   interaction:
     type: HTTPRoute
     port: 8080

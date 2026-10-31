@@ -2,12 +2,13 @@
 
 AgentRally manages configuration, allocation and lifecycle for containerized agents.
 Applications own their conversations, model calls, tools, channels and application APIs.
-An optional backend can add user identity, routing and activity policy.
+An optional Orchestrator can add user identity, routing and activity policy.
+It decides when to suspend or resume agents and updates their native CRs through Connector.
 Direct Kubernetes and GitOps use require no backend.
 
 ## Responsibilities
 
-A controller-runtime manager runs five controllers and the optional outbound Connector.
+A controller-runtime manager runs four controllers and the optional outbound Connector.
 Leader election coordinates the active process.
 Controllers reconcile their own root resources through the Kubernetes API.
 
@@ -16,7 +17,6 @@ Controllers reconcile their own root resources through the Kubernetes API.
 | AgentGroup | Cluster | Dedicated namespace, security/resource policies and shared spare-capacity budget |
 | AgentDefinition | Namespace | Reusable configuration, immutable revisions and optional proactive preparation |
 | AgentInstance | Namespace | Logical identity, accepted revision, workspace, lifecycle intent and HTTP access |
-| AgentWorkspace | Cluster | Initial persistent binding, pinned resource identities and release observation; preview |
 | ClusterCapabilities | Cluster | Advisory runtime, storage and network configuration evidence |
 
 ```mermaid
@@ -107,11 +107,8 @@ See [prewarming policy](agent-templates.md#allocation-and-policy).
 
 | Resource | Reconciled by | Controller owner |
 | --- | --- | --- |
-| Namespace and policies in default mode | AgentRally | AgentGroup |
-| Persistent namespace and published revisions | AgentRally | None after UID pinning |
-| Policies in a persistent namespace | AgentRally | Namespace |
-| AgentWorkspace and its PVC | AgentRally | None after UID pinning |
-| Published revisions in default mode | AgentRally | AgentDefinition |
+| Namespace and policies | AgentRally | AgentGroup |
+| Published revisions | AgentRally | AgentDefinition |
 | Effective snapshots and pools | AgentRally | AgentGroup |
 | Allocation Claim, access Service and route | AgentRally | AgentInstance |
 | Unassigned Sandbox | Extensions | SandboxWarmPool |
@@ -128,21 +125,6 @@ Group deletion bypasses idle retention but still respects active references.
 Instance restart, expiry and deletion request foreground Claim cleanup.
 Definition deletion waits for referencing Instances; Group deletion waits before removing its namespace.
 
-### Persistent ownership preview
-
-A new Group can opt into persistent workspaces at creation.
-Namespace, revision, workspace and PVC identities are pinned before temporary owners are detached.
-Execution cannot consume a PVC before binding is complete.
-Missing or replaced pinned resources are rejected instead of recreated or adopted.
-
-The first workspace revision is pinned.
-Same-Instance, same-revision execution replacement can reuse it.
-Instance deletion leaves the workspace and PVC retained, with release unverified.
-Records block parent cleanup; deleting a record remains blocked.
-Retention is recorded without a running countdown, including a zero value.
-Deletion recovery, exclusive takeover, purge and automatic GC are unavailable.
-See [preview limits](usage.md#platform-managed-persistent-workspaces-preview).
-
 ## Lifecycle and workspace
 
 Logical Instance UID, allocated Sandbox UID and running container identity have different lifetimes.
@@ -156,7 +138,6 @@ Explicit upgrades select `spec.revision` and a new replacement token.
 | Ephemeral files | Lost with the Pod | Lost |
 | Execution-private PVC | Same PVC | Deleted with the Sandbox; replacement gets new storage |
 | External PVC | Same PVC | Retained; same-Instance replacement reuses its pinned binding |
-| Platform persistent preview | Same PVC | Same-revision replacement can reuse it; deletion leaves retained storage without recovery |
 
 External RWX sharing needs application-level concurrency control.
 Optional exclusive reservation Leases coordinate Operator-managed consumers and survive replacement.
@@ -191,7 +172,7 @@ A terminating Pod keeps cleanup pending; the Operator reports stalls rather than
 See [status and diagnostics](usage.md#status-and-diagnostics).
 
 Pod removal intent, transport cancellation and container observations do not prove an unreachable writer has stopped.
-The persistent-workspace preview and invocation protocol preserve this uncertainty.
+The invocation protocol exposes this uncertainty.
 
 ## Access and trust
 
@@ -206,7 +187,6 @@ See [capability evidence](cluster-capabilities.md).
 
 The optional Connector runs inside the elected Operator and initiates outbound HTTPS.
 It relays scoped Kubernetes management operations and exposes container-level observations.
-AgentWorkspace is not a Connector management resource.
 Authentication and caller authorization belong to the backend.
 
 Invocation is a default-off preview with pinned execution targets and bounded JSON/SSE transport.
@@ -221,7 +201,7 @@ See [Connector setup](outbound-connector.md) and the [invocation contract](invoc
 | `api`, `chart` | Typed CR contracts and generated installation manifests |
 | `internal/controller` | Root reconcilers, resource ownership and condition/event handling |
 | `internal/executionconfig`, `podconfig` | Shared creation-input resolution and comparisons with native defaults/admission |
-| `internal/definition`, `allocation`, `workspace` | Revision publication, capacity/Claim selection and persistent binding |
+| `internal/definition`, `allocation` | Revision publication and capacity/Claim selection |
 | `internal/sandbox` | Core/Extensions wire adapter, without upstream controller logic |
 | `internal/capabilities` | Passive discovery and classification catalog |
 | `internal/connector` | Optional management and invocation transports |

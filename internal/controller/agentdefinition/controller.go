@@ -40,15 +40,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 		reader = r.Client
 	}
 	if object.DeletionTimestamp != nil {
-		workspaces := &v1.AgentWorkspaceList{}
-		if err := reader.List(ctx, workspaces); err != nil {
-			return ctrl.Result{}, err
-		}
-		for _, ws := range workspaces.Items {
-			if ws.Spec.Definition.UID == object.UID {
-				return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, object, false, "WorkspaceRetained", "Persistent workspaces reference this definition", nil)
-			}
-		}
 		instances := &v1.AgentInstanceList{}
 		if err := reader.List(ctx, instances, client.InNamespace(object.Namespace)); err != nil {
 			return ctrl.Result{}, err
@@ -71,25 +62,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 				return ctrl.Result{RequeueAfter: controller.DependencyRetry}, r.status(ctx, object, false, "CapacityDeleting", "Waiting for managed capacity and native Claims to finish cleanup", nil)
 			}
 		}
-		if object.Status.StandaloneRevisions {
-			templates := sandbox.ExtensionList("SandboxTemplate")
-			if err := reader.List(ctx, templates, client.InNamespace(object.Namespace), client.MatchingLabels{definition.UIDLabel: string(object.UID)}); err != nil {
-				return ctrl.Result{}, err
-			}
-			for i := range templates.Items {
-				item := &templates.Items[i]
-				if _, err := definition.Verify(object, item, item.GetAnnotations()[definition.RevisionAnnotation]); err != nil {
-					return ctrl.Result{}, err
-				}
-				uid, rv := item.GetUID(), item.GetResourceVersion()
-				if err := r.Delete(ctx, item, &client.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid, ResourceVersion: &rv}}); client.IgnoreNotFound(err) != nil {
-					return ctrl.Result{}, err
-				}
-			}
-			if len(templates.Items) > 0 {
-				return ctrl.Result{RequeueAfter: controller.DependencyRetry}, nil
-			}
-		}
 		return ctrl.Result{}, controller.RemoveFinalizer(ctx, r.Client, object, Finalizer)
 	}
 	if err := controller.AddFinalizer(ctx, r.Client, object, Finalizer); err != nil {
@@ -110,15 +82,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	if err := reader.Get(ctx, client.ObjectKey{Name: object.Namespace}, ns); err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := controller.CheckGroupNamespace(ns, group); err != nil {
+	if err := controller.CheckOwner(ns, group); err != nil {
 		return ctrl.Result{}, err
-	}
-	if group.Spec.PersistentWorkspaces && !object.Status.StandaloneRevisions {
-		base := object.DeepCopy()
-		object.Status.StandaloneRevisions = true
-		if err := r.Status().Patch(ctx, object, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
-			return ctrl.Result{}, err
-		}
 	}
 	revision, err := definition.Publish(ctx, r.Client, reader, r.Scheme, object)
 	if err != nil {

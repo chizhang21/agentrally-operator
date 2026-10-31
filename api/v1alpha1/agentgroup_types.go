@@ -9,7 +9,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // HTTPRouteDefaults supplies shared ingress settings without owning the Gateway.
@@ -84,11 +83,6 @@ type InvocationAccess struct {
 // +kubebuilder:validation:XValidation:rule="has(self.namespace) == has(oldSelf.namespace)",message="namespace cannot be added or removed after creation"
 // +kubebuilder:validation:XValidation:rule="!has(self.invocationAccess) || self.invocationAccess.mode != 'ConnectorOnly' || !has(self.networkPolicy) || ((!has(self.networkPolicy.ingress) || size(self.networkPolicy.ingress) == 0) && (!has(self.networkPolicy.podSelector.matchLabels) || size(self.networkPolicy.podSelector.matchLabels) == 0) && (!has(self.networkPolicy.podSelector.matchExpressions) || size(self.networkPolicy.podSelector.matchExpressions) == 0))",message="ConnectorOnly requires an empty podSelector and no explicit ingress rules"
 type AgentGroupSpec struct {
-	// PersistentWorkspaces enables standalone namespace and revision ownership for new Groups.
-	// +kubebuilder:default=false
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="persistentWorkspaces cannot change after creation"
-	// +optional
-	PersistentWorkspaces bool `json:"persistentWorkspaces,omitempty"`
 	// Namespace optionally names the dedicated namespace and must start with agentrally-.
 	// Omitted names are derived from the group name. Unrelated namespaces are never adopted.
 	// +kubebuilder:validation:MinLength=1
@@ -152,9 +146,6 @@ func (g *AgentGroup) NamespaceName() string {
 }
 
 type AgentGroupStatus struct {
-	// NamespaceUID pins the standalone namespace before persistent allocation is allowed.
-	// +optional
-	NamespaceUID types.UID `json:"namespaceUID,omitempty"`
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional

@@ -259,24 +259,11 @@ spec:
                   mountPath:
                     minLength: 1
                     type: string
-                  persistence:
-                    description: Persistence retains platform data independently of
-                      execution. Recovery and GC are unavailable.
-                    properties:
-                      retentionSeconds:
-                        format: int64
-                        maximum: 31536000
-                        minimum: 0
-                        type: integer
-                    required:
-                    - retentionSeconds
-                    type: object
                   readOnly:
                     type: boolean
                   volumeClaimTemplate:
-                    description: |-
-                      VolumeClaimTemplate normally provisions a Core-owned PVC per Sandbox.
-                      With Persistence, the Operator provisions one independently retained PVC.
+                    description: VolumeClaimTemplate normally provisions a Core-owned
+                      PVC per Sandbox.
                     properties:
                       accessModes:
                         description: |-
@@ -477,8 +464,6 @@ spec:
                   rule: has(self.volumeClaimTemplate) != has(self.existingClaimRef)
                 - message: exclusive requires existingClaimRef
                   rule: '!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)'
-                - message: persistence requires volumeClaimTemplate
-                  rule: '!has(self.persistence) || has(self.volumeClaimTemplate)'
             required:
             - agentGroupRef
             - definitionRef
@@ -487,12 +472,6 @@ spec:
             - message: warmPoolRef cannot be added or removed after creation
               rule: (has(self.provisioning) && has(self.provisioning.warmPoolRef))
                 == (has(oldSelf.provisioning) && has(oldSelf.provisioning.warmPoolRef))
-            - message: persistent workspace mode must be chosen at creation
-              rule: (has(self.workspace) && has(self.workspace.persistence)) == (has(oldSelf.workspace)
-                && has(oldSelf.workspace.persistence))
-            - message: persistent workspace configuration is immutable
-              rule: '!(has(oldSelf.workspace) && has(oldSelf.workspace.persistence))
-                || (has(self.workspace) && self.workspace == oldSelf.workspace)'
           status:
             properties:
               appliedRevision:
@@ -754,14 +733,6 @@ spec:
                   claimName:
                     type: string
                   uid:
-                    description: |-
-                      UID is a type that holds unique ID values, including UUIDs.  Because we
-                      don't ONLY use UUIDs, this is an alias to string.  Being a type captures
-                      intent and helps make sure that UIDs and names do not get conflated.
-                    type: string
-                  workspaceName:
-                    type: string
-                  workspaceUID:
                     description: |-
                       UID is a type that holds unique ID values, including UUIDs.  Because we
                       don't ONLY use UUIDs, this is an alias to string.  Being a type captures

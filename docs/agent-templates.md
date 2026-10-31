@@ -75,10 +75,6 @@ Its UID stays bound across restart.
 Existing-PVC allocations enforce zero spares; see
 [workspace lifetime](usage.md#lifecycle).
 
-New Groups can separately opt into the [platform persistent workspace preview](usage.md#platform-managed-persistent-workspaces-preview).
-That mode creates one Operator-managed PVC outside the Sandbox ownership chain.
-It has no warm spares, deletion recovery, automatic GC or revision upgrades in this version.
-
 `workspace` replaces assistant/coding's ephemeral `/workspace` with the PVC mount.
 A different mountPath also changes the built-in working directory and HOME, unless
 `container.env` overrides HOME.
@@ -254,7 +250,7 @@ Unused resources follow the Group's idle retention policy.
 An enabled, current Definition request also keeps its pool alive without Instance
 references.
 
-Full PVC warm handoff and deletion recovery remain unavailable.
+Prewarming does not transfer an existing workspace's PVC.
 Independent image pre-pulling is not enabled; a cached image is separate from an already
 running, prepared Sandbox.
 

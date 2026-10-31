@@ -66,7 +66,7 @@ func TestGenerationRemovesObsoleteSchemas(t *testing.T) {
 		}
 	}
 	crds, err := filepath.Glob(filepath.Join(stage, "chart/templates/crds", "*.yaml"))
-	if err != nil || len(crds) != 5 {
+	if err != nil || len(crds) != 4 {
 		t.Fatalf("current APIs were lost: %v %v", crds, err)
 	}
 	// Checking drift must neither repair files nor remove obsolete manifests.

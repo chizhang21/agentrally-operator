@@ -14,6 +14,7 @@ rules:
   resources:
   - configmaps
   - nodes
+  - persistentvolumeclaims
   verbs:
   - get
   - list
@@ -40,17 +41,6 @@ rules:
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - persistentvolumeclaims
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
   - watch
 - apiGroups:
   - ""
@@ -94,7 +84,6 @@ rules:
   - agentdefinitions/finalizers
   - agentgroups/finalizers
   - agentinstances/finalizers
-  - agentworkspaces/finalizers
   verbs:
   - update
 - apiGroups:
@@ -103,7 +92,6 @@ rules:
   - agentdefinitions/status
   - agentgroups/status
   - agentinstances/status
-  - agentworkspaces/status
   - clustercapabilities/status
   verbs:
   - get
@@ -115,17 +103,6 @@ rules:
   - agentinstances
   verbs:
   - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - arally.io
-  resources:
-  - agentworkspaces
-  verbs:
-  - create
   - get
   - list
   - patch

@@ -75,7 +75,7 @@ The [shared fixture](../tests/fixtures/connector/management.json) fixes the comp
 
 `scopedNamespaceCreate` is true under the management boundary described below.
 `instanceDiagnostics` is true: instance observations include a safe primary diagnostic.
-Production `invocation`, `exclusiveHandoff`, `observedOperatingMode`, `activityLease` and `processIdentity` remain false.
+Production `invocation`, `exclusiveHandoff` and `processIdentity` remain false.
 Unsupported capabilities return `501 Unsupported`.
 An application protocol declaration does not override these flags.
 
@@ -93,7 +93,6 @@ Scope identifiers are identity preconditions, not credentials.
 | `secrets` | GET, POST, DELETE | Group and namespace identity; metadata reads, restricted credential creation and guarded deletion |
 | `configmaps` | GET, POST, DELETE | Group and namespace identity; configuration creation, metadata reads and guarded deletion |
 | `persistentvolumeclaims` | GET | Group namespace; selected identity, spec and status fields |
-| `agentworkspaces` | GET | Group and namespace identity; cluster-scoped envelope without `namespace` |
 | `instanceobservations` | GET one | Group and namespace identity |
 | `clustercapabilities` | GET | Unscoped, read-only discovery |
 
@@ -111,7 +110,6 @@ A supplied stale UID is rejected, including during discovery.
 Namespace labels and annotations are not returned.
 
 Ordinary Group namespaces require the exact Group owner UID.
-Persistent Group namespaces use the pinned `status.namespaceUID` and have no owner reference.
 
 ## CR writes
 
@@ -155,9 +153,10 @@ After a lost response, compare the observed marker, resource identity and origin
 The marker is a correlation aid, not an authorization credential or exactly-once guarantee.
 It establishes no application readiness or business completion.
 
-An explicit AgentInstance update may carry `intent: {"kind":"Explicit"}`.
+The Orchestrator controls suspension and resumption by updating the native
+`AgentInstance.spec.operatingMode` field.
+It owns activity tracking and the decision to suspend or resume.
 Success records desired state; it does not confirm that execution has stopped.
-Observation-driven `Observed` intents remain unsupported.
 
 ### Namespace lifecycle boundary
 
@@ -241,14 +240,13 @@ The backend creates a new named configuration and switches references before cle
 
 PVC queries return identity plus accessModes, volumeMode, storageClassName, requested storage, phase and storage capacity.
 They omit PV names, data sources and arbitrary metadata.
-PVC lifecycle remains driven by AgentInstance workspace declarations and the controllers.
+Core manages PVCs created from volumeClaimTemplates.
+PVCs referenced through existingClaimRef remain externally managed.
 
-AgentWorkspace queries return spec/status after verifying their immutable Group and Namespace identities.
-Lists use Operator-maintained UID labels as a query index and check spec independently.
-Storage observations do not prove mountability, released writers or recovery readiness.
+Storage observations do not prove mountability or released writers.
 
 GET collections use Kubernetes pagination: `limit` defaults to 100 and cannot exceed 500.
-Pass `continue` until empty, including after an empty filtered Workspace page.
+Pass `continue` until empty.
 Reference lists omit remaining-item counts.
 
 Connector does not manage upstream SandboxTemplates or install runtimes.

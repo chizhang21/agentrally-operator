@@ -64,19 +64,7 @@ func (r *Reconciler) mapNamespacePolicy(ctx context.Context, object client.Objec
 		return nil
 	}
 	owner := metav1.GetControllerOf(ns)
-	if owner == nil {
-		groups := &v1.AgentGroupList{}
-		if err := r.List(ctx, groups); err != nil {
-			return nil
-		}
-		for _, group := range groups.Items {
-			if group.Spec.PersistentWorkspaces && controller.CheckGroupNamespace(ns, &group) == nil {
-				return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: group.Name}}}
-			}
-		}
-		return nil
-	}
-	if owner.APIVersion != v1.GroupVersion.String() || owner.Kind != "AgentGroup" {
+	if owner == nil || owner.APIVersion != v1.GroupVersion.String() || owner.Kind != "AgentGroup" {
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: owner.Name}}}

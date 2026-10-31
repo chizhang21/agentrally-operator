@@ -9,7 +9,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -20,11 +19,7 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 	}
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: group.NamespaceName()}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ns, func() error {
-		if group.Spec.PersistentWorkspaces && group.Status.NamespaceUID != "" && len(ns.OwnerReferences) == 0 {
-			if err := controller.CheckGroupNamespace(ns, group); err != nil {
-				return err
-			}
-		} else if err := controller.PrepareOwned(ns, group, r.Scheme); err != nil {
+		if err := controller.PrepareOwned(ns, group, r.Scheme); err != nil {
 			return err
 		}
 		if ns.Labels == nil {
@@ -36,28 +31,6 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 	if err != nil {
 		return false, "", "", err
 	}
-	if group.Spec.PersistentWorkspaces {
-		if group.Status.NamespaceUID == "" {
-			base := group.DeepCopy()
-			group.Status.NamespaceUID = ns.UID
-			if err := r.Status().Patch(ctx, group, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
-				return false, "", "", err
-			}
-		}
-		if len(ns.OwnerReferences) != 0 {
-			if err := controller.CheckOwner(ns, group); err != nil {
-				return false, "", "", err
-			}
-			if ns.UID != group.Status.NamespaceUID || len(ns.OwnerReferences) != 1 {
-				return false, "NamespaceBindingIncomplete", "Namespace ownership changed", nil
-			}
-			base := ns.DeepCopy()
-			ns.OwnerReferences = nil
-			if err := r.Patch(ctx, ns, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
-				return false, "", "", err
-			}
-		}
-	}
 	if ns.DeletionTimestamp != nil {
 		return false, "NamespaceTerminating", "Waiting for the dedicated namespace to finish deletion", nil
 	}
@@ -66,7 +39,7 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 	policy := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: controller.GroupNetworkPolicyName, Namespace: ns.Name}}
 	if group.Spec.LimitRange != nil {
 		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, limits, func() error {
-			if err := controller.PrepareOwned(limits, controller.GroupPolicyOwner(group), r.Scheme); err != nil {
+			if err := controller.PrepareOwned(limits, group, r.Scheme); err != nil {
 				return err
 			}
 			limits.Spec = *group.Spec.LimitRange.DeepCopy()
@@ -76,7 +49,7 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 			return false, "", "", err
 		}
 	} else {
-		done, err := controller.DeleteOwned(ctx, r.Client, limits, controller.GroupPolicyOwner(group))
+		done, err := controller.DeleteOwned(ctx, r.Client, limits, group)
 		if err != nil {
 			return false, "", "", err
 		}
@@ -86,7 +59,7 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 	}
 	if group.Spec.Quota != nil {
 		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, quota, func() error {
-			if err := controller.PrepareOwned(quota, controller.GroupPolicyOwner(group), r.Scheme); err != nil {
+			if err := controller.PrepareOwned(quota, group, r.Scheme); err != nil {
 				return err
 			}
 			quota.Spec = *group.Spec.Quota.DeepCopy()
@@ -96,7 +69,7 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 			return false, "", "", err
 		}
 	} else {
-		done, err := controller.DeleteOwned(ctx, r.Client, quota, controller.GroupPolicyOwner(group))
+		done, err := controller.DeleteOwned(ctx, r.Client, quota, group)
 		if err != nil {
 			return false, "", "", err
 		}
@@ -110,7 +83,7 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 	}
 	if desiredPolicy != nil {
 		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, policy, func() error {
-			if err := controller.PrepareOwned(policy, controller.GroupPolicyOwner(group), r.Scheme); err != nil {
+			if err := controller.PrepareOwned(policy, group, r.Scheme); err != nil {
 				return err
 			}
 			policy.Spec = *desiredPolicy
@@ -120,7 +93,7 @@ func (r *Reconciler) prepare(ctx context.Context, group *v1.AgentGroup) (bool, s
 			return false, "", "", err
 		}
 	} else {
-		done, err := controller.DeleteOwned(ctx, r.Client, policy, controller.GroupPolicyOwner(group))
+		done, err := controller.DeleteOwned(ctx, r.Client, policy, group)
 		if err != nil {
 			return false, "", "", err
 		}

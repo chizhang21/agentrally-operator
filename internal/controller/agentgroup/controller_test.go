@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -265,61 +264,4 @@ func TestGroupReadyDoesNotDependOnUnusedHTTPRouteDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.Condition(t, current.Status.Conditions, "Ready", metav1.ConditionTrue)
-}
-
-func TestDeletionDuringPersistentNamespaceBootstrap(t *testing.T) {
-	for _, tc := range []struct {
-		name, pin                              string
-		unowned, record, pvc, reject, retained bool
-	}{
-		{name: "before namespace pin"},
-		{name: "before owner detach", pin: "namespace-uid"},
-		{name: "different namespace UID", pin: "other-uid", reject: true, retained: true},
-		{name: "unowned namespace without pin", unowned: true, reject: true, retained: true},
-		{name: "incomplete workspace record", record: true, retained: true},
-		{name: "existing PVC", pvc: true, retained: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			group, ns, _, _, _ := testutil.Fixture()
-			group.Spec.PersistentWorkspaces = true
-			group.Status.NamespaceUID = types.UID(tc.pin)
-			group.Finalizers = []string{GroupFinalizer}
-			if tc.unowned {
-				ns.OwnerReferences = nil
-			}
-			objects := []client.Object{group, ns}
-			if tc.record {
-				objects = append(objects, &v1.AgentWorkspace{ObjectMeta: metav1.ObjectMeta{Name: "incomplete"}, Spec: v1.AgentWorkspaceSpec{GroupUID: group.UID}})
-			}
-			if tc.pvc {
-				objects = append(objects, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: ns.Name}})
-			}
-			c, scheme := testutil.Client(t, objects...)
-			if err := c.Delete(ctx, group); err != nil {
-				t.Fatal(err)
-			}
-			r := &Reconciler{Client: c, Scheme: scheme}
-			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(group)}
-			_, err := r.Reconcile(ctx, request)
-			if (err != nil) != tc.reject {
-				t.Fatalf("unexpected cleanup result: %v", err)
-			}
-			err = c.Get(ctx, client.ObjectKeyFromObject(ns), ns)
-			if tc.retained {
-				if err != nil || ns.DeletionTimestamp != nil {
-					t.Fatal("unsafe namespace cleanup", err)
-				}
-				return
-			}
-			if !apierrors.IsNotFound(err) {
-				t.Fatal("bootstrap namespace not removed", err)
-			}
-			if _, err := r.Reconcile(ctx, request); err != nil {
-				t.Fatal(err)
-			}
-			if err := c.Get(ctx, client.ObjectKeyFromObject(group), group); !apierrors.IsNotFound(err) {
-				t.Fatal("bootstrap Group finalizer stuck", err)
-			}
-		})
-	}
 }

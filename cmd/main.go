@@ -14,7 +14,6 @@ import (
 	"agentrally/operator/internal/controller/agentdefinition"
 	"agentrally/operator/internal/controller/agentgroup"
 	"agentrally/operator/internal/controller/agentinstance"
-	"agentrally/operator/internal/controller/agentworkspace"
 	"agentrally/operator/internal/controller/clustercapabilities"
 	"agentrally/operator/internal/metrics"
 	"agentrally/operator/internal/sandbox"
@@ -81,9 +80,6 @@ func run() error {
 		return err
 	}
 	if err := (&agentdefinition.Reconciler{}).SetupWithManager(mgr); err != nil {
-		return err
-	}
-	if err := (&agentworkspace.Reconciler{}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	observations := metrics.New(mgr.GetClient())

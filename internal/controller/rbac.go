@@ -17,9 +17,8 @@ package controller
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;create;update;patch;delete
 // Secrets are read by explicit reference; no global Secret list, watch or cache.
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get
-// Delete permission is required by owner-reference admission when detaching a PVC.
-// The workspace controller does not delete PVCs or perform automatic GC.
-// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;patch;delete
+// Core owns private PVC lifecycle; AgentRally only observes storage and external references.
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch
 // Event reads are UID-filtered diagnostics; the Operator never watches all Events.
 // +kubebuilder:rbac:groups=core,resources=events,verbs=list;create;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
@@ -46,7 +45,3 @@ package controller
 // +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxwarmpools,verbs=get;list;create;patch;delete
 // Template metadata coordinates allocation with pruning; snapshot specs stay immutable.
 // +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxtemplates,verbs=get;list;watch;create;patch;delete
-
-// +kubebuilder:rbac:groups=arally.io,resources=agentworkspaces,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=arally.io,resources=agentworkspaces/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=arally.io,resources=agentworkspaces/finalizers,verbs=update

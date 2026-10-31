@@ -279,56 +279,6 @@ Pending WaitForFirstConsumer claims can bind after Core creates the Pod.
 See
 [workspace permissions and defaults](agent-templates.md#persistent-state-and-credentials).
 
-### Platform-managed persistent workspaces (preview)
-
-New Groups can enable `spec.persistentWorkspaces: true` at creation.
-Choose this policy when creating the Group; the field is immutable.
-
-An Instance in that Group can request its own persistent workspace:
-
-```yaml
-workspace:
-  mountPath: /workspace
-  persistence:
-    retentionSeconds: 86400
-  volumeClaimTemplate:
-    accessModes: [ReadWriteOnce]
-    resources:
-      requests:
-        storage: 1Gi
-```
-
-The Operator creates an `AgentWorkspace` record and one PVC.
-It pins their UIDs before permitting a consumer.
-The record, PVC, namespace and published revision are protected from ordinary
-Instance, Definition and Group deletion.
-Group policies and quotas remain with the namespace.
-
-Choose persistence when creating the Instance.
-Its workspace configuration is immutable.
-The initial PVC must be a new filesystem volume; existing PVCs, snapshots and
-pre-bound volumes are not accepted in this mode.
-Pending PVCs can proceed to scheduling with `WaitForFirstConsumer`.
-Persistent workspaces do not create warm spares.
-
-Suspension and resumption of the same Instance reuse its PVC.
-The first Definition revision remains pinned; upgrading that revision is currently
-unsupported (`PersistentRevisionPinned`).
-
-**Deletion recovery and automatic cleanup are not available in this preview.**
-`retentionSeconds` records the requested future policy; no retention countdown starts,
-and even zero does not trigger deletion.
-After the Instance is deleted, the record reports `ReleasePending`.
-Absence of a Pod does not prove that an old execution can no longer write.
-A recreated Instance cannot take over the retained data.
-
-Deleting the workspace record reports `DeletionBlocked` and preserves its finalizer.
-Group and Definition deletion remain blocked while any associated record exists.
-There is no supported purge command in this version.
-Use this preview only where retaining those resources indefinitely is acceptable.
-Direct administrator deletion of the namespace or forced removal of finalizers is
-outside this protection.
-
 ### Externally managed workspaces
 
 For storage retained across execution upgrades, use an existing PVC on the instance:
@@ -478,10 +428,8 @@ Change the token for each restart; repeating it does nothing.
 Definition edits publish a new revision and leave pinned instances running on their old
 version.
 Restart preserves the accepted revision and its invocation protocol declaration.
-For instances without platform persistence, upgrade by setting `spec.revision` to the desired hash from the Definition's
+Upgrade by setting `spec.revision` to the desired hash from the Definition's
 `status.currentRevision`, and change `restartToken` in the same update.
-Platform persistent workspaces currently reject revision upgrades; see the
-[persistent workspace preview](#platform-managed-persistent-workspaces-preview).
 Changing only the selected revision or rotating environment credentials can report
 RestartRequired until restart.
 
@@ -502,12 +450,11 @@ The pending-update condition describes creation evidence.
 AgentRally replaces execution through its owning SandboxClaim.
 **Default Sandbox-owned workspaces are replaced:** upstream garbage collection removes the old Sandbox
 and its PVCs.
-An external `existingClaimRef` or platform persistent workspace retains its PVC across replacement.
+An external `existingClaimRef` retains its PVC across replacement.
 Suspend/resume and Pod recreation within the same Sandbox retain its PVCs.
 
-For Groups without retained platform workspaces, delete AgentInstances, then
+Delete AgentInstances, then
 AgentDefinitions, before the Group.
-Retained records block parent deletion; the persistent workspace preview has no purge path.
 Wait for execution cleanup, then inspect remaining Sandboxes and PVCs before moving or
 removing data:
 
@@ -535,12 +482,13 @@ The optional `lifecycle` block in [full/instance.yaml](../examples/full/instance
 | `shutdownPolicy: Delete` | Deletes the instance through its finalizer. |
 
 The earliest applicable execution deadline wins.
-The Operator applies explicit `operatingMode` changes; it does not infer idleness from traffic or Leases.
-Observation-driven automatic suspension is currently unsupported.
+Users can update `AgentInstance.spec.operatingMode` directly.
+When an Orchestrator manages agents, it owns activity tracking and the decision to
+suspend or resume, and sends native CR updates through Connector.
+The Operator reconciles the requested state without inferring idleness.
 
 Sandbox-owned workspace PVCs are removed with execution; externally supplied Secrets and
 externally managed workspace PVCs remain.
-Platform persistent workspaces also remain; their release, recovery and GC are unavailable.
 `Retain` preserves the AgentInstance and diagnostics; it does not retain Sandbox-owned
 private PVCs.
 

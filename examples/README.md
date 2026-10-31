@@ -34,7 +34,6 @@ The full Group and namespaced references use `agentrally-reference`, separate fr
 Do not apply this directory recursively.
 
 Prepare referenced Secrets, ConfigMaps, ServiceAccounts, storage and routing dependencies first.
-AgentWorkspace is controller-managed and has no user-created example.
 ClusterCapabilities is created automatically; apply mappings only when needed.
 
 See [Usage](../docs/usage.md) for behavior and [deployer RBAC](../config/rbac/editor-role.yaml) for access grants.

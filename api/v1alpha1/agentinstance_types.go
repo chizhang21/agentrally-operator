@@ -8,13 +8,8 @@ import (
 
 // +kubebuilder:validation:XValidation:rule="has(self.volumeClaimTemplate) != has(self.existingClaimRef)",message="select exactly one of volumeClaimTemplate or existingClaimRef"
 // +kubebuilder:validation:XValidation:rule="!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)",message="exclusive requires existingClaimRef"
-// +kubebuilder:validation:XValidation:rule="!has(self.persistence) || has(self.volumeClaimTemplate)",message="persistence requires volumeClaimTemplate"
 type WorkspaceMount struct {
-	// Persistence retains platform data independently of execution. Recovery and GC are unavailable.
-	// +optional
-	Persistence *WorkspacePersistence `json:"persistence,omitempty"`
 	// VolumeClaimTemplate normally provisions a Core-owned PVC per Sandbox.
-	// With Persistence, the Operator provisions one independently retained PVC.
 	// +optional
 	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
 	// ExistingClaimRef mounts an externally managed PVC in the instance namespace.
@@ -31,12 +26,6 @@ type WorkspaceMount struct {
 	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
-type WorkspacePersistence struct {
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=31536000
-	RetentionSeconds int64 `json:"retentionSeconds"`
-}
-
 type PersistentVolumeClaimReference struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
@@ -46,12 +35,8 @@ type PersistentVolumeClaimReference struct {
 
 // WorkspaceBinding identifies external storage retained across execution changes.
 type WorkspaceBinding struct {
-	// +optional
-	WorkspaceName string `json:"workspaceName,omitempty"`
-	// +optional
-	WorkspaceUID types.UID `json:"workspaceUID,omitempty"`
-	ClaimName    string    `json:"claimName"`
-	UID          types.UID `json:"uid"`
+	ClaimName string    `json:"claimName"`
+	UID       types.UID `json:"uid"`
 }
 
 // AgentGroupReference identifies a cluster-scoped AgentGroup by Kubernetes name.
@@ -220,8 +205,6 @@ type AgentInstanceProvisioningStatus struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="(has(self.provisioning) && has(self.provisioning.warmPoolRef)) == (has(oldSelf.provisioning) && has(oldSelf.provisioning.warmPoolRef))",message="warmPoolRef cannot be added or removed after creation"
-// +kubebuilder:validation:XValidation:rule="(has(self.workspace) && has(self.workspace.persistence)) == (has(oldSelf.workspace) && has(oldSelf.workspace.persistence))",message="persistent workspace mode must be chosen at creation"
-// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.workspace) && has(oldSelf.workspace.persistence)) || (has(self.workspace) && self.workspace == oldSelf.workspace)",message="persistent workspace configuration is immutable"
 type AgentInstanceSpec struct {
 	AgentGroupRef AgentGroupReference      `json:"agentGroupRef"`
 	DefinitionRef AgentDefinitionReference `json:"definitionRef"`

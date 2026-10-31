@@ -136,6 +136,8 @@ func TestPollRejectsMalformedAndOversizedEnvelopes(t *testing.T) {
 	for name, body := range map[string]string{
 		"empty id":            `{"method":"GET","resource":"agentgroups"}`,
 		"unknown route field": `{"id":"1","method":"GET","resource":"agentgroups","url":"/api/v1/secrets"}`,
+		"explicit intent":     `{"id":"1","method":"PUT","resource":"agentinstances","intent":{"kind":"Explicit"}}`,
+		"observed intent":     `{"id":"1","method":"PUT","resource":"agentinstances","intent":{"kind":"Observed","expectedExecutionId":"execution","observedAt":"2026-10-31T00:00:00Z"}}`,
 		"trailing object":     `{"id":"1","method":"GET","resource":"agentgroups"}{}`,
 		"null":                `null`,
 		"oversized":           strings.Repeat(" ", MaxMessageBytes+1),

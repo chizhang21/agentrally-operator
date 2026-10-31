@@ -7,8 +7,6 @@ spec:
   namespace: agentrally-reference
   podSecurity: Restricted
   allocationPaused: false
-  # Preview: deletion recovery and automatic GC remain unavailable.
-  persistentWorkspaces: false
   quota:
     hard:
       count/agentinstances.arally.io: "20"

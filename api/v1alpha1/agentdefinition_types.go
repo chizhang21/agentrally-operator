@@ -38,7 +38,7 @@ type AgentDefinitionSpec struct {
 	ModelProvider *ModelProvider `json:"modelProvider,omitempty"`
 	// Workspace provides a private PVC-template default. Existing user PVCs are
 	// bound separately on each AgentInstance.
-	// +kubebuilder:validation:XValidation:rule="!has(self.existingClaimRef) && !has(self.persistence)",message="existing workspaces belong to AgentInstance, not a reusable definition"
+	// +kubebuilder:validation:XValidation:rule="!has(self.existingClaimRef)",message="existing workspaces belong to AgentInstance, not a reusable definition"
 	// +optional
 	Workspace *WorkspaceMount `json:"workspace,omitempty"`
 }
@@ -64,9 +64,6 @@ type DefinitionPrewarmingStatus struct {
 }
 
 type AgentDefinitionStatus struct {
-	// StandaloneRevisions is set before publishing revisions in a persistent Group.
-	// +optional
-	StandaloneRevisions bool `json:"standaloneRevisions,omitempty"`
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// CurrentRevision identifies the latest published immutable configuration.

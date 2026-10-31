@@ -1,8 +1,6 @@
 package agentinstance
 
 import (
-	"context"
-	"fmt"
 	"testing"
 
 	v1 "agentrally/operator/api/v1alpha1"
@@ -10,12 +8,8 @@ import (
 	"agentrally/operator/internal/sandbox"
 	"agentrally/operator/internal/testutil"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestDefinitionVersionSelectionAndIdentity(t *testing.T) {
@@ -110,65 +104,5 @@ func TestRestartRetainsAcceptedRevisionUntilExplicitUpgrade(t *testing.T) {
 		if err != nil || state.Status.Definition.Revision != wantRevision || state.Status.Definition.InvocationProtocol != wantProtocol || current.Spec.PodTemplate.Spec.Containers[0].Image != wantImage {
 			t.Fatalf("upgrade=%v accepted the wrong revision/protocol/image: %+v, %v", upgrade, state.Status.Definition, err)
 		}
-	}
-}
-
-func TestPersistentWorkspaceRetryKeepsFirstRevision(t *testing.T) {
-	group, ns, object, instance, _ := testutil.Fixture()
-	group.Spec.PersistentWorkspaces, group.Status.NamespaceUID = true, ns.UID
-	ns.OwnerReferences = nil
-	object.Spec.TemplateRef, object.Spec.Template = nil, "generic"
-	object.Spec.Container = &v1.AgentContainerSpec{Image: "example/agent:v1"}
-	object.Status.StandaloneRevisions = true
-	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", Persistence: &v1.WorkspacePersistence{RetentionSeconds: 3600}, VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}}}}
-	builder, scheme := testutil.ClientBuilder(t)
-	failPin := true
-	c := builder.WithObjects(group, ns, object, instance).WithInterceptorFuncs(interceptor.Funcs{
-		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-			obj.SetUID(types.UID("uid-" + obj.GetName()))
-			return c.Create(ctx, obj, opts...)
-		},
-		SubResourcePatch: func(ctx context.Context, c client.Client, name string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-			if _, ok := obj.(*v1.AgentWorkspace); ok && failPin {
-				failPin = false
-				return fmt.Errorf("simulated PVC pin failure")
-			}
-			return c.SubResource(name).Patch(ctx, obj, patch, opts...)
-		},
-	}).Build()
-	testutil.PublishDefinitions(t, c, scheme)
-	r := &Reconciler{Client: c, Scheme: scheme}
-	instance.Spec.Workspace.MountPath = "/"
-	if _, err := r.prepareExecutionConfiguration(ctx, instance, group, sandbox.Running); err == nil {
-		t.Fatal("invalid mount path accepted")
-	}
-	records, pvcs := &v1.AgentWorkspaceList{}, &corev1.PersistentVolumeClaimList{}
-	if err := c.List(ctx, records); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.List(ctx, pvcs); err != nil {
-		t.Fatal(err)
-	}
-	if len(records.Items) != 0 || len(pvcs.Items) != 0 {
-		t.Fatal("invalid mount created protected storage before validation")
-	}
-	instance.Spec.Workspace.MountPath = "/workspace"
-	if _, err := r.prepareExecutionConfiguration(ctx, instance, group, sandbox.Running); err == nil {
-		t.Fatal("expected interrupted workspace initialization")
-	}
-	state := getAgentInstance(t, c, instance)
-	if state.Status.Definition == nil {
-		t.Fatal("first revision was not pinned before storage creation")
-	}
-	pinned := *state.Status.Definition
-	object.Spec.Container.Image = "example/agent:v2"
-	saveDefinition(t, c, object)
-	testutil.PublishDefinitions(t, c, scheme)
-	if _, err := r.prepareExecutionConfiguration(ctx, state, group, sandbox.Running); err != nil {
-		t.Fatal(err)
-	}
-	state = getAgentInstance(t, c, instance)
-	if *state.Status.Definition != pinned || state.Status.Workspace.UID == "" {
-		t.Fatalf("retry lost the original revision or storage binding: %+v", state.Status)
 	}
 }

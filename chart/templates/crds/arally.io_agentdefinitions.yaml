@@ -1078,24 +1078,11 @@ spec:
                   mountPath:
                     minLength: 1
                     type: string
-                  persistence:
-                    description: Persistence retains platform data independently of
-                      execution. Recovery and GC are unavailable.
-                    properties:
-                      retentionSeconds:
-                        format: int64
-                        maximum: 31536000
-                        minimum: 0
-                        type: integer
-                    required:
-                    - retentionSeconds
-                    type: object
                   readOnly:
                     type: boolean
                   volumeClaimTemplate:
-                    description: |-
-                      VolumeClaimTemplate normally provisions a Core-owned PVC per Sandbox.
-                      With Persistence, the Operator provisions one independently retained PVC.
+                    description: VolumeClaimTemplate normally provisions a Core-owned
+                      PVC per Sandbox.
                     properties:
                       accessModes:
                         description: |-
@@ -1294,13 +1281,11 @@ spec:
                 x-kubernetes-validations:
                 - message: existing workspaces belong to AgentInstance, not a reusable
                     definition
-                  rule: '!has(self.existingClaimRef) && !has(self.persistence)'
+                  rule: '!has(self.existingClaimRef)'
                 - message: select exactly one of volumeClaimTemplate or existingClaimRef
                   rule: has(self.volumeClaimTemplate) != has(self.existingClaimRef)
                 - message: exclusive requires existingClaimRef
                   rule: '!has(self.exclusive) || !self.exclusive || has(self.existingClaimRef)'
-                - message: persistence requires volumeClaimTemplate
-                  rule: '!has(self.persistence) || has(self.volumeClaimTemplate)'
             required:
             - agentGroupRef
             type: object
@@ -1412,10 +1397,6 @@ spec:
                 - requestedReplicas
                 - revision
                 type: object
-              standaloneRevisions:
-                description: StandaloneRevisions is set before publishing revisions
-                  in a persistent Group.
-                type: boolean
               templateName:
                 type: string
             type: object

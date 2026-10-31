@@ -33,7 +33,6 @@ type Request struct {
 	Limit            int64           `json:"limit,omitempty"`
 	Continue         string          `json:"continue,omitempty"`
 	Scope            *RequestScope   `json:"scope,omitempty"`
-	Intent           *ControlIntent  `json:"intent,omitempty"`
 	ObservationScope string          `json:"observationScope,omitempty"`
 }
 
@@ -148,11 +147,6 @@ func validateRequest(req Request) (string, error) {
 		kind = "AgentInstance"
 	case "agentdefinitions":
 		kind = "AgentDefinition"
-	case "agentworkspaces":
-		kind = "AgentWorkspace"
-		if req.Method != http.MethodGet {
-			return "", protocolError(http.StatusForbidden, "Forbidden", "workspaces are read only")
-		}
 	case "persistentvolumeclaims":
 		kind = "PersistentVolumeClaim"
 		if req.Method != http.MethodGet {

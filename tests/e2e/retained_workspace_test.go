@@ -68,8 +68,24 @@ func TestRetainedWorkspaceUpgrade(t *testing.T) {
 	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "id", "-u"); got != "2345" {
 		t.Fatal("execution did not use the selected process UID", got)
 	}
-	previousRevision, previousPod := instance.Status.Definition.Revision, instance.Status.PodUID
 	execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "sh", "-ec", "printf retained-user-state > /workspace/session; sync")
+	previousPod, originalSandbox := instance.Status.PodUID, instance.Status.SandboxName
+	instance.Spec.OperatingMode = sandbox.Suspended
+	update(t, ctx, kube, instance)
+	await(t, "external workspace suspension", func() (bool, error) {
+		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
+		return conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
+	})
+	instance.Spec.OperatingMode = sandbox.Running
+	update(t, ctx, kube, instance)
+	readyAgent(t, ctx, kube, instance)
+	if instance.Status.PodUID == previousPod || instance.Status.SandboxName != originalSandbox || instance.Status.Workspace == nil || instance.Status.Workspace.UID != pvcUID {
+		t.Fatal("external workspace resume changed its Sandbox/PVC binding or kept the old Pod")
+	}
+	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/session"); got != "retained-user-state" {
+		t.Fatal("external workspace lost data during suspension", got)
+	}
+	previousRevision, previousPod := instance.Status.Definition.Revision, instance.Status.PodUID
 	definition.Spec.Container.Args = []string{agentCommand("v2")}
 	update(t, ctx, kube, definition)
 	await(t, "new retained assistant configuration", func() (bool, error) {

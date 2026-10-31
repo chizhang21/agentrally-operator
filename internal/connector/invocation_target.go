@@ -175,7 +175,7 @@ func (e Executor) verifyInvocationPolicy(ctx context.Context, group *v1.AgentGro
 			continue
 		}
 		owner := metav1.GetControllerOf(&policy)
-		if owner == nil || controller.CheckOwner(&policy, controller.GroupPolicyOwner(group)) != nil || policy.DeletionTimestamp != nil || !equality.Semantic.DeepEqual(policy.Spec, *expected) {
+		if owner == nil || controller.CheckOwner(&policy, group) != nil || policy.DeletionTimestamp != nil || !equality.Semantic.DeepEqual(policy.Spec, *expected) {
 			return invocationError("InvocationPolicyUnavailable")
 		}
 		found = true

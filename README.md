@@ -130,8 +130,6 @@ reasons.
   To upgrade, select the target `spec.revision` and set a new token.
 - **Workspace retention:** private PVCs are replaced with the Sandbox;
   external workspace PVCs retain their data.
-  An opt-in [persistent workspace preview](docs/usage.md#platform-managed-persistent-workspaces-preview)
-  also protects platform PVCs from ordinary parent deletion; recovery and automatic GC are unavailable.
 - **Expiry:** optional maximum lifetimes, shutdown deadlines and completion TTLs trigger execution cleanup.
   The shutdown policy controls whether to retain the AgentInstance.
 

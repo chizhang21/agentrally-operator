@@ -118,8 +118,6 @@ kubectl -n agentrally-demo describe agentinstance demo-agent
   普通重启保留已接受的 Definition Revision。
   升级时需要同时选择目标 `spec.revision` 并设置新 token。
 - **工作区保留：** 私有 PVC 随 Sandbox 替换，引用的外部工作区 PVC 则保留数据。
-  可选的[持久工作区预览](docs/usage.md#platform-managed-persistent-workspaces-preview)也能保护平台 PVC，避免普通父资源删除引发级联清理。
-  删除后恢复和自动 GC 尚不可用。
 - **到期回收：** 通过可选的最长执行时间、关闭期限和完成后 TTL，控制何时回收执行资源。
   关闭策略决定是否保留 AgentInstance。
 

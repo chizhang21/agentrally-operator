@@ -28,7 +28,7 @@ func fakeKube(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
 		policyResource: "NetworkPolicyList", endpointResource: "EndpointSliceList",
 		groupGVR: "AgentGroupList", definitionGVR: "AgentDefinitionList", workloadGVR: "AgentInstanceList",
-		nativeResource("agentworkspaces"): "AgentWorkspaceList", resourceAPI("persistentvolumeclaims"): "PersistentVolumeClaimList",
+		resourceAPI("persistentvolumeclaims"): "PersistentVolumeClaimList",
 	}, objects...)
 }
 

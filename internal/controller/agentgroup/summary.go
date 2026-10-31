@@ -25,7 +25,7 @@ func (r *Reconciler) observe(ctx context.Context, group *v1.AgentGroup) (*v1.Age
 	if err := r.Get(ctx, client.ObjectKey{Name: group.NamespaceName()}, namespace); err != nil {
 		return nil, capacity, client.IgnoreNotFound(err)
 	}
-	if controller.CheckGroupNamespace(namespace, group) != nil {
+	if controller.CheckOwner(namespace, group) != nil {
 		return nil, capacity, nil
 	}
 	instances, pvcs, pools := &v1.AgentInstanceList{}, &corev1.PersistentVolumeClaimList{}, sandbox.ExtensionList("SandboxWarmPool")

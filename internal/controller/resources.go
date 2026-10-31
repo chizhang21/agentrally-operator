@@ -9,7 +9,6 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/diagnostics"
-	corev1 "k8s.io/api/core/v1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,7 +22,7 @@ import (
 // CheckOwner rejects resources without the expected AgentRally controller owner UID.
 func CheckOwner(object, owner client.Object) error {
 	ref := metav1.GetControllerOf(object)
-	if ref == nil || ref.UID != owner.GetUID() || ref.APIVersion != ownerAPIVersion(owner) {
+	if ref == nil || ref.UID != owner.GetUID() || ref.APIVersion != v1.GroupVersion.String() {
 		return diagnostics.New("OwnershipConflict", fmt.Sprintf("%T %s/%s is not controlled by %s (UID %s)", object, object.GetNamespace(), object.GetName(), owner.GetName(), owner.GetUID()), nil)
 	}
 	return nil
@@ -39,11 +38,6 @@ func PrepareOwned(object, owner client.Object, scheme *runtime.Scheme) error {
 		if err := CheckOwner(object, owner); err != nil {
 			return err
 		}
-	}
-	if _, ok := owner.(*corev1.Namespace); ok {
-		// Namespace deletion already removes namespaced resources. These references
-		// need no foreground barrier or permission to update Namespace finalizers.
-		return ctrl.SetControllerReference(owner, object, scheme, controllerutil.WithBlockOwnerDeletion(false))
 	}
 	return ctrl.SetControllerReference(owner, object, scheme)
 }
@@ -86,10 +80,3 @@ func RemoveFinalizer(ctx context.Context, c client.Client, object client.Object,
 
 // DependencyRetry bounds polling of read-only dependencies and allocation APIs.
 const DependencyRetry = 30 * time.Second
-
-func ownerAPIVersion(owner client.Object) string {
-	if _, ok := owner.(*corev1.Namespace); ok {
-		return "v1"
-	}
-	return v1.GroupVersion.String()
-}

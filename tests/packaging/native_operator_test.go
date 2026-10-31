@@ -55,6 +55,13 @@ func TestHelmOperatorAndDelegatedRBAC(t *testing.T) {
 							}
 						}
 					}
+					if resource == "persistentvolumeclaims" {
+						for _, verb := range rule.Verbs {
+							if verb != "get" && verb != "list" && verb != "watch" {
+								t.Fatalf("PVC lifecycle belongs to Core; unexpected Operator permission: %s", verb)
+							}
+						}
+					}
 					if strings.HasPrefix(resource, "pods/") {
 						t.Fatalf("duplicate upstream responsibility: %s", resource)
 					}

@@ -71,9 +71,6 @@ func (e Executor) scopedNamespace(ctx context.Context, req Request, discover boo
 	if discover {
 		requested = req.Name
 	}
-	if req.Resource == "agentworkspaces" && requested == "" {
-		requested = name
-	}
 	if requested != name && !(discover && requested == "") {
 		return nil, scopeForbidden()
 	}
@@ -84,11 +81,7 @@ func (e Executor) scopedNamespace(ctx context.Context, req Request, discover boo
 	if namespace.GetUID() == "" || req.Scope.NamespaceUID != "" && string(namespace.GetUID()) != req.Scope.NamespaceUID {
 		return nil, scopeForbidden()
 	}
-	var typed v1.AgentGroup
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(group.Object, &typed); err != nil {
-		return nil, err
-	}
-	if err := controller.CheckGroupNamespace(namespace, &typed); err != nil {
+	if err := controller.CheckOwner(namespace, group); err != nil {
 		return nil, scopeForbidden()
 	}
 	return namespace, nil
@@ -179,8 +172,8 @@ func (e Executor) executeScoped(ctx context.Context, req Request) (json.RawMessa
 		default:
 			data, code, err = e.metadataRead(ctx, req)
 		}
-	case "persistentvolumeclaims", "agentworkspaces":
-		data, code, err = e.storageRead(ctx, req, ns)
+	case "persistentvolumeclaims":
+		data, code, err = e.pvcRead(ctx, req)
 	default:
 		data, code, err = e.executeNative(ctx, req)
 	}

@@ -7,7 +7,6 @@ import (
 	"agentrally/operator/internal/allocation"
 	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/podconfig"
-	"agentrally/operator/internal/workspace"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -27,9 +26,6 @@ func desiredExecution(ctx context.Context, reader client.Reader, instance *v1.Ag
 	}
 	index := podconfig.AgentIndex(resolved.PodTemplate.Spec.Containers, resolved.AgentContainer)
 	if err := applyWorkspace(ctx, reader, effective, resolved, &resolved.PodTemplate.Spec.Containers[index]); err != nil {
-		return nil, err
-	}
-	if err := workspace.ValidateVolumes(ctx, reader, instance, resolved.PodTemplate); err != nil {
 		return nil, err
 	}
 	applyBuiltinWorkspacePermissions(effective, revision.Spec.Template != "", resolved.PodTemplate)

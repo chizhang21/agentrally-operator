@@ -698,14 +698,6 @@ spec:
                     type: array
                     x-kubernetes-list-type: atomic
                 type: object
-              persistentWorkspaces:
-                default: false
-                description: PersistentWorkspaces enables standalone namespace and
-                  revision ownership for new Groups.
-                type: boolean
-                x-kubernetes-validations:
-                - message: persistentWorkspaces cannot change after creation
-                  rule: self == oldSelf
               podSecurity:
                 default: Restricted
                 description: |-
@@ -885,10 +877,6 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               namespace:
-                type: string
-              namespaceUID:
-                description: NamespaceUID pins the standalone namespace before persistent
-                  allocation is allowed.
                 type: string
               observedGeneration:
                 format: int64

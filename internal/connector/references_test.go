@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"agentrally/operator/internal/workspace"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -101,27 +99,8 @@ func TestSecretCreationRejectsPrivilegeFieldsAndRedactsAPIErrors(t *testing.T) {
 	}
 }
 
-func TestStorageQueriesFilterScopeAndPrivateFields(t *testing.T) {
+func TestPVCProjectionAndReferenceReadOnlyAccess(t *testing.T) {
 	kube, req := managementFixture(t)
-	req.Resource, req.Namespace, req.Name = "agentworkspaces", "", ""
-	for name, group := range map[string]string{"own": req.Scope.GroupUID, "foreign": "other-group"} {
-		object := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "arally.io/v1alpha1", "kind": "AgentWorkspace",
-			"metadata": map[string]any{"name": name, "annotations": map[string]any{"private": "sensitive-marker"},
-				"labels": map[string]any{workspace.GroupUIDLabel: req.Scope.GroupUID, workspace.NamespaceUIDLabel: req.Scope.NamespaceUID}},
-			"spec": map[string]any{"groupName": req.Scope.GroupName, "groupUID": group, "namespace": "agentrally-team", "namespaceUID": req.Scope.NamespaceUID}}}
-		if err := kube.Tracker().Create(nativeResource("agentworkspaces"), object, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	response := (Executor{Client: kube}).Execute(t.Context(), req)
-	var list unstructured.UnstructuredList
-	if response.Status != 200 || json.Unmarshal(response.Body, &list) != nil || len(list.Items) != 1 || list.Items[0].GetName() != "own" || strings.Contains(string(response.Body), "sensitive-marker") {
-		t.Fatalf("workspace query leaked another scope or metadata: %s", response.Body)
-	}
-	req.Name = "foreign"
-	if response := (Executor{Client: kube}).Execute(t.Context(), req); response.Status != 403 {
-		t.Fatalf("named workspace escaped its scope: %s", response.Body)
-	}
 	req.Resource, req.Namespace, req.Name = "persistentvolumeclaims", "agentrally-team", "data"
 	pvc := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "PersistentVolumeClaim",
 		"metadata": map[string]any{"name": "data", "namespace": req.Namespace, "annotations": map[string]any{"private": "sensitive-marker"}},
@@ -130,12 +109,12 @@ func TestStorageQueriesFilterScopeAndPrivateFields(t *testing.T) {
 	if err := kube.Tracker().Create(resourceAPI(req.Resource), pvc, req.Namespace); err != nil {
 		t.Fatal(err)
 	}
-	response = (Executor{Client: kube}).Execute(t.Context(), req)
+	response := (Executor{Client: kube}).Execute(t.Context(), req)
 	if response.Status != 200 || strings.Contains(string(response.Body), "sensitive-marker") || !strings.Contains(string(response.Body), "ReadWriteMany") || !strings.Contains(string(response.Body), "1Gi") {
 		t.Fatalf("PVC projection leaked metadata or lost needed storage fields: %s", response.Body)
 	}
 	for _, operation := range []struct{ resource, method string }{
-		{"agentworkspaces", http.MethodDelete}, {"persistentvolumeclaims", http.MethodDelete},
+		{"persistentvolumeclaims", http.MethodDelete},
 		{"secrets", http.MethodPut}, {"secrets", http.MethodPatch},
 		{"configmaps", http.MethodPut}, {"configmaps", http.MethodPatch},
 	} {

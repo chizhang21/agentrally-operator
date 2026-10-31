@@ -15,7 +15,7 @@ Accepted deletion does not prove that consumers have stopped using a credential.
 Its resource identity is observation evidence; it does not prove process release.
 
 Enabling invocation preview changes only `invocationPreview`.
-Production invocation, exclusive handoff and observation-driven intents remain unsupported.
+Production invocation and exclusive handoff remain unsupported.
 
 [invocation.json](invocation.json) contains an invocation command, ordered stream frames and a correlated transport result.
 The reference consumer rejects missing end frames, sequence gaps and execution changes.

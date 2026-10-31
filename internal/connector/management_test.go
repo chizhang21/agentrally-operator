@@ -224,7 +224,7 @@ func TestNamespaceDiscoveryAndScopedManagement(t *testing.T) {
 	if err := unstructured.SetNestedField(object.Object, "Suspended", "spec", "operatingMode"); err != nil {
 		t.Fatal(err)
 	}
-	req.Method, req.Body, req.Intent = http.MethodPut, mustJSON(object), &ControlIntent{Kind: "Explicit"}
+	req.Method, req.Body = http.MethodPut, mustJSON(object)
 	response = executor.Execute(context.Background(), req)
 	if response.Status != 200 {
 		t.Fatalf("scoped explicit update failed: %s", response.Body)
@@ -275,14 +275,6 @@ func TestContainerRestartAndIncompleteBindingObservations(t *testing.T) {
 		t.Fatal("same-Pod container restart did not invalidate execution identity")
 	}
 	object, _ := kube.Resource(workloadGVR).Namespace(req.Namespace).Get(context.Background(), req.Name, metav1.GetOptions{})
-	conditional := req
-	conditional.Method, conditional.Resource = http.MethodPut, "agentinstances"
-	conditional.Intent = &ControlIntent{Kind: "Observed", ExpectedExecutionID: first.Execution.ID, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	conditional.Body = mustJSON(object)
-	kube.ClearActions()
-	if response := (Executor{Client: kube}).Execute(t.Context(), conditional); response.Status != http.StatusNotImplemented || len(kube.Actions()) != 0 {
-		t.Fatal("stale observation must stay unsupported without a verified final execution constraint")
-	}
 	unstructured.RemoveNestedField(object.Object, "status", "definition", "agentContainer")
 	if _, err := kube.Resource(workloadGVR).Namespace(req.Namespace).Update(context.Background(), object, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)

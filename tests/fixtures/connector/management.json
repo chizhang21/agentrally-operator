@@ -5,8 +5,6 @@
     "invocationPreview": false,
     "exclusiveHandoff": false,
     "invocation": false,
-    "observedOperatingMode": false,
-    "activityLease": false,
     "processIdentity": false,
     "scopedNamespaceCreate": true,
     "instanceDiagnostics": true,
@@ -39,9 +37,6 @@
       "instanceobservations": [
         "GET"
       ],
-      "agentworkspaces": [
-        "GET"
-      ],
       "persistentvolumeclaims": [
         "GET"
       ],
@@ -62,16 +57,6 @@
       "id": "handoff",
       "method": "POST",
       "resource": "exclusivehandoff"
-    },
-    {
-      "id": "automatic-intent",
-      "method": "PUT",
-      "resource": "agentinstances",
-      "intent": {
-        "kind": "Observed",
-        "expectedExecutionId": "old-execution",
-        "observedAt": "2026-10-28T00:00:00Z"
-      }
     },
     {
       "id": "process",

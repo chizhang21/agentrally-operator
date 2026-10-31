@@ -9,10 +9,8 @@ import (
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/allocation"
 	"agentrally/operator/internal/diagnostics"
-	"agentrally/operator/internal/executionconfig"
 	"agentrally/operator/internal/podconfig"
 	"agentrally/operator/internal/sandbox"
-	managedworkspace "agentrally/operator/internal/workspace"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,29 +34,6 @@ func applyBuiltinWorkspacePermissions(w *v1.AgentInstance, builtin bool, templat
 	if sc.FSGroupChangePolicy == nil {
 		sc.FSGroupChangePolicy = ptr.To(corev1.FSGroupChangeOnRootMismatch)
 	}
-}
-
-// preparePersistentWorkspace persists the binding before any configuration can
-// consume it. Suspension must not depend on provisioning new storage.
-func (r *Reconciler) preparePersistentWorkspace(ctx context.Context, instance *v1.AgentInstance, group *v1.AgentGroup, mode string) error {
-	if mode == sandbox.Suspended || instance.Spec.Workspace == nil || instance.Spec.Workspace.Persistence == nil {
-		return nil
-	}
-	revision, err := loadDefinitionRevision(ctx, r.referenceReader(), instance)
-	if err != nil {
-		return err
-	}
-	resolved, err := executionconfig.ResolveTemplate(instance.Spec.DefinitionRef.Name, instance.Spec.Workspace, revision)
-	if err != nil {
-		return err
-	}
-	if err := validateWorkspaceMount(instance.Spec.Workspace, resolved); err != nil {
-		return err
-	}
-	if err := r.bindDefinition(ctx, instance, resolved.Definition); err != nil {
-		return err
-	}
-	return managedworkspace.Ensure(ctx, r.directClient(), r.referenceReader(), r.Scheme, instance, group, revision)
 }
 
 func validateWorkspaceMount(workspace *v1.WorkspaceMount, resolved *allocation.Configuration) error {
@@ -98,23 +73,13 @@ func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.Agen
 	if err := validateWorkspaceMount(workspace, resolved); err != nil {
 		return err
 	}
-	if workspace.Persistence != nil {
-		binding, err := managedworkspace.Binding(ctx, reader, workload)
-		if err != nil {
-			return err
-		}
-		resolved.Workspace = binding
-		resolved.PodTemplate.Spec.Volumes = append(resolved.PodTemplate.Spec.Volumes, corev1.Volume{Name: "agentrally-workspace", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: binding.ClaimName, ReadOnly: workspace.ReadOnly}}})
-	} else if ref := workspace.ExistingClaimRef; ref != nil {
+	if ref := workspace.ExistingClaimRef; ref != nil {
 		if len(validation.IsDNS1123Subdomain(ref.Name)) != 0 {
 			return diagnostics.New("InvalidConfiguration", "workspace.existingClaimRef requires a PVC name in the instance namespace", nil)
 		}
 		pvc := &corev1.PersistentVolumeClaim{}
 		if err := reader.Get(ctx, client.ObjectKey{Namespace: workload.Namespace, Name: ref.Name}, pvc); err != nil {
 			return diagnostics.ReferenceError("PersistentVolumeClaim", workload.Namespace, ref.Name, err)
-		}
-		if pvc.Annotations[managedworkspace.UIDAnnotation] != "" {
-			return diagnostics.New("WorkspaceOwnershipConflict", "Platform workspaces cannot be attached as external PVCs", nil)
 		}
 		if pvc.DeletionTimestamp != nil || pvc.Status.Phase == corev1.ClaimLost {
 			return diagnostics.New("WorkspaceUnavailable", "The external workspace PVC is terminating or lost", nil)
@@ -145,7 +110,7 @@ func applyWorkspace(ctx context.Context, reader client.Reader, workload *v1.Agen
 
 func (r *Reconciler) bindWorkspace(ctx context.Context, instance *v1.AgentInstance, binding *v1.WorkspaceBinding) error {
 	if current := instance.Status.Workspace; current != nil {
-		if binding == nil || *current != *binding && !(current.UID == "" && current.WorkspaceUID != "" && current.WorkspaceUID == binding.WorkspaceUID && current.ClaimName == binding.ClaimName) {
+		if binding == nil || *current != *binding {
 			return diagnostics.New("WorkspaceBindingChanged", "The external workspace identity changed; create a new instance to bind different storage", nil)
 		}
 	}

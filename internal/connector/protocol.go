@@ -2,7 +2,6 @@ package connector
 
 import (
 	"net/http"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,12 +16,6 @@ type RequestScope struct {
 	NamespaceUID string `json:"namespaceUID,omitempty"`
 }
 
-type ControlIntent struct {
-	Kind                string `json:"kind"`
-	ExpectedExecutionID string `json:"expectedExecutionId,omitempty"`
-	ObservedAt          string `json:"observedAt,omitempty"`
-}
-
 type capabilityDocument struct {
 	Resources             map[string][]string `json:"resources"`
 	MaxMessageBytes       int                 `json:"maxMessageBytes"`
@@ -30,8 +23,6 @@ type capabilityDocument struct {
 	InvocationPreview     bool                `json:"invocationPreview"`
 	ExclusiveHandoff      bool                `json:"exclusiveHandoff"`
 	Invocation            bool                `json:"invocation"`
-	ObservedOperatingMode bool                `json:"observedOperatingMode"`
-	ActivityLease         bool                `json:"activityLease"`
 	ProcessIdentity       bool                `json:"processIdentity"`
 	ScopedNamespaceCreate bool                `json:"scopedNamespaceCreate"`
 	SecretCreateTypes     []corev1.SecretType `json:"secretCreateTypes"`
@@ -49,7 +40,7 @@ func managementCapabilities(preview bool) capabilityDocument {
 		MaxMessageBytes:       MaxMessageBytes, MaxListLimit: 500,
 		Resources: map[string][]string{
 			"agentgroups": crud, "agentdefinitions": crud, "agentinstances": crud, "clustercapabilities": get,
-			"namespaces": get, "instanceobservations": get, "agentworkspaces": get,
+			"namespaces": get, "instanceobservations": get,
 			"persistentvolumeclaims": get, "secrets": {http.MethodGet, http.MethodPost, http.MethodDelete},
 			"configmaps": {http.MethodGet, http.MethodPost, http.MethodDelete},
 		},
@@ -84,26 +75,6 @@ func validateProtocol(req Request) error {
 			return unsupported("Process identity cannot be verified from container observations")
 		default:
 			return protocolError(http.StatusBadRequest, "BadRequest", "unsupported observation scope")
-		}
-	}
-	if intent := req.Intent; intent != nil {
-		if req.Method != http.MethodPut || req.Resource != "agentinstances" {
-			return protocolError(http.StatusBadRequest, "BadRequest", "control intent requires an AgentInstance update")
-		}
-		switch intent.Kind {
-		case "Explicit":
-			if intent.ExpectedExecutionID != "" || intent.ObservedAt != "" {
-				return protocolError(http.StatusBadRequest, "BadRequest", "explicit intent cannot contain execution observations")
-			}
-		case "Observed":
-			observed, err := time.Parse(time.RFC3339Nano, intent.ObservedAt)
-			_, offset := observed.Zone()
-			if intent.ExpectedExecutionID == "" || len(intent.ExpectedExecutionID) > 128 || err != nil || offset != 0 {
-				return protocolError(http.StatusBadRequest, "BadRequest", "observed intent requires an execution identity and UTC timestamp")
-			}
-			return unsupported("Observation-driven operatingMode updates are unavailable; do not fall back to an explicit update")
-		default:
-			return protocolError(http.StatusBadRequest, "BadRequest", "unsupported control intent")
 		}
 	}
 	if req.Resource == "exclusivehandoff" {

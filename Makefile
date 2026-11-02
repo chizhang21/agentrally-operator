@@ -3,7 +3,6 @@ IMAGE_TAG_BASE ?= agentrally-operator
 IMG ?= $(IMAGE_TAG_BASE):v$(VERSION)
 CHART_OCI_REPO ?= oci://ghcr.io/chizhang21/helm
 CONTAINER_TOOL ?= docker
-export VERSION
 
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
@@ -11,7 +10,7 @@ SHELL = /usr/bin/env bash -o pipefail
 
 ##@ Development
 
-.PHONY: help generate fmt test e2e run check lint verify-generated clean
+.PHONY: help generate fmt test e2e run lint clean
 help: ## List commands.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  %-20s %s\n", $$1, $$2 } /^##@/ { printf "\n%s\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
@@ -23,30 +22,24 @@ generate: controller-gen ## Generate DeepCopy code, chart CRDs and RBAC.
 fmt:
 	go fmt ./...
 
-test: ## Run Go tests without generating or formatting files.
+test: ## Run local Go/Python tests, including API and packaging regressions.
+	python3 -m unittest discover -s tests/packaging -p '*_test.py'
 	GOWORK=off go test -count=1 -timeout 120s ./...
 
-e2e: kind ## Test the real upstream lifecycle in a disposable kind cluster.
-	KIND="$(KIND)" bash hack/e2e.sh
+e2e: kind ## Test API contracts and workload lifecycle in a disposable Kind cluster.
+	KIND="$(KIND)" bash tests/e2e/run.sh
 
 run:
 	go run ./cmd/main.go
 
-lint: golangci-lint
-	$(GOLANGCI_LINT) run
-
-verify-generated:
+lint: golangci-lint actionlint ## Check Go, shell, workflows, generated files and Helm chart.
+	GOWORK=off $(GOLANGCI_LINT) run --build-tags=e2e
+	GOWORK=off go vet -tags=e2e ./...
 	python3 hack/verify-generated.py
-
-check: lint verify-generated ## Lint and check source, generated files, tests and chart.
-	python3 hack/verify-source.py
-	python3 -m unittest discover -s tests/packaging -p '*_test.py'
-	$(MAKE) test
-	GOWORK=off go test -tags=e2e ./tests/e2e -run '^$$'
-	GOWORK=off go vet ./...
+	shellcheck --severity=warning hack/*.sh tests/e2e/*.sh
+	$(ACTIONLINT)
 	helm lint chart
-	helm template agentrally-operator chart -n agentrally-system >/dev/null
-	helm lint chart --set connector.enabled=true --set connector.endpoint=https://backend.example --set connector.id=test-cluster --set connector.credentialsSecret=test-credentials
+	helm lint chart -f examples/values/orchestrator.yaml
 
 clean: ## Remove build outputs, staging directories and Python bytecode.
 	rm -rf dist .cache/chart.* .cache/generated.*
@@ -66,7 +59,7 @@ image-push: ## Push the operator image.
 	$(CONTAINER_TOOL) push "$(IMG)"
 
 chart-package: ## Package a versioned chart with the selected image defaults.
-	bash hack/package-chart.sh "$(IMG)" "$(CURDIR)/dist"
+	python3 hack/package_chart.py --version "$(VERSION)" --image "$(IMG)" --output "$(CURDIR)/dist"
 
 chart-push: chart-package ## Package and push the chart to CHART_OCI_REPO.
 	helm push "$(CURDIR)/dist/agentrally-operator-$(VERSION).tgz" "$(CHART_OCI_REPO)"

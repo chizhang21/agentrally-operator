@@ -27,7 +27,7 @@ for Sandbox allocation and Pod management.
 Each agent keeps its own application logic and API.
 
 Basic CR configuration and full field references are documented in
-[examples](examples/README.md).
+[examples](examples).
 Complete Agent deployments live under `operator/` in the separate
 [agentrally-examples](https://github.com/chizhang21/agentrally-examples) repository.
 
@@ -95,21 +95,22 @@ git clone https://github.com/chizhang21/agentrally-operator.git
 cd agentrally-operator
 ```
 
-From a local Operator checkout, replace the placeholder image in
-[definition.yaml](examples/basic/definition.yaml) with your agent image.
-It must support the built-in environment's [non-root defaults](docs/agent-templates.md).
+From a local Operator checkout, adapt the shared [Group](examples/02-group.yaml)
+and [Definition](examples/03-definition.yaml) references to your cluster.
+Replace placeholder values and prepare the Secret, ConfigMap, ServiceAccount and RuntimeClass references in the Definition.
+The agent image must support the built-in environment's [non-root defaults](docs/agent-templates.md).
 Run the following commands from the repository root.
 
 Create the Group, wait for its namespace to be ready, then publish the definition and
 create the AgentInstance:
 
 ```sh
-kubectl apply -f examples/basic/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/basic/definition.yaml -f examples/basic/instance.yaml
+kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml
 ```
 
-For credentials, persistent storage and HTTP access, follow the
-[full CR references](examples/README.md).
+For persistent storage and HTTP access, follow the
+[full Instance example](examples/04-instance-full.yaml).
 
 If the agent does not become ready, inspect its conditions and events:
 
@@ -140,16 +141,16 @@ See [Lifecycle](docs/usage.md#lifecycle) for commands and retention settings.
 | I want to… | Read |
 | --- | --- |
 | Install or upgrade the Operator | [Installation](docs/installation.md) |
-| Configure the Helm release | [Chart configuration](chart/README.md) |
+| Configure the Helm release | [Release configuration](docs/installation.md#release-configuration) · [Values examples](examples/values) |
 | Pin revisions and manage workspace lifecycles | [Lifecycle](docs/usage.md#lifecycle) |
 | Deploy, expose and operate agents | [Usage](docs/usage.md) |
-| Inspect basic and full CR configuration | [Examples](examples/README.md) |
+| Inspect basic and full CR configuration | [Examples](examples) |
 | Customize environments and pools | [Agent templates](docs/agent-templates.md) |
 | Inspect available cluster configuration | [Cluster capabilities](docs/cluster-capabilities.md) |
 | Understand resource ownership and reconciliation | [Architecture](docs/architecture.md) |
 | Build, test or package changes | [Development](docs/development.md) |
 | Inspect CI and release workflows | [GitHub Workflows](.github/workflows) |
-| Enable optional backend integration | [Helm values example](chart/connector-values.example.yaml) · [Connector protocol](docs/outbound-connector.md) |
+| Enable optional backend integration | [Orchestrator values](examples/values/orchestrator.yaml) · [Connector protocol](docs/outbound-connector.md) |
 
 ## Project status
 
@@ -161,8 +162,6 @@ Network isolation requires a configured NetworkPolicy and an enforcing CNI.
 
 Application authentication belongs to the agent or ingress infrastructure.
 See [Usage](docs/usage.md) for configuration details.
-
-[Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md)
 
 ## License
 

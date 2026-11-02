@@ -1,0 +1,87 @@
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-resources
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentrally-operator
+    app.kubernetes.io/component: manager
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: agentrally.resources
+      rules:
+        # Resource identity labels are distinct from scrape-target labels.
+        # max removes duplicate observations from Operator replicas.
+        - record: agentrally:instance_pod_info
+          expr: |
+            max by (cluster, namespace, pod, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid) (
+              label_replace(
+                label_replace(agentrally_instance_pod_info, "namespace", "$1", "agent_namespace", "(.+)"),
+                "pod", "$1", "agent_pod", "(.+)"
+              )
+            )
+        - record: agentrally:instance_volume_info
+          expr: |
+            max by (cluster, namespace, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid, persistentvolumeclaim, persistentvolumeclaim_uid, resolved) (
+              label_replace(agentrally_instance_volume_info, "namespace", "$1", "agent_namespace", "(.+)")
+            )
+        - record: agentrally_instance_cpu_usage_cores
+          expr: |
+            sum by (cluster, namespace, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid) (
+              max by (cluster, namespace, pod, container) (
+                rate(container_cpu_usage_seconds_total{container!="",container!="POD",pod!=""}[5m])
+              )
+              * on (cluster, namespace, pod) group_left (agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid)
+                agentrally:instance_pod_info
+            )
+        - record: agentrally_instance_memory_working_set_bytes
+          expr: |
+            sum by (cluster, namespace, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid) (
+              max by (cluster, namespace, pod, container) (
+                container_memory_working_set_bytes{container!="",container!="POD",pod!=""}
+              )
+              * on (cluster, namespace, pod) group_left (agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid)
+                agentrally:instance_pod_info
+            )
+        - record: agentrally_definition_cpu_usage_cores
+          expr: |
+            sum by (cluster, namespace, agentdefinition, agentdefinition_uid) (agentrally_instance_cpu_usage_cores)
+        - record: agentrally_definition_memory_working_set_bytes
+          expr: |
+            sum by (cluster, namespace, agentdefinition, agentdefinition_uid) (agentrally_instance_memory_working_set_bytes)
+        # CSI/kubelet reports whole-PVC usage. Deduplicate nodes before attribution.
+        - record: agentrally_instance_volume_used_bytes
+          expr: |
+            agentrally:instance_volume_info{resolved="true"}
+            * on (cluster, namespace, persistentvolumeclaim) group_left
+              max by (cluster, namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes)
+        # A total is available only when every referenced PVC has a usage sample.
+        # Missing metrics and unresolved identities must not become false zeroes.
+        - record: agentrally_instance_storage_used_bytes
+          expr: |
+            sum by (cluster, namespace, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid) (agentrally_instance_volume_used_bytes)
+            and on (cluster, namespace, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid)
+            (
+              count by (cluster, namespace, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid) (agentrally_instance_volume_used_bytes)
+              ==
+              count by (cluster, namespace, agentinstance, agentinstance_uid, agentdefinition, agentdefinition_uid) (agentrally:instance_volume_info)
+            )
+        # Shared PVCs contribute once per Definition, even with multiple Instances.
+        - record: agentrally_definition_storage_used_bytes
+          expr: |
+            sum by (cluster, namespace, agentdefinition, agentdefinition_uid) (
+              max by (cluster, namespace, agentdefinition, agentdefinition_uid, persistentvolumeclaim, persistentvolumeclaim_uid) (agentrally_instance_volume_used_bytes)
+            )
+            and on (cluster, namespace, agentdefinition, agentdefinition_uid)
+            (
+              count by (cluster, namespace, agentdefinition, agentdefinition_uid) (
+                max by (cluster, namespace, agentdefinition, agentdefinition_uid, persistentvolumeclaim, persistentvolumeclaim_uid) (agentrally_instance_volume_used_bytes)
+              )
+              ==
+              count by (cluster, namespace, agentdefinition, agentdefinition_uid) (
+                max by (cluster, namespace, agentdefinition, agentdefinition_uid, persistentvolumeclaim, persistentvolumeclaim_uid) (agentrally:instance_volume_info)
+              )
+            )
+{{- end }}

@@ -1,6 +1,6 @@
 # Connector integration
 
-Use the [Helm values example](../chart/connector-values.example.yaml) to enable Connector.
+Use the [Orchestrator values example](../examples/values/orchestrator.yaml) to enable Connector.
 This document defines the protocol a backend must implement to manage resources through it.
 
 Connector is an optional worker inside the Operator process.
@@ -14,7 +14,7 @@ The backend authenticates users, authorizes operations and stores their delivery
 
 ## Installation
 
-Edit [connector-values.example.yaml](../chart/connector-values.example.yaml) with your backend endpoint and assigned cluster id.
+Edit [orchestrator.yaml](../examples/values/orchestrator.yaml) with your backend endpoint and assigned cluster id.
 The backend must implement the transport and management contracts below.
 
 For an existing release in `agentrally-system`, create the referenced Secret from a backend-issued token file:
@@ -24,7 +24,7 @@ kubectl -n agentrally-system create secret generic agentrally-connector-credenti
   --from-file=token=/path/to/backend-token
 ```
 
-Add `-f chart/connector-values.example.yaml` to the [Helm upgrade command](installation.md#upgrade-agentrally).
+Add `-f examples/values/orchestrator.yaml` to the [Helm upgrade command](installation.md#upgrade-agentrally).
 For a first installation, create the release namespace and credentials before running Helm with these values.
 
 System CA roots are used by default.
@@ -327,11 +327,22 @@ Connector keeps no durable operation log or separate capability cache.
 
 Controlled JSON/SSE invocation is available behind the default-off
 `connector.invocationPreview` flag.
-See the [invocation protocol](invocation-protocol.md) for the Agent contract,
-ConnectorOnly ingress, session epochs, limits and rollout gates.
+Enable it only against a compatible backend for controlled integration testing.
+
+The accepted Definition revision must declare `invocationProtocol: HTTPJSONSSEV1`.
+The application implements `GET /ping` and `POST /start`, returning bytes or SSE.
+The Group requires `invocationAccess.mode: ConnectorOnly`, without explicit ingress
+rules or Instance interaction endpoints.
+An enforcing CNI is needed to verify the intended ingress boundary.
+
+The shared fixture and reference-backend tests define the transport examples,
+session identity checks and ordered stream handling.
+Stream termination and HTTP success do not establish application completion.
+Cancellation does not prove that execution has stopped.
 
 Production `invocation` and `exclusiveHandoff` remain false.
 Reference-backend tests do not replace real Orchestrator integration.
-The [shared contract fixtures](../tests/fixtures/connector/README.md) record the current
-management capabilities, unsupported requests and invocation stream examples.
+The shared [management](../tests/fixtures/connector/management.json) and
+[invocation](../tests/fixtures/connector/invocation.json) fixtures record capabilities,
+unsupported requests and stream examples.
 Consumers can validate those fixtures without importing the Operator's Go types.

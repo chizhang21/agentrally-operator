@@ -192,26 +192,26 @@ Authentication and caller authorization belong to the backend.
 Invocation is a default-off preview with pinned execution targets and bounded JSON/SSE transport.
 Production invocation and exclusive handoff remain unadvertised.
 Real backend conformance and combined-load verification are rollout gates.
-See [Connector setup](outbound-connector.md) and the [invocation contract](invocation-protocol.md).
+See [Connector setup and invocation preview](outbound-connector.md).
 
 ## Code organization
 
 | Directory | Purpose |
 | --- | --- |
-| `api`, `chart` | Typed CR contracts and generated installation manifests |
+| `api`, `chart` | Typed CR contracts and Helm installation manifests |
 | `internal/controller` | Root reconcilers, resource ownership and condition/event handling |
 | `internal/executionconfig`, `podconfig` | Shared creation-input resolution and comparisons with native defaults/admission |
 | `internal/definition`, `allocation` | Revision publication and capacity/Claim selection |
 | `internal/sandbox` | Core/Extensions wire adapter, without upstream controller logic |
 | `internal/capabilities` | Passive discovery and classification catalog |
 | `internal/connector` | Optional management and invocation transports |
-| `internal/diagnostics`, `metrics` | Safe diagnostic projection and bounded observations |
-| `config/rbac`, `examples` | Deployer grants and basic/full CR references |
+| `internal/diagnostics`, `metrics` | Safe diagnostics, cached state and resource attribution |
+| `examples` | CR configuration references |
 
 ## Support and verification boundaries
 
-Unit tests check decisions; envtest checks API contracts and admission.
-Kind exercises actual Core/Extensions and Kubernetes GC.
+Unit tests check AgentRally decisions and contracts.
+Kind checks API admission, restricted management, Helm lifecycle, Core/Extensions and Kubernetes GC.
 Runtime/CNI/CSI tests establish only the installed versions and paths tested.
 No layer substitutes for another.
 Build commands and reproducible verification are in [Development](development.md).

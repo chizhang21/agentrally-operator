@@ -8,41 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-// Isolate packaging tests from developer outputs and generated source files.
-func packageStage(t *testing.T) (string, string) {
-	t.Helper()
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stage := t.TempDir()
-	for _, name := range []string{"chart", "hack", "mk", "Makefile", "go.mod", "go.sum"} {
-		err := filepath.WalkDir(filepath.Join(root, name), func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			relative, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			target := filepath.Join(stage, relative)
-			if entry.IsDir() {
-				return os.MkdirAll(target, 0755)
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(target, data, 0644)
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	return stage, filepath.Join(root, ".cache", "tools")
-}
+	"agentrally/operator/internal/testutil"
+)
 
 func runMake(t *testing.T, stage string, args ...string) []byte {
 	t.Helper()
@@ -66,21 +34,24 @@ func runMake(t *testing.T, stage string, args ...string) []byte {
 func sourceSnapshot(t *testing.T, stage string) map[string][32]byte {
 	t.Helper()
 	result := map[string][32]byte{}
-	for _, name := range []string{"chart", "hack", "mk", "Makefile", "go.mod", "go.sum"} {
-		err := filepath.WalkDir(filepath.Join(stage, name), func(path string, entry fs.DirEntry, err error) error {
-			if err != nil || entry.IsDir() {
-				return err
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			result[path] = sha256.Sum256(data)
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
+	err := filepath.WalkDir(filepath.Join(stage, "chart"), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
 		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		result[path] = sha256.Sum256(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return result
+}
+
+func renderObjects(t *testing.T, overrides ...string) map[string][]byte {
+	t.Helper()
+	return testutil.RenderChart(t, "../../chart", overrides...)
 }

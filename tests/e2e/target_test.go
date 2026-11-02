@@ -2,7 +2,11 @@
 
 package e2e_test
 
-import "testing"
+import (
+	"testing"
+
+	"agentrally/operator/internal/testutil"
+)
 
 func TestE2ETargetGuard(t *testing.T) {
 	for _, test := range []struct {
@@ -18,7 +22,7 @@ func TestE2ETargetGuard(t *testing.T) {
 		{"wrong server", "vanilla", "https://192.0.2.2:6443", "vanilla", "https://192.0.2.1:6443", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateE2ETarget(test.context, test.server, test.expectedContext, test.expectedServer)
+			err := testutil.ValidateE2ETarget(test.context, test.server, test.expectedContext, test.expectedServer)
 			if (err == nil) != test.allowed {
 				t.Fatalf("unexpected target acceptance: %v", err)
 			}

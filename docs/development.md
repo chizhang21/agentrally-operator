@@ -11,16 +11,18 @@ Build and publication jobs are defined in [GitHub Workflows](../.github/workflow
 ## Local development
 
 Use the Go version in [go.mod](../go.mod), Helm 3.17 or later and Python 3.
+Lint also requires ShellCheck on your `PATH`.
 
 | Command | Result |
 | --- | --- |
-| `make check` | Check formatting, documentation links, generated files, Go tests/vet/lint and packaging |
+| `make test` | Run local Go/Python tests, including API schemas and Chart rendering/packaging |
+| `make lint` | Check Go, shell scripts, workflows, generated files and Helm chart |
 | `make build` (or `make`) | Compile `dist/operator`, including the optional Connector, locally without Docker |
 | `make image-build` | Build the Operator image from Containerfile |
 | `make image-push` | Upload the built Operator image |
 | `make chart-package` | Create a local Chart `.tgz` archive |
 | `make chart-push` | Package and upload the Chart to an OCI registry |
-| `make e2e` | Build and test the real upstream lifecycle in a disposable kind cluster |
+| `make e2e` | Test API contracts, Connector and workload lifecycle in a disposable Kind cluster |
 | `make generate` | Update API DeepCopy code, `chart/templates/crds/` and `chart/templates/roles.yaml` after changing types or markers |
 | `make help` | Available build targets |
 | `make clean` | Remove build outputs, temporary staging directories and Python bytecode |
@@ -28,24 +30,16 @@ Use the Go version in [go.mod](../go.mod), Helm 3.17 or later and Python 3.
 Build tools have overridable versions in [mk/tools.mk](../mk/tools.mk).
 Go dependencies are recorded in `go.mod` and `go.sum`.
 
-`make check` includes `go vet` and golangci-lint.
-Formatting and focused lint helpers remain available as `make fmt` and `make lint`.
-
-For workflow changes, install `actionlint` and ShellCheck on your `PATH`, then run:
-
-```sh
-shellcheck --version
-actionlint
-```
-
-`actionlint` skips shell-script analysis when ShellCheck is absent.
-CI requires both tools.
+`make lint` includes `go vet`, golangci-lint, ShellCheck and actionlint.
+Go analysis includes the E2E build tag without running its tests.
+Actionlint is downloaded at the version pinned in `mk/tools.mk`.
+Use `make fmt` to format Go code.
 
 `build`, `test` and `run` do not regenerate or format files.
 Use `make fmt` to format code, and `make generate` after changing API types or RBAC
 markers.
 
-Packaging uses the committed generated files; `make check` checks for drift by
+Packaging uses the committed generated files; `make lint` checks for drift by
 generating in an isolated directory without overwriting local source files.
 These generated sources stay in Git and are needed regardless of the installation
 method.
@@ -92,10 +86,10 @@ The Chart archive is `dist/agentrally-operator-<VERSION>.tgz` and includes the s
 image defaults.
 
 `make clean` removes build outputs, temporary Chart/generation staging and Python bytecode.
-Downloaded tools and local test reports are retained.
+Downloaded tools and local test logs are retained.
 
 Repeated dev builds reuse the image tag and overwrite the archive.
-Dev packages set `image.pullPolicy: Always`.
+Versions with the `-dev` prerelease set `image.pullPolicy: Always`.
 To install or update them, follow [local installation](installation.md#local-development-and-testing).
 
 ## Upload image and Chart
@@ -120,46 +114,38 @@ image and Chart versions from that tag.
 
 ## Tests
 
-Run `make check` before submitting changes.
+Run `make lint test` before submitting changes.
+`make test` runs local Go and Python tests without starting a Kubernetes API server or cluster.
+It includes Chart rendering and packaging assertions, which require Helm.
+Generated-file consistency belongs to `make lint`.
+
+| Directory | Scope |
+| --- | --- |
+| `tests/packaging` | Package identity, image/version preservation, credential exclusion and Connector wiring |
+| `tests/api` | CRD schemas, CEL rules, field preservation and example references |
+| `tests/e2e` | Helm upgrades/uninstall, restricted Connector management and workload lifecycle in Kind |
+| `cmd/*_e2e_test.go` | Startup, Connector failure isolation and leader handoff against the same Kind API |
+
 Controller unit tests use fake clients; API admission, scheduling, GC and upstream
 controllers need the verification layers below.
 For concurrency changes, also run `go test -race ./internal/...`.
 
-### API-server integration
-
-These tests start a temporary Kubernetes API server and etcd through envtest.
-They exercise Kubernetes storage and admission instead of fake clients.
-
-Install the [envtest binaries](https://github.com/kubernetes-sigs/controller-tools/releases)
-selected by [CI](../.github/workflows/checks.yml) and set `KUBEBUILDER_ASSETS`.
-
-```sh
-go test -tags=integration ./cmd ./tests/packaging -count=1 -timeout=180s
-```
-
-This tests Helm installation, CRD updates and uninstall retention, example admission,
-Group policy convergence and Connector leader handoff/readiness.
-Connector management also uses the rendered Operator RBAC to create CRs and Secrets,
-query scoped storage pages and verify that a lost ACK does not replay a write.
-Missing binaries fail explicitly.
-These tests do not exercise a scheduler, CNI, CSI or Kubernetes garbage collector.
-
-### Real lifecycle release gate
+### Kind E2E
 
 Run `make e2e` with Docker 28+, kubectl, Helm, Go and curl.
-The [driver](../hack/e2e.sh) pins Kind, Kubernetes and upstream controller versions.
+The [driver](../tests/e2e/run.sh) pins Kind, Kubernetes and upstream controller versions.
 It builds the production Containerfile, creates a disposable cluster and installs
 Core, Extensions and AgentRally through the normal chart.
 It never uses the caller's current kubeconfig.
 
 | Setting | Purpose |
 | --- | --- |
-| `E2E_TEST` | Select Go test names; default is the full suite |
+| `E2E_TEST` | Select Go test names; default runs both `cmd` and `tests/e2e` suites |
 | `E2E_IMAGE=repository:tag` | Use an already built local image; no publication |
 | `E2E_CHART=/path/to/chart.tgz` | Install a packaged Chart |
 | `E2E_CNI=cilium` | Install Cilium and execute ingress, ConnectorOnly and native egress traffic tests |
 | `E2E_SNAPSHOTS=true` | Install CSI snapshot fixtures and test workspace initialization |
-| `E2E_LOG_DIR` | Select the evidence output root |
+| `E2E_LOG_DIR` | Select the local log directory |
 
 ```sh
 make e2e
@@ -171,7 +157,13 @@ The suite covers publication/revision pinning, dependency rotation, Group polici
 allocation, prewarming, suspend/resume, replacement, expiry and ownership cleanup.
 Generic native-template tasks verify completion policies.
 Workspace checks distinguish execution-private volumes from externally managed PVCs.
-See [tests/e2e](../tests/e2e) for individual scenarios.
+Connector management uses the Operator's rendered RBAC rather than administrator permissions.
+It checks scoped metadata reads, write-result retries and guarded Secret/ConfigMap deletion.
+Startup tests run managers against the Kind API and verify leader handoff and failure isolation.
+The Helm lifecycle test restores the selected Chart and values after checking CRD retention.
+Resource aggregation rules run in a pinned Prometheus engine with small attribution fixtures.
+They verify shared-PVC deduplication and unknown usage, without requiring a cluster monitoring stack.
+See [tests/e2e](../tests/e2e) for test cases and their supporting scripts.
 Latency samples are smoke measurements, rather than production performance guarantees.
 
 Cilium tests use new connections with repeated allow/deny checks.
@@ -182,27 +174,25 @@ A metadata-address fixture runs inside a temporary Docker container; its address
 Kind-only route are verified before requests.
 No real cloud metadata or host routes are used.
 
-Snapshot fixtures are pinned in [e2e-snapshots.sh](../hack/e2e-snapshots.sh).
+Snapshot fixtures are pinned in [snapshots.sh](../tests/e2e/snapshots.sh).
 The Operator gains no fixture privileges or host socket access.
 An explicitly requested infrastructure profile must pass; missing infrastructure is a failure.
 
-Every initialized run has a new directory under `.cache/e2e/`.
-`report.json` and `summary.md` distinguish pass, failure, skip and not-run.
-`environment.json` contains whitelisted component/version observations.
-The report distinguishes an image built from the checkout from an externally supplied image.
-The test inventory comes from `go test -list`; it needs no separate registration.
-Selected subtests are listed individually.
-Empty selections, skipped-only runs and interrupted tests cannot pass.
+Every initialized Kind run has a new directory under `.cache/e2e/`.
+Go test output appears in the terminal and is saved to `lifecycle.log`.
+A run must pass at least one scenario beyond the target guard.
+Empty selections and skipped-only runs fail.
+Test and cleanup failures return a nonzero exit code.
+Failed runs also save controller logs and resource dumps locally.
+CI results are available in the job logs.
 
-Raw application output and resource dumps remain local.
-CI uploads only the report, summary and safe environment record.
 Go cleanup and driver EXIT handle ordinary completion and catchable interruption;
 SIGKILL or runner loss can prevent cleanup.
 
 The [E2E workflow](../.github/workflows/e2e.yml) supports manual dispatch.
 Tag releases test the same image and Chart artifacts selected for publication.
 Publication follows packaging without waiting for E2E.
-PR/main validation compiles E2E without creating a cluster.
+PR/main, tag releases and manual E2E workflow dispatches run Kind tests.
 
 ### Optional Kata runtime profile
 
@@ -250,5 +240,5 @@ They verify retained data across suspension, a fresh private PVC after Instance
 recreation, and external PVC retention after Instance deletion.
 
 Results establish the tested versions and paths only.
-Kind or envtest cannot substitute for a specific Kata, production CSI or CNI acceptance run.
+Kind cannot substitute for a specific Kata, production CSI or CNI acceptance run.
 Passive capability discovery remains separate from execution evidence.

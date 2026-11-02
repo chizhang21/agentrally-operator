@@ -1,0 +1,10 @@
+# Management through an Orchestrator. Replace the endpoint and assigned cluster ID.
+# Create this Secret in the release namespace before installation; it needs a token key.
+replicaCount: 2
+connector:
+  enabled: true
+  endpoint: https://orchestrator.example.com/
+  id: example-cluster
+  credentialsSecret: agentrally-connector-credentials
+  # For a private CA, add ca.crt to the Secret and enable this path:
+  # caFile: /var/run/agentrally-connector/ca.crt

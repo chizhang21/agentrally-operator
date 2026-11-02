@@ -1,0 +1,4 @@
+# Direct management through kubectl or GitOps. Other values use Chart defaults.
+replicaCount: 1
+connector:
+  enabled: false

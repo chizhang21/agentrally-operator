@@ -86,7 +86,7 @@ func run() error {
 	if err := controllermetrics.Registry.Register(observations); err != nil {
 		return err
 	}
-	if err := (&agentinstance.Reconciler{Metrics: observations}).SetupWithManager(mgr); err != nil {
+	if err := (&agentinstance.Reconciler{}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&clustercapabilities.Reconciler{}).SetupWithManager(mgr); err != nil {

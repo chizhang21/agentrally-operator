@@ -15,3 +15,10 @@ jobs:
     uses: ./.github/workflows/security.yml
   packages:
     uses: ./.github/workflows/packages.yml
+  e2e:
+    needs: [checks, security, packages]
+    uses: ./.github/workflows/e2e.yml
+    with:
+      image: ${{ needs.packages.outputs.image }}
+      image_artifact: agentrally-operator-image
+      chart_artifact: agentrally-operator-chart

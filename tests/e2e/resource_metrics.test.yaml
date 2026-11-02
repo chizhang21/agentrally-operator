@@ -1,0 +1,95 @@
+rule_files: [rules.yaml]
+evaluation_interval: 1m
+tests:
+  - name: attribute-containers-and-count-shared-storage-once
+    interval: 1m
+    input_series:
+      - series: 'agentrally_instance_pod_info{agent_namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1",agent_pod="pod-one",instance="operator-a"}'
+        values: '1+0x5'
+      - series: 'agentrally_instance_pod_info{agent_namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1",agent_pod="pod-one",instance="operator-b"}'
+        values: '1+0x5'
+      - series: 'agentrally_instance_pod_info{agent_namespace="agents",agentinstance="two",agentinstance_uid="i2",agentdefinition="assistant",agentdefinition_uid="d1",agent_pod="pod-two"}'
+        values: '1+0x5'
+      - series: 'container_cpu_usage_seconds_total{namespace="agents",pod="pod-one",container="agent",instance="node-a"}'
+        values: '0+60x5'
+      - series: 'container_cpu_usage_seconds_total{namespace="agents",pod="pod-one",container="agent",instance="node-a-duplicate"}'
+        values: '0+60x5'
+      - series: 'container_cpu_usage_seconds_total{namespace="agents",pod="pod-two",container="agent"}'
+        values: '0+120x5'
+      - series: 'container_memory_working_set_bytes{namespace="agents",pod="pod-one",container="agent"}'
+        values: '100+0x5'
+      - series: 'container_memory_working_set_bytes{namespace="agents",pod="pod-two",container="agent"}'
+        values: '200+0x5'
+      - series: 'container_memory_working_set_bytes{namespace="other",pod="unmanaged",container="agent"}'
+        values: '999+0x5'
+      - series: 'agentrally_instance_volume_info{agent_namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1",persistentvolumeclaim="shared",persistentvolumeclaim_uid="p1",resolved="true",instance="operator-a"}'
+        values: '1+0x5'
+      - series: 'agentrally_instance_volume_info{agent_namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1",persistentvolumeclaim="shared",persistentvolumeclaim_uid="p1",resolved="true",instance="operator-b"}'
+        values: '1+0x5'
+      - series: 'agentrally_instance_volume_info{agent_namespace="agents",agentinstance="two",agentinstance_uid="i2",agentdefinition="assistant",agentdefinition_uid="d1",persistentvolumeclaim="shared",persistentvolumeclaim_uid="p1",resolved="true"}'
+        values: '1+0x5'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="agents",persistentvolumeclaim="shared",instance="node-a"}'
+        values: '100+0x5'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="agents",persistentvolumeclaim="shared",instance="node-b"}'
+        values: '100+0x5'
+    promql_expr_test:
+      - expr: agentrally_instance_cpu_usage_cores
+        eval_time: 5m
+        exp_samples:
+          - labels: 'agentrally_instance_cpu_usage_cores{namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 1
+          - labels: 'agentrally_instance_cpu_usage_cores{namespace="agents",agentinstance="two",agentinstance_uid="i2",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 2
+      - expr: agentrally_instance_memory_working_set_bytes
+        eval_time: 5m
+        exp_samples:
+          - labels: 'agentrally_instance_memory_working_set_bytes{namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 100
+          - labels: 'agentrally_instance_memory_working_set_bytes{namespace="agents",agentinstance="two",agentinstance_uid="i2",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 200
+      - expr: agentrally_definition_cpu_usage_cores
+        eval_time: 5m
+        exp_samples:
+          - labels: 'agentrally_definition_cpu_usage_cores{namespace="agents",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 3
+      - expr: agentrally_definition_memory_working_set_bytes
+        eval_time: 5m
+        exp_samples:
+          - labels: 'agentrally_definition_memory_working_set_bytes{namespace="agents",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 300
+      - expr: agentrally_instance_storage_used_bytes
+        eval_time: 5m
+        exp_samples:
+          - labels: 'agentrally_instance_storage_used_bytes{namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 100
+          - labels: 'agentrally_instance_storage_used_bytes{namespace="agents",agentinstance="two",agentinstance_uid="i2",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 100
+      - expr: agentrally_definition_storage_used_bytes
+        eval_time: 5m
+        exp_samples:
+          - labels: 'agentrally_definition_storage_used_bytes{namespace="agents",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 100
+  - name: missing-and-unresolved-volumes-are-unknown-not-zero
+    interval: 1m
+    input_series:
+      - series: 'agentrally_instance_volume_info{agent_namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1",persistentvolumeclaim="shared",persistentvolumeclaim_uid="p1",resolved="true"}'
+        values: '1+0x5'
+      - series: 'agentrally_instance_volume_info{agent_namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1",persistentvolumeclaim="unsupported",persistentvolumeclaim_uid="p2",resolved="true"}'
+        values: '1+0x5'
+      - series: 'agentrally_instance_volume_info{agent_namespace="agents",agentinstance="one",agentinstance_uid="i1",agentdefinition="assistant",agentdefinition_uid="d1",persistentvolumeclaim="replaced",persistentvolumeclaim_uid="old",resolved="false"}'
+        values: '1+0x5'
+      - series: 'agentrally_instance_volume_info{agent_namespace="agents",agentinstance="two",agentinstance_uid="i2",agentdefinition="assistant",agentdefinition_uid="d1",persistentvolumeclaim="shared",persistentvolumeclaim_uid="p1",resolved="true"}'
+        values: '1+0x5'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="agents",persistentvolumeclaim="shared"}'
+        values: '0+0x5'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="agents",persistentvolumeclaim="replaced"}'
+        values: '999+0x5'
+    promql_expr_test:
+      - expr: agentrally_instance_storage_used_bytes
+        eval_time: 5m
+        exp_samples:
+          - labels: 'agentrally_instance_storage_used_bytes{namespace="agents",agentinstance="two",agentinstance_uid="i2",agentdefinition="assistant",agentdefinition_uid="d1"}'
+            value: 0
+      - expr: agentrally_definition_storage_used_bytes
+        eval_time: 5m
+        exp_samples: []

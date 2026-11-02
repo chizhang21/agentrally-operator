@@ -49,7 +49,7 @@ Include agent applications, browsers and adapters in the image.
 
 `env` overrides built-in variables by name; `envFrom` uses Kubernetes precedence.
 Model/workspace fields apply afterwards and override their reserved variables.
-See [full/definition.yaml](../examples/full/definition.yaml).
+See [03-definition.yaml](../examples/03-definition.yaml).
 
 Secrets and registry credentials must be in the agent namespace.
 
@@ -97,7 +97,7 @@ Use a custom template to set a separate volume group.
 
 `modelProvider` supplies `OPENAI_BASE_URL`, `AGENTRALLY_MODEL_NAME` and Secret-backed
 `OPENAI_API_KEY`; the image must consume or map them.
-See the [complete definition](../examples/full/definition.yaml).
+See the [complete definition](../examples/03-definition.yaml).
 
 Other credentials use `container.env[].valueFrom.secretKeyRef` or `container.envFrom`,
 or native container fields in a custom template.
@@ -216,7 +216,7 @@ selected Agent container.
 It permits ephemeral workspace and configuration volumes.
 PVC templates, existing PVCs, direct data volumes and Kubernetes service account tokens
 are excluded.
-The [full Definition reference](../examples/full/definition.yaml) includes the optional prewarming fields.
+The [full Definition reference](../examples/03-definition.yaml) includes the optional prewarming fields.
 
 `Ready=True` means the application configuration is published.
 `Prepared=True` means the current, probe-checked spare capacity satisfies the request.
@@ -259,7 +259,7 @@ timer retains the pool for `idleTTLSeconds`.
 Zero (the default) deletes it immediately.
 Reuse clears the timer; Group deletion bypasses it.
 Foreground cleanup removes spares and their PVCs before their configuration snapshot.
-See the [full Group reference](../examples/full/group.yaml).
+See the [full Group reference](../examples/02-group.yaml).
 
 Custom SandboxTemplates can declare native `volumeClaimTemplates`; Core provisions each
 instance's storage.
@@ -302,5 +302,6 @@ cleanup.
 See [pool settings](usage.md#pool-allocation).
 
 Core's headless Service and the optional HTTP access Service are separate.
-[full/sandbox-template.yaml](../examples/full/sandbox-template.yaml) shows native Pod settings.
+SandboxTemplate is optional; built-in templates do not require a native source.
+If using `templateRef`, refer to [sandbox-template.yaml](../examples/sandbox-template.yaml) for native Pod settings.
 Process identity settings are described in [Usage](usage.md#agent-process-identity).

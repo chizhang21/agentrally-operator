@@ -70,9 +70,43 @@ dependency.
 See [workspace initialization](usage.md#initialize-from-a-volumesnapshot).
 
 See [chart values](../chart/values.yaml) for available settings.
-Optional backend integration has a [Helm values example](../chart/connector-values.example.yaml)
+Optional backend integration has an [Orchestrator deployment example](../examples/values/orchestrator.yaml)
 and [credential setup](outbound-connector.md#installation).
 Continue with [deploying an agent](usage.md).
+
+### Release configuration
+
+The [default values](../chart/values.yaml) configure direct Kubernetes management.
+Values examples provide overrides for the deployment modes:
+
+| Configuration | Values file |
+| --- | --- |
+| Direct management through kubectl or GitOps | [standalone.yaml](../examples/values/standalone.yaml) |
+| Orchestrator management through Connector | [orchestrator.yaml](../examples/values/orchestrator.yaml) |
+
+From a local checkout, add `-f examples/values/standalone.yaml` or
+`-f examples/values/orchestrator.yaml` to the install or upgrade command.
+These files are Helm inputs; do not apply them with kubectl.
+
+Orchestrator mode requires the [Connector credentials](outbound-connector.md#installation).
+
+Monitoring is enabled by default, without values switches.
+When the monitoring APIs exist during Helm installation or upgrade, the Chart creates
+a ServiceMonitor and PrometheusRule.
+The metrics ingress policy allows Prometheus Pods identified by
+`app.kubernetes.io/name: prometheus` from any namespace.
+Clusters without those APIs still expose the Operator's metrics Service.
+
+Your Prometheus discovery policy must select the Operator namespace and its monitoring resources.
+Resource measurements use existing kubelet/cAdvisor and CSI volume metrics.
+The Operator does not install a monitoring stack or request access to kubelet proxies.
+See [resource metrics](usage.md#resource-metrics) for attribution and data availability.
+Offline rendering can supply `--api-versions monitoring.coreos.com/v1/ServiceMonitor`
+and `--api-versions monitoring.coreos.com/v1/PrometheusRule`.
+
+Helm checks merged values against [values.schema.json](../chart/values.schema.json).
+This validates input structure and required settings, rather than workload readiness.
+Scheduling, resources and security settings remain in the default values file.
 
 ### Upgrade AgentRally
 
@@ -171,5 +205,3 @@ kubectl -n agentrally-system rollout status deployment \
 
 Restarting the Operator also restarts its enabled Connector worker.
 If you used a different Helm release name, replace `agentrally-operator` in the selector.
-
-[Chart configuration](../chart/README.md) covers monitoring and scheduling.

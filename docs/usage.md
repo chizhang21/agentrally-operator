@@ -4,34 +4,27 @@ This guide covers Agent configuration and day-to-day operations after
 [installing the controllers](installation.md).
 Build and test instructions are in [Development](development.md).
 
-From a local Operator checkout, replace the image in
-[definition.yaml](../examples/basic/definition.yaml), then create the Group, definition
-and instance in order.
+From a local Operator checkout, adapt the shared [Group](../examples/02-group.yaml)
+and [Definition](../examples/03-definition.yaml) references to your cluster.
+Replace placeholder values and prepare the Secret, ConfigMap, ServiceAccount and RuntimeClass references in the Definition.
+Create the Group, definition and instance in order.
 Run the commands below from the repository root:
 
 ```sh
-kubectl apply -f examples/basic/group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/basic/definition.yaml -f examples/basic/instance.yaml
+kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
+kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml
 ```
 
 ## Users and permissions
 
 Administrators install controllers, create Groups, set policies and grant access.
-Agent deployers manage definitions and instances in their assigned namespace using the
-[editor role](../config/rbac/editor-role.yaml).
-This role can read status but cannot write it.
+Direct Kubernetes access uses the caller's existing RBAC permissions.
 
-An administrator can bind it to an existing ServiceAccount in the Group namespace:
+When using an Orchestrator, users authenticate through the backend.
+The backend authorizes its users and sends scoped management requests through Connector.
+Those users need no direct Kubernetes access.
 
-```sh
-kubectl apply -f config/rbac/editor-role.yaml
-kubectl -n agentrally-demo create rolebinding agentinstance-editor \
-  --clusterrole=agentinstance-editor-role --serviceaccount=agentrally-demo:agent-user
-```
-
-Templates, Secrets, PVCs and Pod inspection need separate permissions.
-
-The Operator has its own installation-managed RBAC.
+The Chart installs runtime permissions for the Operator and its optional Connector.
 
 ## Agent templates
 
@@ -39,6 +32,8 @@ On AgentDefinition, choose `spec.template: generic`, `assistant` or `coding` and
 `container.image`.
 For sidecars or other Pod settings, use `templateRef.name` to select a SandboxTemplate
 in the same namespace, without `template` or `container`.
+A native SandboxTemplate is optional.
+If using one, refer to [sandbox-template.yaml](../examples/sandbox-template.yaml).
 See [environment settings](agent-templates.md) for defaults and template constraints.
 
 Set `AgentInstance.spec.definitionRef.name` to that definition.
@@ -47,9 +42,9 @@ Both resources must reference the same Group.
 Definitions publish immutable configuration; instances pin it at allocation.
 See [version selection and workspace lifetime](#lifecycle).
 
-Use [full/definition.yaml](../examples/full/definition.yaml) and
-[full/instance.yaml](../examples/full/instance.yaml) as the configuration and instance field references,
-or start from the [basic deployment](../examples/README.md).
+Use [03-definition.yaml](../examples/03-definition.yaml) and
+[04-instance-full.yaml](../examples/04-instance-full.yaml) as the configuration and instance field references.
+For the smallest Instance declaration, use [04-instance-basic.yaml](../examples/04-instance-basic.yaml).
 To inspect the installed schema:
 
 ```sh
@@ -86,10 +81,11 @@ Pod Security defaults to Restricted.
 ### Restrict outbound traffic
 
 Use `AgentGroup.spec.networkPolicy` for native Kubernetes egress rules.
-The [full Group reference](../examples/full/group.yaml) includes DNS, a selected
+The [full Group reference](../examples/02-group.yaml) includes DNS, a selected
 service and an external CIDR with an excluded range.
 The example selects all Pods in the Group namespace.
-It leaves ingress open unless another policy restricts it.
+Its ingress rules allow same-Group callers and the selected Gateway namespace.
+Adapt those rules for your Gateway and monitoring clients.
 
 For default-deny egress, set `policyTypes: [Egress]` with no egress rules.
 Omitting `policyTypes` follows Kubernetes defaults: Ingress, plus Egress only when
@@ -137,7 +133,7 @@ Removing the field removes that policy; changes apply to newly admitted resource
 
 Admission-added resource defaults do not cause `RestartRequired`; explicit requested
 quantities remain part of configuration checks.
-See the [full Group reference](../examples/full/group.yaml).
+See the [full Group reference](../examples/02-group.yaml).
 
 To stop new allocations, set `spec.allocationPaused: true`.
 Waiting instances report `AllocationPaused` without starting a new allocation budget.
@@ -203,7 +199,7 @@ An IP alone cannot supply a domain.
 HTTPS is preferred within the selected Gateway.
 
 instances can override port, hostname, scheme and Gateway; see
-[full/instance.yaml](../examples/full/instance.yaml).
+[04-instance-full.yaml](../examples/04-instance-full.yaml).
 An omitted Gateway namespace means the instance's namespace.
 
 The backend serves HTTP; the Gateway handles external TLS termination.
@@ -250,7 +246,7 @@ application deployment.
 ## Model and workspace
 
 `AgentDefinition.spec.modelProvider` in
-[full/definition.yaml](../examples/full/definition.yaml) injects `OPENAI_BASE_URL`,
+[03-definition.yaml](../examples/03-definition.yaml) injects `OPENAI_BASE_URL`,
 `AGENTRALLY_MODEL_NAME` and Secret-backed `OPENAI_API_KEY`.
 The application must consume or map these variables.
 
@@ -353,31 +349,56 @@ missing provenance stays unknown.
 suspension submission/completion and cleanup submission/completion.
 Pod timings reset with a new Pod UID; replacement starts a new execution timing record.
 
-The existing metrics endpoint exposes the following business measurements:
+Lifecycle condition changes are published as Kubernetes Events after a successful status write.
+The timing fields remain on the Instance; lifecycle histograms are not exported.
+Events are short-lived operational records, rather than a durable audit log.
+
+### Resource metrics
+
+Monitoring is part of the default Chart installation.
+ServiceMonitor and PrometheusRule resources are created when their APIs are available.
+The default scrape keeps AgentRally measurements and excludes Operator process,
+workqueue and reconciliation metrics.
+
+The Operator exports cached state and resource attribution:
 
 | Metric | Observation |
 | --- | --- |
 | `agentrally_agentinstances{state}` | Cached total, ready, available, suspended, pending and expired counts |
 | `agentrally_pool_spare_replicas{state}` / `agentrally_pools` | Ready/desired spare capacity and pool count from Group summaries |
 | `agentrally_namespace_pvcs` / `agentrally_namespace_storage_bytes{state}` | Namespace PVC count and requested/provisioned capacity, including external PVCs |
-| `agentrally_agent_allocation_duration_seconds{launch_type}` | Persisted allocation start to validated assignment |
-| `agentrally_agent_startup_duration_seconds{launch_type}` | Pod creation to first observed availability |
-| `agentrally_agent_suspension_duration_seconds` | Suspension submission to Core confirmation with no remaining Pod |
-| `agentrally_agent_cleanup_duration_seconds` | Cleanup submission to owned allocation/access-resource removal |
-| `agentrally_observation_success` | Whether cached instance and Group collection succeeded |
+| `agentrally_instance_pod_info` | Instance and accepted Definition identity for the observed execution Pod |
+| `agentrally_instance_volume_info` | Whole-PVC association, observed identity and whether the claim is resolved |
+| `agentrally_observation_success` | Whether cached resource collection succeeded |
 
-Duration metrics are histograms.
-The allocation histogram's `_count` series provides observed allocation counts by
-`launch_type` (`warm`, `cold`, `unknown`).
+The default recording rules join this attribution with existing Prometheus samples:
 
-Individual instance names and credential values are never metric labels.
-Histograms count transitions after successful status writes and reset when the Operator
-process restarts; they are not a durable event ledger.
+| Recorded measurement | Source |
+| --- | --- |
+| `agentrally_instance_cpu_usage_cores` / `agentrally_definition_cpu_usage_cores` | Five-minute rate of `container_cpu_usage_seconds_total` |
+| `agentrally_instance_memory_working_set_bytes` / `agentrally_definition_memory_working_set_bytes` | `container_memory_working_set_bytes` |
+| `agentrally_instance_volume_used_bytes` | `kubelet_volume_stats_used_bytes` for each resolved PVC association |
+| `agentrally_instance_storage_used_bytes` / `agentrally_definition_storage_used_bytes` | Whole-volume used bytes, aggregated only when all associated PVCs have samples |
 
-Group summaries are eventually consistent, and a failed cache read omits state gauges
-instead of publishing false zeros.
+CPU and memory cover the Instance's execution containers, including sidecars.
+Instance measurements identify their namespace, Instance and accepted Definition using names and UIDs.
+Definition CPU and memory totals sum their Instances.
+Shared storage is displayed as whole-PVC usage for each Instance.
+Attribution includes workspace claims, native volume claim templates and direct PVC references in SandboxTemplate.
+The Definition storage total counts each associated PVC once, rather than summing duplicate Instance readings.
+It cannot distinguish each writer's files or subdirectory usage.
 
-Enable `metrics.serviceMonitor.enabled` when Prometheus Operator is installed.
+The cluster monitoring stack must already collect kubelet/cAdvisor and volume statistics.
+CSI drivers and volume modes differ in their support for volume usage reporting.
+Unmounted volumes and unsupported backends may have no usage samples.
+Missing usage and unresolved PVC identities do not become zero, nor a partial total presented as complete.
+These are observed volume statistics, not storage-provider billing or physical allocation measurements.
+
+Attribution comes from cached Kubernetes state and is eventually consistent.
+Collection failure omits state gauges instead of publishing false zeros.
+Credential values and application content are never metric labels.
+
+### Readiness reasons
 
 | Ready reason | What to check |
 | --- | --- |
@@ -436,7 +457,7 @@ RestartRequired until restart.
 An optional `AgentDefinition.spec.invocationProtocol: HTTPJSONSSEV1` declares an
 application protocol and becomes part of its immutable revision.
 It does not enable invocation transport.
-Controlled testing additionally requires the default-off [invocation preview](invocation-protocol.md) and a ConnectorOnly Group.
+Controlled testing additionally requires the default-off [invocation preview](outbound-connector.md#invocation-preview) and a ConnectorOnly Group.
 The [Connector capability query](outbound-connector.md#capability-discovery)
 reports which operations this Operator actually supports.
 
@@ -470,7 +491,7 @@ Do not use Group deletion as a substitute for data retention planning.
 
 ### Execution expiry
 
-The optional `lifecycle` block in [full/instance.yaml](../examples/full/instance.yaml) controls expiry:
+The optional `lifecycle` block in [04-instance-full.yaml](../examples/04-instance-full.yaml) controls expiry:
 
 | Field | Behavior |
 | --- | --- |

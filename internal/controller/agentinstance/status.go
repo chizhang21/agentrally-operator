@@ -80,11 +80,14 @@ func (r *Reconciler) status(
 	workload.Status.SandboxName, workload.Status.ServiceName, workload.Status.ServiceFQDN = current.Metadata.Name, current.Status.Service, current.Status.ServiceFQDN
 	workload.Status.SandboxUID = current.Metadata.UID
 	workload.Status.VolumeClaims = sandbox.VolumeClaimNames(current.Metadata.Name, current.Spec.VolumeClaimTemplates)
-	if config.Workspace != nil {
+	for _, volume := range current.Spec.PodTemplate.Spec.Volumes {
+		if volume.PersistentVolumeClaim == nil {
+			continue
+		}
 		if workload.Status.VolumeClaims == nil {
 			workload.Status.VolumeClaims = map[string]string{}
 		}
-		workload.Status.VolumeClaims["agentrally-workspace"] = config.Workspace.ClaimName
+		workload.Status.VolumeClaims[volume.Name] = volume.PersistentVolumeClaim.ClaimName
 	}
 	workload.Status.Interaction = interaction.status
 	acceptedConfigurationStatus(workload, config)
@@ -289,7 +292,6 @@ func (r *Reconciler) patchStatus(ctx context.Context, workload, base *v1.AgentIn
 	if err := r.Status().Patch(ctx, workload, client.MergeFrom(base)); err != nil {
 		return err
 	}
-	r.Metrics.RecordTransition(base.Status, workload.Status)
 	controller.RecordConditionChanges(r.Recorder, workload, base.Status.Conditions, workload.Status.Conditions)
 	return nil
 }

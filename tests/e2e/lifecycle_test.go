@@ -13,6 +13,7 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/sandbox"
+	"agentrally/operator/internal/testutil"
 
 	"github.com/go-logr/logr/testr"
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -28,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -134,7 +134,7 @@ func TestOperatorLifecycle(t *testing.T) {
 		return summary != nil && summary.Instances.Ready == 1 && summary.Instances.Available == 1 && summary.Storage.PVCs == 1, err
 	})
 	metrics := kubectl(t, kubeconfig, "get", "--raw", "/api/v1/namespaces/agentrally-system/services/agentrally-operator-metrics:8080/proxy/metrics")
-	if !strings.Contains(metrics, "agentrally_observation_success 1") || !strings.Contains(metrics, "agentrally_agent_allocation_duration_seconds_count{launch_type=\"cold\"} 1") {
+	if !strings.Contains(metrics, "agentrally_observation_success 1") || !strings.Contains(metrics, "agentrally_instance_pod_info{") || !strings.Contains(metrics, "agentrally_instance_volume_info{") {
 		t.Fatal("business metrics missing from the existing endpoint")
 	}
 	pvc := allocatedWorkspace(t, ctx, kube, claim)
@@ -469,37 +469,9 @@ func kataE2EClient(t *testing.T) (client.Client, string) {
 	return e2eClientForTarget(t, os.Getenv("E2E_KATA_CONTEXT"), os.Getenv("E2E_KATA_API_SERVER"))
 }
 
-func validateE2ETarget(context, server, expectedContext, expectedServer string) error {
-	if expectedContext != "" || expectedServer != "" {
-		if expectedContext == "" || expectedServer == "" || context != expectedContext || server != expectedServer {
-			return fmt.Errorf("Kata target must match both E2E_KATA_CONTEXT and E2E_KATA_API_SERVER")
-		}
-		return nil
-	}
-	if !strings.HasPrefix(context, "kind-agentrally-e2e-") {
-		return fmt.Errorf("E2E requires the driver's disposable kind context")
-	}
-	return nil
-}
-
 func e2eClientForTarget(t *testing.T, expectedContext, expectedServer string) (client.Client, string) {
 	t.Helper()
-	kubeconfig := os.Getenv("AGENTRALLY_E2E_KUBECONFIG")
-	if kubeconfig == "" {
-		t.Fatal("run make e2e to create an isolated cluster")
-	}
-	raw, err := clientcmd.LoadFromFile(kubeconfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := validateE2ETarget(raw.CurrentContext, cfg.Host, expectedContext, expectedServer); err != nil {
-		t.Fatal(err)
-	}
-	cfg.Timeout = 30 * time.Second
+	cfg, kubeconfig := testutil.E2EConfig(t, expectedContext, expectedServer)
 	scheme := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, coordinationv1.AddToScheme, eventsv1.AddToScheme, networkingv1.AddToScheme, nodev1.AddToScheme, storagev1.AddToScheme, v1.AddToScheme, sandbox.AddToScheme} {
 		if err := add(scheme); err != nil {

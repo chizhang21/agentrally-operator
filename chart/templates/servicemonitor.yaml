@@ -1,9 +1,4 @@
-{{- $metrics := .Values.metrics | default dict }}
-{{- $monitor := $metrics.serviceMonitor | default dict }}
-{{- if $monitor.enabled }}
-{{- if not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
-{{- fail "metrics.serviceMonitor.enabled requires monitoring.coreos.com/v1/ServiceMonitor" }}
-{{- end }}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor" }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -13,13 +8,6 @@ metadata:
     app.kubernetes.io/name: agentrally-operator
     app.kubernetes.io/component: manager
     {{- include "agentrally-operator.labels" . | nindent 4 }}
-    {{- /* User labels extend the monitor without replacing chart identity. */}}
-    {{- with omit ($monitor.labels | default dict)
-      "app.kubernetes.io/name" "app.kubernetes.io/component"
-      "app.kubernetes.io/instance" "app.kubernetes.io/version"
-      "app.kubernetes.io/managed-by" "helm.sh/chart" }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
 spec:
   selector:
     matchLabels:
@@ -29,4 +17,8 @@ spec:
     - port: metrics
       path: /metrics
       scheme: http
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: agentrally_.*
+          action: keep
 {{- end }}

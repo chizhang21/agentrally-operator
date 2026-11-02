@@ -616,13 +616,15 @@ func TestSharedPoolKeepsEachAllocatedWorkspacePrivate(t *testing.T) {
 
 func TestNativeVolumeTemplatesSurviveAllocationAndRejectStorageMismatch(t *testing.T) {
 	group, ns, definition, w, pod := testutil.Fixture()
-	pod.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: "data", MountPath: "/data"}}
+	pod.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: "data", MountPath: "/data"}, {Name: "shared", MountPath: "/shared"}}
+	pod.Spec.Volumes = []corev1.Volume{{Name: "shared", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "shared-data"}}}}
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "shared-data", Namespace: ns.Name, UID: "shared-uid"}, Spec: workspaceVolumeSpec()}
 	source := nativeTemplate(definition, pod)
 	claims := []corev1.PersistentVolumeClaimTemplate{{ObjectMeta: metav1.ObjectMeta{Name: "data"}, Spec: workspaceVolumeSpec()}}
 	if err := sandbox.SetTemplateVolumeClaims(source, claims); err != nil {
 		t.Fatal(err)
 	}
-	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, source)
+	c, scheme := clientWithPublishedDefinitions(t, definition, group, ns, w, source, pvc)
 	r := &Reconciler{Client: c, Scheme: scheme}
 	reconcileWithUpstreamSimulation(t, r, w)
 	current, err := sandbox.Decode(getSandbox(t, c, w))
@@ -631,6 +633,10 @@ func TestNativeVolumeTemplatesSurviveAllocationAndRejectStorageMismatch(t *testi
 	}
 	if err := validateAssignedSandbox(current, allocation.Configuration{PodTemplate: pod, Service: true, VolumeClaimTemplates: claims}); err != nil {
 		t.Fatal("native storage template was lost during allocation", err)
+	}
+	volumes := getAgentInstance(t, c, w).Status.VolumeClaims
+	if volumes["shared"] != pvc.Name || volumes["data"] != "data-"+current.Metadata.Name {
+		t.Fatal("storage attribution omitted a native PVC reference", volumes)
 	}
 	current.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("2Gi")
 	if reason, _ := diagnostics.Classify(validateAssignedSandbox(current, allocation.Configuration{PodTemplate: pod, Service: true, VolumeClaimTemplates: claims})); reason != "PoolTemplateMismatch" {

@@ -183,7 +183,7 @@ The fields are informational and reuse the runtime scan without adding admission
 
 ## Administrator mappings
 
-Use [full/cluster-capabilities.yaml](../examples/full/cluster-capabilities.yaml) to
+Use [01-cluster-capabilities.yaml](../examples/01-cluster-capabilities.yaml) to
 classify existing RuntimeClasses and StorageClasses.
 Each mapping list accepts at most 64 named entries.
 Results use `source: AdministratorDeclared`; removing a mapping restores automatic classification.

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import re
 
-from build_version import validate_version
+from package_chart import validate_version
 
 
 def metadata(event_name, repository, sha, ref, event):

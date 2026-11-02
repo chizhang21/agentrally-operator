@@ -6,11 +6,13 @@ $(LOCALBIN):
 ## Tool Binaries
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
+ACTIONLINT ?= $(LOCALBIN)/actionlint
 KIND ?= $(LOCALBIN)/kind
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.19.0
 GOLANGCI_LINT_VERSION ?= v2.14.0
+ACTIONLINT_VERSION ?= v1.7.12
 KIND_VERSION ?= v0.30.0
 
 .PHONY: controller-gen
@@ -22,6 +24,10 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 # Internal prerequisite: select the pinned version, downloading if necessary.
 golangci-lint: | $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: actionlint
+actionlint: | $(LOCALBIN)
+	$(call go-install-tool,$(ACTIONLINT),github.com/rhysd/actionlint/cmd/actionlint,$(ACTIONLINT_VERSION))
 
 .PHONY: kind
 kind: | $(LOCALBIN)

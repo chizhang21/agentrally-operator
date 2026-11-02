@@ -9,7 +9,6 @@ import (
 	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/diagnostics"
 	"agentrally/operator/internal/executionconfig"
-	"agentrally/operator/internal/metrics"
 	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
@@ -36,8 +35,7 @@ type Reconciler struct {
 	// and optional routing APIs.
 	DirectClient client.Client
 	// Now makes deadline planning deterministic in controller tests.
-	Now     func() time.Time
-	Metrics *metrics.Observer
+	Now func() time.Time
 }
 
 func (r *Reconciler) directClient() client.Client {

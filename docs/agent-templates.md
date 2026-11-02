@@ -36,7 +36,8 @@ cluster.
 The image entrypoint starts the application; `container.command` and `container.args`
 can override it.
 Set ports and probes for your image.
-`full.yaml` uses 8080 and `/healthz`, but the built-ins impose neither.
+The [Definition example](../examples/03-definition.yaml) uses 8080 and `/healthz`.
+Built-in environments leave ports and probes to the application.
 A messaging-only agent can omit interaction and probes.
 
 Include agent applications, browsers and adapters in the image.

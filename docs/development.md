@@ -112,6 +112,13 @@ Helm adds `agentrally-operator:<VERSION>`.
 For CI publication, push a tag such as `vx.y.z`; the release workflow selects matching
 image and Chart versions from that tag.
 
+The quick start also uses `ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3`.
+Its source and independent image workflow live in
+[agentrally-examples](https://github.com/chizhang21/agentrally-examples/tree/main/operator/http-api-agent).
+Tag that repository `v0.0.3` to publish the matching image and source before releasing
+the Operator `v0.0.3` tag.
+Set the demo GHCR package to Public so users can pull it without registry credentials.
+
 ## Tests
 
 Run `make lint test` before submitting changes.

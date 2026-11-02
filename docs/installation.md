@@ -26,7 +26,7 @@ Install both using the
 [official combined manifest](https://github.com/kubernetes-sigs/agent-sandbox/tree/v1.0.5#installation):
 
 ```sh
-kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
 ```
 
 This creates the `agent-sandbox-system` namespace, four CRDs, RBAC and one controller
@@ -46,11 +46,12 @@ The readiness probe does not verify upstream controller health.
 
 ### Install AgentRally
 
-For an OCI installation, replace `x.y.z` with an accessible, published Chart version.
+Install Chart `0.0.3` from GHCR.
+Use examples from the matching `v0.0.3` source tag.
 See the [packaging workflow](../.github/workflows/packages.yml) for the current distribution workflow.
 
 ```sh
-CHART_VERSION=x.y.z
+CHART_VERSION=0.0.3
 helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
   --version "$CHART_VERSION" \
   -n agentrally-system --create-namespace --wait --timeout 5m
@@ -114,7 +115,7 @@ For an OCI installation, select the published Chart version to install.
 For a local archive, use [Updating a dev build](#updating-a-dev-build).
 
 ```sh
-CHART_VERSION=x.y.z
+CHART_VERSION=0.0.3
 helm upgrade agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
   --version "$CHART_VERSION" \
   -n agentrally-system --reset-then-reuse-values --wait --timeout 5m

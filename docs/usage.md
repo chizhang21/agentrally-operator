@@ -4,16 +4,21 @@ This guide covers Agent configuration and day-to-day operations after
 [installing the controllers](installation.md).
 Build and test instructions are in [Development](development.md).
 
-From a local Operator checkout, adapt the shared [Group](../examples/02-group.yaml)
-and [Definition](../examples/03-definition.yaml) references to your cluster.
-Replace placeholder values and prepare the Secret, ConfigMap, ServiceAccount and RuntimeClass references in the Definition.
+Use a `v0.0.3` Operator checkout with Chart `0.0.3`.
+The shared [Group](../examples/02-group.yaml) and [Definition](../examples/03-definition.yaml)
+start the public demo Agent without additional configuration.
+Optional fields remain commented; prepare their dependencies before enabling them.
 Create the Group, definition and instance in order.
 Run the commands below from the repository root:
 
 ```sh
 kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml
+kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
 ```
+
+Follow the [README walkthrough](../README.md#3-call-the-agent) to call the Agent,
+suspend/resume and clean up.
+The demo returns a fixed response until model credentials are configured.
 
 ## Users and permissions
 
@@ -81,11 +86,11 @@ Pod Security defaults to Restricted.
 ### Restrict outbound traffic
 
 Use `AgentGroup.spec.networkPolicy` for native Kubernetes egress rules.
-The [full Group reference](../examples/02-group.yaml) includes DNS, a selected
-service and an external CIDR with an excluded range.
-The example selects all Pods in the Group namespace.
-Its ingress rules allow same-Group callers and the selected Gateway namespace.
-Adapt those rules for your Gateway and monitoring clients.
+The [Group reference](../examples/02-group.yaml) includes a commented policy for DNS,
+a selected service and an external CIDR with an excluded range.
+The basic deployment uses the cluster's existing network policy.
+To enable the example policy, adapt and uncomment its selectors and destinations.
+Include the model provider, Gateway and monitoring clients required by your application.
 
 For default-deny egress, set `policyTypes: [Egress]` with no egress rules.
 Omitting `policyTypes` follows Kubernetes defaults: Ingress, plus Egress only when

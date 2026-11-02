@@ -15,8 +15,8 @@ Prewarm capacity.
 Suspend or resume execution.
 Retain workspace data across upgrades with external PVCs.
 
-Optional HTTP access, readiness status and lifecycle metrics support day-to-day
-operation.
+Readiness status, Kubernetes Events and resource metrics support day-to-day operation.
+Optional HTTP access exposes agent services.
 
 Select runtime isolation through Kubernetes RuntimeClass, including Kata Containers VMs
 and gVisor sandboxes.
@@ -65,61 +65,110 @@ templates and applying runtime changes to existing agents.
 
 ## Quick start
 
-Install a published Helm chart, then create your first agent.
+This walkthrough installs AgentRally `0.0.3`, starts a small HTTP Agent and exercises
+suspend/resume before cleaning up.
 
 ### Prerequisites
 
-- A Kubernetes cluster and permission to manage CRDs and cluster RBAC.
-- agent-sandbox **Core and Extensions v1.0.5**, installed using the
-  [upstream installation steps](docs/installation.md#install-upstream-agent-sandbox).
-- kubectl, Helm 3.17 or later, and Git for the examples below.
+- A Kubernetes cluster with a Linux amd64 node and permission to manage CRDs and cluster RBAC.
+- kubectl, Helm 3.17 or later, Git and curl.
 
-### 1. Install the Operator
+### 1. Install the controllers
 
-Replace `x.y.z` with the published Chart version you want to install.
+Install agent-sandbox Core and Extensions, then the Operator from GHCR:
 
 ```sh
-CHART_VERSION=x.y.z
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
+CHART_VERSION=0.0.3
 helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
   --version "$CHART_VERSION" \
   -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 
-For private registry credentials and custom values, see [Installation](docs/installation.md).
+The Chart uses `ghcr.io/chizhang21/agentrally-operator:v0.0.3`.
+For custom values and private credentials, see [Installation](docs/installation.md).
 To build from source, see [Development](docs/development.md#package-versions).
 
-### 2. Deploy an agent
+### 2. Start an Agent
+
+Use examples from the matching source tag:
 
 ```sh
-git clone https://github.com/chizhang21/agentrally-operator.git
+git clone --branch v0.0.3 --depth 1 https://github.com/chizhang21/agentrally-operator.git
 cd agentrally-operator
-```
-
-From a local Operator checkout, adapt the shared [Group](examples/02-group.yaml)
-and [Definition](examples/03-definition.yaml) references to your cluster.
-Replace placeholder values and prepare the Secret, ConfigMap, ServiceAccount and RuntimeClass references in the Definition.
-The agent image must support the built-in environment's [non-root defaults](docs/agent-templates.md).
-Run the following commands from the repository root.
-
-Create the Group, wait for its namespace to be ready, then publish the definition and
-create the AgentInstance:
-
-```sh
 kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml
+kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
 ```
 
-For persistent storage and HTTP access, follow the
-[full Instance example](examples/04-instance-full.yaml).
+The [Definition](examples/03-definition.yaml) uses the public
+`ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3` image.
+It runs without model credentials, a Gateway, persistent storage or an additional RuntimeClass.
+Optional configuration remains commented in the shared Group and Definition references.
 
-If the agent does not become ready, inspect its conditions and events:
+If the Agent does not become ready, inspect its conditions and events:
 
 ```sh
 kubectl -n agentrally-demo describe agentinstance demo-agent
 ```
 
-The [diagnostics guide](docs/usage.md#status-and-diagnostics) explains the reported
-reasons.
+See [diagnostics](docs/usage.md#status-and-diagnostics) for the reported reasons.
+
+### 3. Call the Agent
+
+Read its current Pod name and start a local port-forward:
+
+```sh
+POD=$(kubectl -n agentrally-demo get agentinstance demo-agent -o jsonpath='{.status.podName}')
+kubectl -n agentrally-demo port-forward "pod/$POD" 18080:8080
+```
+
+Keep that terminal open.
+In another terminal, check health and send a message:
+
+```sh
+curl -fsS http://127.0.0.1:18080/healthz
+curl -fsS http://127.0.0.1:18080/chat -H 'Content-Type: application/json' --data '{"message":"Hello"}'
+```
+
+The chat response is:
+
+```json
+{"response":"AgentRally demo agent is ready.","mode":"demo"}
+```
+
+Demo mode uses Pydantic AI's `TestModel` for a fixed response and makes no model calls.
+The [Agent project](https://github.com/chizhang21/agentrally-examples/tree/v0.0.3/operator/http-api-agent)
+contains its source and instructions for connecting a real model with Secret-backed credentials.
+
+### 4. Suspend and resume
+
+```sh
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":"Suspended"}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Suspended --timeout=120s
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":null}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
+```
+
+Suspension removes the Pod; resuming creates a new one.
+Read the new Pod name and repeat the port-forward and calls above.
+For persistent storage or a managed HTTPRoute, adapt [04-instance-full.yaml](examples/04-instance-full.yaml)
+after preparing its StorageClass and Gateway dependencies.
+
+### 5. Clean up
+
+Delete the Instance, its Definition and the Group while the Operator is running:
+
+```sh
+kubectl delete -f examples/04-instance-basic.yaml --timeout=300s
+kubectl delete -f examples/03-definition.yaml --timeout=120s
+kubectl delete -f examples/02-group.yaml --timeout=300s
+```
+
+To uninstall the Operator afterwards:
+
+```sh
+helm uninstall agentrally-operator -n agentrally-system
+```
+
+Helm retains the CRDs.
 
 ## Lifecycle behavior
 

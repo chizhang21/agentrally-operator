@@ -1,5 +1,5 @@
-# Full reusable configuration. Apply 02-group.yaml first.
-# Replace placeholders and prepare referenced dependencies before use.
+# Basic runnable configuration with full optional field references.
+# Apply 02-group.yaml first; prepare dependencies before enabling optional settings.
 apiVersion: arally.io/v1alpha1
 kind: AgentDefinition
 metadata:
@@ -14,36 +14,40 @@ spec:
   # templateRef:
   #   name: custom-agent
   agentContainer: agent
-  # Optional application contract for the separately enabled invocation preview.
+  # Optional invocation preview contract; only declare it for an image implementing it.
   # invocationProtocol: HTTPJSONSSEV1
   container:
-    image: registry.example.com/your-agent:replace-me
+    image: ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3
     imagePullPolicy: IfNotPresent
-    command: [/bin/agent]
-    args: [serve, --port, "8080"]
-    runtimeClassName: your-runtime-class
-    imagePullSecrets:
-    - name: registry-credentials
+    # Optional entrypoint overrides for your own image.
+    # command: [/bin/agent]
+    # args: [serve, --port, "8080"]
+    # Optional: select an installed RuntimeClass; omitted uses the node default.
+    # runtimeClassName: your-runtime-class
+    # Optional registry credentials in this namespace.
+    # imagePullSecrets:
+    # - name: registry-credentials
     env:
     - name: LOG_LEVEL
-      value: debug
-    - name: CHANNEL_TOKEN
-      valueFrom:
-        secretKeyRef:
-          name: agent-credentials
-          key: channel-token
-    envFrom:
-    - configMapRef:
-        name: agent-settings
-    - secretRef:
-        name: agent-credentials
+      value: info
+    # Real model mode requires this API token in addition to modelProvider.
+    # - name: API_TOKEN
+    #   valueFrom:
+    #     secretKeyRef:
+    #       name: model-credentials
+    #       key: api-token
+    # envFrom:
+    # - configMapRef:
+    #     name: agent-settings
+    # - secretRef:
+    #     name: agent-credentials
     resources:
       requests:
-        cpu: "4"
-        memory: 8Gi
+        cpu: 100m
+        memory: 128Mi
       limits:
-        cpu: "8"
-        memory: 16Gi
+        cpu: 500m
+        memory: 512Mi
     ports:
     - name: http
       containerPort: 8080
@@ -66,7 +70,8 @@ spec:
       failureThreshold: 3
   security:
     profile: Restricted
-    serviceAccountName: agent-runtime
+    # Optional existing ServiceAccount; the built-in default has no API token mount.
+    # serviceAccountName: agent-runtime
     # Optional: choose a non-root UID; omit to use the image or admission default.
     # runAsUser: 1000
   # Zero disables proactive preparation. Raising it requires a Group prewarming cap.
@@ -83,9 +88,10 @@ spec:
   #     resources:
   #       requests:
   #         storage: 20Gi
-  modelProvider:
-    baseURL: https://model.example.com/v1
-    model: your-model
-    apiKeySecretRef:
-      name: model-credentials
-      key: api-key
+  # Optional real model provider; prepare the Secret before enabling.
+  # modelProvider:
+  #   baseURL: https://model.example.com/v1
+  #   model: your-model
+  #   apiKeySecretRef:
+  #     name: model-credentials
+  #     key: api-key

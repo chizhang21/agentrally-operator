@@ -38,14 +38,14 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/
 
 ```sh
 helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
-  --version 0.0.3 \
+  --version 0.0.4 \
   -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 
 ### 2. 启动 Agent
 
 ```sh
-git clone --branch v0.0.3 --depth 1 https://github.com/chizhang21/agentrally-operator.git
+git clone --branch v0.0.4 --depth 1 https://github.com/chizhang21/agentrally-operator.git
 cd agentrally-operator
 kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
 kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s

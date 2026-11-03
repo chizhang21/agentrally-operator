@@ -156,15 +156,27 @@ Restart cleanup can finish while paused; the replacement waits for unpause.
 
 ### Agent process identity
 
-Built-in environments use non-root containers.
+Built-in environments default to `security.profile: Restricted`, requiring non-root
+execution and dropping all Linux capabilities.
 Set `AgentDefinition.spec.security.runAsUser` for an explicit UID, or omit it to use the
 image or admission default.
 
 `security.serviceAccountName` selects an existing namespaced ServiceAccount.
 
-For images requiring UID 0, an administrator prepares a Group with
+For images requiring UID 0 or runtime-default capabilities, an administrator prepares an AgentGroup with
 `spec.podSecurity: Baseline` and a dedicated ServiceAccount.
-The definition can then select `security.profile: AnyUID` and the required UID.
+The AgentDefinition can then use a built-in environment with AnyUID:
+
+```yaml
+template: assistant
+security:
+  profile: AnyUID
+  serviceAccountName: agent-runtime
+  runAsUser: 0
+```
+
+AnyUID leaves built-in capabilities at the container runtime defaults.
+Native SandboxTemplate capability settings remain as declared.
 Namespace policy and ServiceAccount authorization remain administrator-managed.
 
 ## Interaction endpoint

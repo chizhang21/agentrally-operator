@@ -125,6 +125,45 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 	awaitDeleted(t, ctx, kube, group)
 }
 
+func TestBuiltInRootBootstrap(t *testing.T) {
+	kube, kubeconfig := e2eClient(t)
+	ctx := t.Context()
+	group := readyGroup(t, ctx, kube, "root-bootstrap")
+	group.Spec.PodSecurity = "Baseline"
+	update(t, ctx, kube, group)
+	await(t, "Baseline namespace prepared", func() (bool, error) {
+		err := kube.Get(ctx, client.ObjectKeyFromObject(group), group)
+		return conditionTrue(group.Status.Conditions, "Ready", group.Generation), err
+	})
+	account := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "bootstrap", Namespace: group.Status.Namespace}}
+	create(t, ctx, kube, account)
+	definition, instance := testAgent(group, "bootstrap", `test "$(id -u)" = 0
+mkdir -p /workspace/bootstrap
+chown 65534:65534 /workspace/bootstrap
+exec su -s /bin/sh -c 'id -u > /workspace/bootstrap/uid; exec sleep 3600' nobody`)
+	definition.Spec.Template = "assistant"
+	definition.Spec.Security = &v1.AgentSecurity{Profile: "AnyUID", ServiceAccountName: account.Name, RunAsUser: ptr.To(int64(0))}
+	definition.Spec.Container.ReadinessProbe = &corev1.Probe{
+		ProbeHandler:  corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-ec", `test "$(cat /workspace/bootstrap/uid)" = 65534`}}},
+		PeriodSeconds: 1,
+	}
+	create(t, ctx, kube, definition)
+	create(t, ctx, kube, instance)
+	readyAgent(t, ctx, kube, instance)
+	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/bootstrap/uid"); got != "65534" {
+		t.Fatal("root initialization did not drop to the application user", got)
+	}
+	if err := kube.Delete(ctx, instance); err != nil {
+		t.Fatal(err)
+	}
+	awaitDeleted(t, ctx, kube, instance)
+	deleteDefinitions(t, ctx, kube, group)
+	if err := kube.Delete(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	awaitDeleted(t, ctx, kube, group)
+}
+
 func TestGroupSpareBudget(t *testing.T) {
 	kube, _ := e2eClient(t)
 	ctx := context.Background()

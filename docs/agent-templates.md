@@ -28,10 +28,11 @@ For other Pod settings, create a SandboxTemplate and use `spec.templateRef`.
 `container.resources` replaces the whole requests/limits block.
 
 All built-ins use Linux nodes, restart Always, a 30-second termination grace period, no
-API token automount, non-root execution, dropped capabilities, no privilege escalation
-and RuntimeDefault seccomp.
-No UID is fixed; images and PVC permissions must support the UID assigned by the
-cluster.
+API token automount, no privilege escalation and RuntimeDefault seccomp.
+Process identity and capabilities are resolved from `AgentDefinition.spec.security`.
+The default Restricted profile requires non-root execution and drops all Linux capabilities.
+AnyUID uses the image or explicit UID and the container runtime's default capabilities.
+See [process identity](usage.md#agent-process-identity) for its namespace and ServiceAccount requirements.
 
 The image entrypoint starts the application; `container.command` and `container.args`
 can override it.

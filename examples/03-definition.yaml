@@ -69,6 +69,8 @@ spec:
       periodSeconds: 30
       failureThreshold: 3
   security:
+    # AnyUID allows root and runtime-default capabilities; requires a Baseline
+    # AgentGroup and a dedicated ServiceAccount.
     profile: Restricted
     # Optional existing ServiceAccount; the built-in default has no API token mount.
     # serviceAccountName: agent-runtime

@@ -1004,11 +1004,14 @@ spec:
                 type: object
               security:
                 description: |-
-                  AgentSecurity selects the process identity; SCC authorization remains an
-                  administrator operation outside the Operator's RBAC.
+                  AgentSecurity selects process identity and built-in capability defaults.
+                  Namespace and ServiceAccount authorization remain administrator-managed.
                 properties:
                   profile:
                     default: Restricted
+                    description: |-
+                      Profile defaults to Restricted. For built-in templates, Restricted drops all
+                      Linux capabilities; AnyUID uses the container runtime's default capabilities.
                     enum:
                     - Restricted
                     - AnyUID

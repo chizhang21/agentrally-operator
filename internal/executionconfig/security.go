@@ -12,9 +12,13 @@ import (
 )
 
 // Process identity is constrained by namespace policy and an existing account.
-func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace string, security *v1.AgentSecurity, template *corev1.PodTemplateSpec) error {
+func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace string, spec *v1.AgentDefinitionSpec, template *corev1.PodTemplateSpec) error {
+	security := spec.Security
 	if security == nil {
-		return nil
+		if spec.Template == "" {
+			return nil
+		}
+		security = &v1.AgentSecurity{}
 	}
 	profile := security.Profile
 	if profile == "" {
@@ -65,6 +69,12 @@ func applyAgentSecurity(ctx context.Context, reader client.Reader, namespace str
 			}
 			sc.RunAsNonRoot = ptr.To(profile == "Restricted")
 			sc.RunAsUser = security.RunAsUser
+			if spec.Template != "" {
+				sc.Capabilities = nil
+				if profile == "Restricted" {
+					sc.Capabilities = &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}
+				}
+			}
 		}
 	}
 	return nil

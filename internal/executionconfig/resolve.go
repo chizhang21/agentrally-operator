@@ -32,7 +32,7 @@ func Resolve(ctx context.Context, reader client.Reader, namespace, name string, 
 	if template.Spec.AutomountServiceAccountToken == nil {
 		template.Spec.AutomountServiceAccountToken = ptr.To(false)
 	}
-	if err := applyAgentSecurity(ctx, reader, namespace, revision.Spec.Security, template); err != nil {
+	if err := applyAgentSecurity(ctx, reader, namespace, &revision.Spec, template); err != nil {
 		return nil, err
 	}
 	index := podconfig.AgentIndex(template.Spec.Containers, revision.Spec.AgentContainer)

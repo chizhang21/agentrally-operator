@@ -118,11 +118,13 @@ type ModelProvider struct {
 	APIKeySecretRef corev1.SecretKeySelector `json:"apiKeySecretRef"`
 }
 
-// AgentSecurity selects the process identity; SCC authorization remains an
-// administrator operation outside the Operator's RBAC.
+// AgentSecurity selects process identity and built-in capability defaults.
+// Namespace and ServiceAccount authorization remain administrator-managed.
 // +kubebuilder:validation:XValidation:rule="self.profile != 'AnyUID' || (has(self.serviceAccountName) && size(self.serviceAccountName) > 0 && self.serviceAccountName != 'default')",message="AnyUID requires a dedicated serviceAccountName"
 // +kubebuilder:validation:XValidation:rule="self.profile != 'Restricted' || !has(self.runAsUser) || self.runAsUser > 0",message="Restricted cannot run as UID 0"
 type AgentSecurity struct {
+	// Profile defaults to Restricted. For built-in templates, Restricted drops all
+	// Linux capabilities; AnyUID uses the container runtime's default capabilities.
 	// +kubebuilder:validation:Enum=Restricted;AnyUID
 	// +kubebuilder:default=Restricted
 	// +optional

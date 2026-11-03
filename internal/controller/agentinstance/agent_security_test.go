@@ -18,29 +18,34 @@ func TestAnyUIDRequiresNamespaceAndDedicatedAccount(t *testing.T) {
 	for _, tc := range []struct {
 		name, policy, account string
 		want                  string
-		builtin               bool
+		builtin               string
 	}{
-		{"missing-account-name", "baseline", "", "SecurityAccountRequired", false},
-		{"default-account", "baseline", "default", "SecurityAccountRequired", false},
-		{"restricted-namespace", "restricted", "legacy", "SecurityPolicyDenied", false},
-		{"missing-account", "baseline", "missing", "DependencyNotFound", false},
-		{"explicit-root", "baseline", "legacy", "", false},
-		{"builtin-explicit-root", "baseline", "legacy", "", true},
+		{"missing-account-name", "baseline", "", "SecurityAccountRequired", ""},
+		{"default-account", "baseline", "default", "SecurityAccountRequired", ""},
+		{"restricted-namespace", "restricted", "legacy", "SecurityPolicyDenied", ""},
+		{"missing-account", "baseline", "missing", "DependencyNotFound", ""},
+		{"explicit-root", "baseline", "legacy", "", ""},
+		{"generic-root", "baseline", "legacy", "", "generic"},
+		{"assistant-root", "baseline", "legacy", "", "assistant"},
+		{"coding-root", "baseline", "legacy", "", "coding"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, definition, w, source := testutil.Fixture()
 			source.Spec.SecurityContext = &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}
-			source.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeLocalhost, LocalhostProfile: ptr.To("profiles/agent.json")}}
-			if tc.builtin {
+			source.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeLocalhost, LocalhostProfile: ptr.To("profiles/agent.json")},
+				Capabilities:   &corev1.Capabilities{Drop: []corev1.Capability{"NET_RAW"}, Add: []corev1.Capability{"CHOWN"}},
+			}
+			if tc.builtin != "" {
 				definition.Spec.TemplateRef = nil
-				definition.Spec.Template = "generic"
+				definition.Spec.Template = tc.builtin
 				definition.Spec.Container = &v1.AgentContainerSpec{Image: "example/legacy:v1"}
 			}
 			definition.Spec.Security = &v1.AgentSecurity{Profile: "AnyUID", ServiceAccountName: tc.account, RunAsUser: ptr.To(int64(0))}
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: w.Namespace, Labels: map[string]string{"pod-security.kubernetes.io/enforce": tc.policy}}}
 			sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: w.Namespace}}
 			objects := []client.Object{ns, sa}
-			if !tc.builtin {
+			if tc.builtin == "" {
 				objects = append(objects, nativeTemplate(definition, source))
 			}
 			c, _ := clientWithPublishedDefinitions(t, append(objects, definition)...)
@@ -62,7 +67,13 @@ func TestAnyUIDRequiresNamespaceAndDedicatedAccount(t *testing.T) {
 			if template.Spec.SecurityContext.SeccompProfile == nil || template.Spec.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 				t.Fatal("UID selection removed the declared seccomp profile")
 			}
-			if !tc.builtin && !reflect.DeepEqual(template.Spec.Containers[0].SecurityContext.SeccompProfile, source.Spec.Containers[0].SecurityContext.SeccompProfile) {
+			if tc.builtin != "" && template.Spec.Containers[0].SecurityContext.Capabilities != nil {
+				t.Fatal("AnyUID built-in still overrides runtime-default capabilities")
+			}
+			if tc.builtin == "" && !reflect.DeepEqual(template.Spec.Containers[0].SecurityContext.Capabilities, source.Spec.Containers[0].SecurityContext.Capabilities) {
+				t.Fatal("UID selection changed native capability settings")
+			}
+			if tc.builtin == "" && !reflect.DeepEqual(template.Spec.Containers[0].SecurityContext.SeccompProfile, source.Spec.Containers[0].SecurityContext.SeccompProfile) {
 				t.Fatal("UID selection changed the container's explicit seccomp profile")
 			}
 			if *template.Spec.AutomountServiceAccountToken {
@@ -76,6 +87,26 @@ func TestAnyUIDRequiresNamespaceAndDedicatedAccount(t *testing.T) {
 				t.Fatal("account ownership changed")
 			}
 		})
+	}
+}
+
+func TestBuiltInDefaultSecurityRemainsRestricted(t *testing.T) {
+	_, _, definition, instance, _ := testutil.Fixture()
+	definition.Spec.TemplateRef = nil
+	definition.Spec.Template = "assistant"
+	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example/agent:v1"}
+	definition.Spec.Security = nil
+	c, _ := clientWithPublishedDefinitions(t, definition)
+	pod, err := desiredPodTemplate(ctx, c, instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	security := pod.Spec.Containers[0].SecurityContext
+	if pod.Spec.SecurityContext.RunAsNonRoot == nil || !*pod.Spec.SecurityContext.RunAsNonRoot || security.RunAsNonRoot == nil || !*security.RunAsNonRoot {
+		t.Fatal("implicit built-in policy no longer requires non-root execution")
+	}
+	if security.Capabilities == nil || !reflect.DeepEqual(security.Capabilities.Drop, []corev1.Capability{"ALL"}) || len(security.Capabilities.Add) != 0 {
+		t.Fatal("implicit built-in policy no longer drops capabilities")
 	}
 }
 

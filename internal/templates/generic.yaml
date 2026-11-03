@@ -1,4 +1,5 @@
 # Built-in Pod environment; application settings come from AgentDefinition.container.
+# Process identity and capabilities come from AgentDefinition.security.
 metadata:
   labels:
     arally.io/category: generic
@@ -21,17 +22,12 @@ spec:
         memory: 512Mi
     securityContext:
       allowPrivilegeEscalation: false
-      capabilities:
-        drop:
-        - ALL
-      runAsNonRoot: true
     volumeMounts:
     - mountPath: /tmp
       name: agentrally-tmp
   terminationGracePeriodSeconds: 30
   restartPolicy: Always
   securityContext:
-    runAsNonRoot: true
     seccompProfile:
       type: RuntimeDefault
   volumes:

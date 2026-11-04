@@ -44,64 +44,19 @@ helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operat
 
 ### 2. Start an Agent
 
-```sh
-git clone --branch v0.0.4 --depth 1 https://github.com/chizhang21/agentrally-operator.git
-cd agentrally-operator
-kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
-```
+Choose an application from [agentrally-examples](https://github.com/chizhang21/agentrally-examples/tree/main/operator):
 
-The [AgentDefinition](examples/03-definition.yaml) runs a public demo image that returns
-a fixed response without model credentials.
+| Example | Use it to |
+| --- | --- |
+| [HTTP API Agent](https://github.com/chizhang21/agentrally-examples/tree/main/operator/http-api-agent) | Verify deployment, HTTP calls and suspend/resume with a minimal Agent that requires no model credentials. |
+| [OpenClaw](https://github.com/chizhang21/agentrally-examples/tree/main/operator/openclaw) | Run a resident assistant with a persistent workspace. |
 
-### 3. Call the Agent
+Start with HTTP API Agent to verify your installation.
+Follow the selected guide for deployment order, configuration, verification and cleanup.
 
-```sh
-POD=$(kubectl -n agentrally-demo get agentinstance demo-agent -o jsonpath='{.status.podName}')
-kubectl -n agentrally-demo port-forward "pod/$POD" 18080:8080
-```
+### 3. Uninstall the Operator
 
-In another terminal:
-
-```sh
-curl -fsS http://127.0.0.1:18080/healthz
-curl -fsS http://127.0.0.1:18080/chat -H 'Content-Type: application/json' --data '{"message":"Hello"}'
-```
-
-Chat response:
-
-```json
-{"response":"AgentRally demo agent is ready.","mode":"demo"}
-```
-
-For real model configuration, see the
-[demo Agent project](https://github.com/chizhang21/agentrally-examples/tree/main/operator/http-api-agent).
-
-### 4. Suspend and resume
-
-Suspend:
-
-```sh
-kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":"Suspended"}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Suspended --timeout=120s
-```
-
-Resume:
-
-```sh
-kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":null}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
-```
-
-After resuming, repeat [step 3](#3-call-the-agent) with the new Pod.
-
-### 5. Clean up
-
-```sh
-kubectl delete -f examples/04-instance-basic.yaml --timeout=300s
-kubectl delete -f examples/03-definition.yaml --timeout=120s
-kubectl delete -f examples/02-group.yaml --timeout=300s
-```
-
-Uninstall the Operator (optional):
+After cleaning up the application resources:
 
 ```sh
 helm uninstall agentrally-operator -n agentrally-system
@@ -190,7 +145,7 @@ Prewarmed allocation starts with a ready spare Pod; these measurements exclude m
 ## If an AgentInstance does not become ready
 
 ```sh
-kubectl -n agentrally-demo describe agentinstance demo-agent
+kubectl -n agentrally-http-api-agent describe agentinstance http-api-agent
 ```
 
 Check Conditions and Events against the [diagnostics guide](docs/usage.md#readiness-reasons).

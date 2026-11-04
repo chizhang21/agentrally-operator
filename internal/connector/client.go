@@ -57,7 +57,7 @@ func NewClient(config Config, executor Executor) (*Client, error) {
 		return nil, fmt.Errorf("connector id must be a DNS subdomain")
 	}
 	if config.InvocationPreview && (len(validation.IsDNS1123Label(config.InvocationPeer.Namespace)) != 0 || config.InvocationPeer.ReleaseName == "" || len(validation.IsValidLabelValue(config.InvocationPeer.ReleaseName)) != 0) {
-		return nil, fmt.Errorf("invocation preview requires Operator namespace and release identity")
+		return nil, fmt.Errorf("invocation preview requires Connector namespace and release identity")
 	}
 	if _, err := loadToken(config.TokenFile); err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (c *Client) Start(ctx context.Context) error {
 			defer close(done)
 			if err := c.runInvocations(ctx); err != nil {
 				c.invocationFailed.Store(true)
-				slog.Error("invocation preview stopped; restart the Operator to re-enable it", "reason", err)
+				slog.Error("invocation preview stopped; restart the Connector to re-enable it", "reason", err)
 			}
 		}()
 		defer func() {

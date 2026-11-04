@@ -35,7 +35,8 @@ def metadata(event_name, repository, sha, ref, event):
     if len(tag) > 128:
         raise ValueError("image tag exceeds the registry limit")
     owner = repository.split("/", 1)[0]
-    return {"image": f"ghcr.io/{repository}", "tag": tag, "version": version,
+    return {"image": f"ghcr.io/{repository}", "connector_image": f"ghcr.io/{owner}/agentrally-connector",
+            "tag": tag, "version": version,
             "chart_repository": f"oci://ghcr.io/{owner}/helm"}
 
 

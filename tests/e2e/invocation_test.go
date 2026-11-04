@@ -50,7 +50,8 @@ func TestConnectorOnlyTraffic(t *testing.T) {
 		matching        bool
 		want            string
 	}{
-		{"operator-identity", "agentrally-system", true, "probe-ok"},
+		{"connector-identity", "agentrally-system", true, "probe-ok"},
+		{"operator-identity", "agentrally-system", false, "denied"},
 		{"wrong-pod", "agentrally-system", false, "denied"},
 		{"wrong-namespace", group.Status.Namespace, true, "denied"},
 	} {
@@ -58,6 +59,9 @@ func TestConnectorOnlyTraffic(t *testing.T) {
 			ran = true
 			labels := map[string]string{"app.kubernetes.io/name": "unrelated"}
 			if scenario.matching {
+				labels = map[string]string{"app.kubernetes.io/name": "agentrally-connector", "app.kubernetes.io/instance": "agentrally-operator", "app.kubernetes.io/component": "connector"}
+			}
+			if scenario.name == "operator-identity" {
 				labels = map[string]string{"app.kubernetes.io/name": "agentrally-operator", "app.kubernetes.io/instance": "agentrally-operator", "app.kubernetes.io/component": "manager"}
 			}
 			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "probe-" + scenario.name, Namespace: scenario.namespace, Labels: labels}, Spec: corev1.PodSpec{

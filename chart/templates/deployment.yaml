@@ -49,17 +49,6 @@ spec:
             - --leader-elect=true
             - --metrics-bind-address=:8080
             - --health-probe-bind-address=:8081
-            {{- if .Values.connector.enabled }}
-            - --connector-enabled=true
-            {{- if .Values.connector.invocationPreview }}
-            - --connector-invocation-preview=true
-            {{- end }}
-            - {{ printf "--connector-endpoint=%s" .Values.connector.endpoint | quote }}
-            - {{ printf "--connector-id=%s" .Values.connector.id | quote }}
-            {{- with .Values.connector.caFile }}
-            - {{ printf "--connector-ca-file=%s" . | quote }}
-            {{- end }}
-            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
@@ -91,15 +80,3 @@ spec:
               drop: [ALL]
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if .Values.connector.enabled }}
-          volumeMounts:
-            - name: connector-credentials
-              mountPath: /var/run/agentrally-connector
-              readOnly: true
-          {{- end }}
-      {{- if .Values.connector.enabled }}
-      volumes:
-        - name: connector-credentials
-          secret:
-            secretName: {{ .Values.connector.credentialsSecret | quote }}
-      {{- end }}

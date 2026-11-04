@@ -44,62 +44,19 @@ helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operat
 
 ### 2. 启动 Agent
 
-```sh
-git clone --branch v0.0.4 --depth 1 https://github.com/chizhang21/agentrally-operator.git
-cd agentrally-operator
-kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=condition=Ready --timeout=120s
-kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
-```
+从 [agentrally-examples](https://github.com/chizhang21/agentrally-examples/tree/main/operator) 选择应用：
 
-[AgentDefinition](examples/03-definition.yaml) 使用公开的 Demo 镜像，返回固定内容，无需模型凭证。
+| 示例 | 用途 |
+| --- | --- |
+| [HTTP API Agent](https://github.com/chizhang21/agentrally-examples/tree/main/operator/http-api-agent) | 使用无需模型凭据的极简 Agent 验证部署、HTTP 调用及挂起恢复。 |
+| [OpenClaw](https://github.com/chizhang21/agentrally-examples/tree/main/operator/openclaw) | 运行带持久化工作区的常驻助手。 |
 
-### 3. 调用 Agent
+首次使用建议从 HTTP API Agent 开始。
+各示例指南提供部署顺序、配置、验证和清理步骤。
 
-```sh
-POD=$(kubectl -n agentrally-demo get agentinstance demo-agent -o jsonpath='{.status.podName}')
-kubectl -n agentrally-demo port-forward "pod/$POD" 18080:8080
-```
+### 3. 卸载 Operator
 
-在另一个终端执行：
-
-```sh
-curl -fsS http://127.0.0.1:18080/healthz
-curl -fsS http://127.0.0.1:18080/chat -H 'Content-Type: application/json' --data '{"message":"Hello"}'
-```
-
-聊天响应：
-
-```json
-{"response":"AgentRally demo agent is ready.","mode":"demo"}
-```
-
-接入真实模型见 [Demo Agent 项目](https://github.com/chizhang21/agentrally-examples/tree/main/operator/http-api-agent)。
-
-### 4. 挂起和恢复
-
-挂起：
-
-```sh
-kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":"Suspended"}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Suspended --timeout=120s
-```
-
-恢复：
-
-```sh
-kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":null}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
-```
-
-恢复后重复[第 3 步](#3-调用-agent)，获取新 Pod 并重新转发端口。
-
-### 5. 清理资源
-
-```sh
-kubectl delete -f examples/04-instance-basic.yaml --timeout=300s
-kubectl delete -f examples/03-definition.yaml --timeout=120s
-kubectl delete -f examples/02-group.yaml --timeout=300s
-```
-
-卸载 Operator（可选）：
+清理应用资源后执行：
 
 ```sh
 helm uninstall agentrally-operator -n agentrally-system
@@ -187,7 +144,7 @@ spec:
 ## AgentInstance 未就绪时
 
 ```sh
-kubectl -n agentrally-demo describe agentinstance demo-agent
+kubectl -n agentrally-http-api-agent describe agentinstance http-api-agent
 ```
 
 结合 Conditions、Events 和[诊断指南](docs/usage.md#readiness-reasons)排查。

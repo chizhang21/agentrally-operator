@@ -23,6 +23,7 @@ import (
 	"agentrally/operator/internal/connector"
 	"agentrally/operator/internal/testutil"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,12 +31,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
-// Management requests use the deployed Operator identity against the Kind API.
+// Management requests use the dedicated Connector identity against the Kind API.
 func TestConnectorManagement(t *testing.T) {
 	admin, _ := e2eClient(t)
 	if err := rbacv1.AddToScheme(admin.Scheme()); err != nil {
@@ -50,10 +52,13 @@ func TestConnectorManagement(t *testing.T) {
 		"--set", "connector.id=cluster-one",
 		"--set", "connector.credentialsSecret=backend-credentials",
 	)
-	for _, object := range []client.Object{&rbacv1.ClusterRole{}, &rbacv1.ClusterRoleBinding{}} {
+	for _, object := range []client.Object{&rbacv1.ClusterRole{}, &rbacv1.ClusterRoleBinding{}, &corev1.ServiceAccount{}} {
 		name := "ClusterRole/agentrally-operator-agentrally-system-connector"
 		if _, ok := object.(*rbacv1.ClusterRoleBinding); ok {
 			name = "ClusterRoleBinding/agentrally-operator-agentrally-system-connector"
+		}
+		if _, ok := object.(*corev1.ServiceAccount); ok {
+			name = "ServiceAccount/agentrally-operator-connector"
 		}
 		if err := yaml.Unmarshal(objects[name], object); err != nil {
 			t.Fatal(err)
@@ -68,7 +73,7 @@ func TestConnectorManagement(t *testing.T) {
 		})
 	}
 	config := rest.CopyConfig(adminConfig)
-	config.Impersonate = rest.ImpersonationConfig{UserName: "system:serviceaccount:agentrally-system:agentrally-operator",
+	config.Impersonate = rest.ImpersonationConfig{UserName: "system:serviceaccount:agentrally-system:agentrally-operator-connector",
 		Groups: []string{"system:serviceaccounts", "system:serviceaccounts:agentrally-system", "system:authenticated"}}
 	var secretDeletes, configMapDeletes atomic.Int32
 	config.Wrap(func(next http.RoundTripper) http.RoundTripper {
@@ -94,7 +99,26 @@ func TestConnectorManagement(t *testing.T) {
 		_, err := kube.Resource(v1.GroupVersion.WithResource("agentgroups")).Get(ctx, "connector-team", metav1.GetOptions{})
 		return apierrors.IsNotFound(err), nil
 	}); err != nil {
-		t.Fatal("rendered Operator RBAC did not become available:", err)
+		t.Fatal("rendered Connector RBAC did not become available:", err)
+	}
+	identityClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, access := range []authorizationv1.ResourceAttributes{
+		{Group: "arally.io", Resource: "agentinstances", Subresource: "status", Verb: "update", Namespace: "agentrally-connector-team"},
+		{Resource: "pods", Verb: "create", Namespace: "agentrally-connector-team"},
+		{Resource: "secrets", Verb: "update", Namespace: "agentrally-connector-team"},
+		{Resource: "nodes", Verb: "list"},
+		{Group: "networking.k8s.io", Resource: "networkpolicies", Verb: "update", Namespace: "agentrally-connector-team"},
+	} {
+		review, err := identityClient.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, &authorizationv1.SelfSubjectAccessReview{Spec: authorizationv1.SelfSubjectAccessReviewSpec{ResourceAttributes: &access}}, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if review.Status.Allowed {
+			t.Fatalf("Connector inherited controller privileges: %+v", access)
+		}
 	}
 	commands := make(chan connector.Request)
 	responses := make(chan connector.Response, 1)

@@ -20,5 +20,7 @@ jobs:
     uses: ./.github/workflows/e2e.yml
     with:
       image: ${{ needs.packages.outputs.image }}
+      connector_image: ${{ needs.packages.outputs.connector_image }}
       image_artifact: agentrally-operator-image
+      connector_image_artifact: agentrally-connector-image
       chart_artifact: agentrally-operator-chart

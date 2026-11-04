@@ -15,7 +15,7 @@ import (
 
 const GroupNetworkPolicyName = "agentrally-group-policy"
 
-// InvocationPeer identifies the installed Operator Pods, not a backend identity.
+// InvocationPeer identifies the installed Connector Pods, not a backend identity.
 type InvocationPeer struct {
 	Namespace   string
 	ReleaseName string
@@ -50,7 +50,7 @@ func GroupNetworkPolicy(group *v1.AgentGroup, peer InvocationPeer) (*networkingv
 	policy.Ingress = []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{{
 		NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": peer.Namespace}},
 		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-			"app.kubernetes.io/name": "agentrally-operator", "app.kubernetes.io/instance": peer.ReleaseName, "app.kubernetes.io/component": "manager",
+			"app.kubernetes.io/name": "agentrally-connector", "app.kubernetes.io/instance": peer.ReleaseName, "app.kubernetes.io/component": "connector",
 		}},
 	}}}}
 	return policy, nil

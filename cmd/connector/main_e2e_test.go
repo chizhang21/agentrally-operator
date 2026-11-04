@@ -24,16 +24,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func TestInvocationFailurePreservesManagerReconciliation(t *testing.T) {
+func TestInvocationFailurePreservesManagement(t *testing.T) {
 	cfg, _ := testutil.E2EConfig(t, "", "")
+	var polls atomic.Int32
 	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/requests"):
+			polls.Add(1)
 			w.WriteHeader(http.StatusNoContent)
 		case strings.HasSuffix(r.URL.Path, "/sessions"):
 			var request struct{ Nonce string }
@@ -64,21 +66,14 @@ func TestInvocationFailurePreservesManagerReconciliation(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	mgr, err := ctrl.NewManager(cfg, managerOptions(address, "0", "", false))
+	options := managerOptions(address, "", "preview")
+	options.LeaderElection = false
+	mgr, err := ctrl.NewManager(cfg, options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := addConnector(mgr, cfg, connector.Config{Endpoint: backend.URL, ID: "preview", TokenFile: token, CAFile: ca,
-		InvocationPreview: true, InvocationPeer: controller.InvocationPeer{Namespace: "connector-preview", ReleaseName: "operator"}}); err != nil {
-		t.Fatal(err)
-	}
-	var reconciled atomic.Bool
-	if err := ctrl.NewControllerManagedBy(mgr).For(&corev1.ConfigMap{}).Complete(reconcile.Func(func(_ context.Context, request reconcile.Request) (ctrl.Result, error) {
-		if request.Name == "after-preview-failure" {
-			reconciled.Store(true)
-		}
-		return ctrl.Result{}, nil
-	})); err != nil {
+		InvocationPreview: true, InvocationPeer: controller.InvocationPeer{Namespace: "connector-preview", ReleaseName: "operator"}}, client.ObjectKey{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -107,18 +102,9 @@ func TestInvocationFailurePreservesManagerReconciliation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("preview failure was not exposed through readiness: %v", err)
 	}
-	kube, err := client.New(cfg, client.Options{Scheme: scheme})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := kube.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "connector-preview"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := kube.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "after-preview-failure", Namespace: "connector-preview"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := wait.PollUntilContextTimeout(ctx, 50*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) { return reconciled.Load(), nil }); err != nil {
-		t.Fatalf("preview failure stopped core reconciliation: %v", err)
+	before := polls.Load()
+	if err := wait.PollUntilContextTimeout(ctx, 50*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) { return polls.Load() > before, nil }); err != nil {
+		t.Fatalf("preview failure stopped management polling: %v", err)
 	}
 }
 
@@ -126,7 +112,7 @@ func TestConnectorLeaderHandoffAndReadiness(t *testing.T) {
 	cfg, _ := testutil.E2EConfig(t, "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	kube, err := client.New(cfg, client.Options{Scheme: scheme})
+	kube, err := client.New(cfg, client.Options{Scheme: clientgoscheme.Scheme})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,14 +154,14 @@ func TestConnectorLeaderHandoffAndReadiness(t *testing.T) {
 		if err := listener.Close(); err != nil {
 			t.Fatal(err)
 		}
-		options := managerOptions(addresses[index], "0", "connector-election", true)
+		options := managerOptions(addresses[index], "connector-election", "test-connector")
 		lease, renew, retry := 5*time.Second, 3*time.Second, 500*time.Millisecond
 		options.LeaseDuration, options.RenewDeadline, options.RetryPeriod = &lease, &renew, &retry
 		managers[index], err = ctrl.NewManager(cfg, options)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := addConnector(managers[index], cfg, connector.Config{Endpoint: backend.URL, ID: id, TokenFile: token, CAFile: ca}); err != nil {
+		if err := addConnector(managers[index], cfg, connector.Config{Endpoint: backend.URL, ID: id, TokenFile: token, CAFile: ca}, client.ObjectKey{Namespace: "connector-election", Name: "test-connector"}); err != nil {
 			t.Fatal(err)
 		}
 	}

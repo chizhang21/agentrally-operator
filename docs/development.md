@@ -17,9 +17,9 @@ Lint also requires ShellCheck on your `PATH`.
 | --- | --- |
 | `make test` | Run local Go/Python tests, including API schemas and Chart rendering/packaging |
 | `make lint` | Check Go, shell scripts, workflows, generated files and Helm chart |
-| `make build` (or `make`) | Compile `dist/operator`, including the optional Connector, locally without Docker |
-| `make image-build` | Build the Operator image from Containerfile |
-| `make image-push` | Upload the built Operator image |
+| `make build` (or `make`) | Compile `dist/operator` and `dist/connector` locally without Docker |
+| `make image-build` | Build both images from the `operator` and `connector` Containerfile targets |
+| `make image-push` | Upload both built images |
 | `make chart-package` | Create a local Chart `.tgz` archive |
 | `make chart-push` | Package and upload the Chart to an OCI registry |
 | `make e2e` | Test API contracts, Connector and workload lifecycle in a disposable Kind cluster |
@@ -58,6 +58,7 @@ Make uses these defaults:
 | `VERSION` | `0.0.0-dev` |
 | `IMAGE_TAG_BASE` | `agentrally-operator` |
 | `IMG` | `$(IMAGE_TAG_BASE):v$(VERSION)` |
+| `CONNECTOR_IMG` | `agentrally-connector:v$(VERSION)` |
 | `CHART_OCI_REPO` | `oci://ghcr.io/chizhang21/helm` |
 
 Pass overrides to each command, export them in your shell, or run related targets
@@ -70,14 +71,15 @@ Prereleases such as `x.y.z-rc.1` are supported.
 Versions are limited to 63 characters and cannot contain `+metadata` so Kubernetes
 version labels remain valid.
 Image tags add `v`; Chart versions do not.
-`IMG` overrides the complete image reference, including a digest.
+`IMG` and `CONNECTOR_IMG` override each complete image reference, including a digest.
 
 Build and package for Linux amd64, matching the Chart's default node selector:
 
 ```sh
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 make image-build image-push chart-package \
-  VERSION=0.0.0-dev IMAGE_TAG_BASE=YOUR_REGISTRY/agentrally-operator
+  VERSION=0.0.0-dev IMAGE_TAG_BASE=YOUR_REGISTRY/agentrally-operator \
+  CONNECTOR_IMG=YOUR_REGISTRY/agentrally-connector:v0.0.0-dev
 ```
 
 Log in to your registry before pushing.
@@ -89,12 +91,12 @@ image defaults.
 Downloaded tools and local test logs are retained.
 
 Repeated dev builds reuse the image tag and overwrite the archive.
-Versions with the `-dev` prerelease set `image.pullPolicy: Always`.
+Versions with the `-dev` prerelease set both image pull policies to `Always`.
 To install or update them, follow [local installation](installation.md#local-development-and-testing).
 
-## Upload image and Chart
+## Upload images and Chart
 
-Image and Chart repositories are independent.
+The Operator, Connector and Chart use separate OCI repositories.
 Log in, then build and upload with explicit settings:
 
 ```sh
@@ -103,14 +105,15 @@ helm registry login ghcr.io --username YOUR_GITHUB_USER
 make image-build image-push chart-push \
   VERSION=x.y.z \
   IMAGE_TAG_BASE=ghcr.io/YOUR_GITHUB_USER/agentrally-operator \
+  CONNECTOR_IMG=ghcr.io/YOUR_GITHUB_USER/agentrally-connector:vx.y.z \
   CHART_OCI_REPO=oci://ghcr.io/YOUR_GITHUB_USER/helm
 ```
 
 `chart-push` packages the archive before publishing it with Helm's native OCI format.
 `CHART_OCI_REPO` is the parent path, without a Chart name or tag.
 Helm adds `agentrally-operator:<VERSION>`.
-For CI publication, push a tag such as `vx.y.z`; the release workflow selects matching
-image and Chart versions from that tag.
+For CI publication, push a tag such as `vx.y.z`.
+The release workflow uses that version for both images and the Chart.
 
 The quick start also uses `ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3`.
 Its source and independent image workflow live in
@@ -131,7 +134,7 @@ Generated-file consistency belongs to `make lint`.
 | `tests/packaging` | Package identity, image/version preservation, credential exclusion and Connector wiring |
 | `tests/api` | CRD schemas, CEL rules, field preservation and example references |
 | `tests/e2e` | Helm upgrades/uninstall, restricted Connector management and workload lifecycle in Kind |
-| `cmd/*_e2e_test.go` | Startup, Connector failure isolation and leader handoff against the same Kind API |
+| `cmd/connector/*_e2e_test.go` | Startup, Connector failure isolation and leader handoff against the same Kind API |
 
 Controller unit tests use fake clients; API admission, scheduling, GC and upstream
 controllers need the verification layers below.
@@ -147,8 +150,9 @@ It never uses the caller's current kubeconfig.
 
 | Setting | Purpose |
 | --- | --- |
-| `E2E_TEST` | Select Go test names; default runs both `cmd` and `tests/e2e` suites |
-| `E2E_IMAGE=repository:tag` | Use an already built local image; no publication |
+| `E2E_TEST` | Select Go test names; default runs `cmd/...` and `tests/e2e` suites |
+| `E2E_IMAGE=repository:tag` | Use an already built local Operator image; no publication |
+| `E2E_CONNECTOR_IMAGE=repository:tag` | Use an already built local Connector image; no publication |
 | `E2E_CHART=/path/to/chart.tgz` | Install a packaged Chart |
 | `E2E_CNI=cilium` | Install Cilium and execute ingress, ConnectorOnly and native egress traffic tests |
 | `E2E_SNAPSHOTS=true` | Install CSI snapshot fixtures and test workspace initialization |
@@ -164,9 +168,10 @@ The suite covers publication/revision pinning, dependency rotation, Group polici
 allocation, prewarming, suspend/resume, replacement, expiry and ownership cleanup.
 Generic native-template tasks verify completion policies.
 Workspace checks distinguish execution-private volumes from externally managed PVCs.
-Connector management uses the Operator's rendered RBAC rather than administrator permissions.
+Connector management uses its dedicated rendered RBAC rather than administrator permissions.
 It checks scoped metadata reads, write-result retries and guarded Secret/ConfigMap deletion.
-Startup tests run managers against the Kind API and verify leader handoff and failure isolation.
+Startup tests verify leader handoff against the Kind API.
+Deployment tests exercise backend connectivity, outage isolation, Pod replacement and cleanup on disable.
 The Helm lifecycle test restores the selected Chart and values after checking CRD retention.
 Resource aggregation rules run in a pinned Prometheus engine with small attribution fixtures.
 They verify shared-PVC deduplication and unknown usage, without requiring a cluster monitoring stack.
@@ -197,7 +202,7 @@ Go cleanup and driver EXIT handle ordinary completion and catchable interruption
 SIGKILL or runner loss can prevent cleanup.
 
 The [E2E workflow](../.github/workflows/e2e.yml) supports manual dispatch.
-Tag releases test the same image and Chart artifacts selected for publication.
+Tag releases test the same image archives and Chart artifact selected for publication.
 Publication follows packaging without waiting for E2E.
 PR/main, tag releases and manual E2E workflow dispatches run Kind tests.
 

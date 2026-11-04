@@ -3,6 +3,8 @@
 replicaCount: 2
 connector:
   enabled: true
+  # Independent from the Operator replicas above; only one Connector polls at a time.
+  replicaCount: 2
   endpoint: https://orchestrator.example.com/
   id: example-cluster
   credentialsSecret: agentrally-connector-credentials

@@ -1,6 +1,7 @@
 VERSION ?= 0.0.0-dev
 IMAGE_TAG_BASE ?= agentrally-operator
 IMG ?= $(IMAGE_TAG_BASE):v$(VERSION)
+CONNECTOR_IMG ?= agentrally-connector:v$(VERSION)
 CHART_OCI_REPO ?= oci://ghcr.io/chizhang21/helm
 CONTAINER_TOOL ?= docker
 
@@ -48,18 +49,21 @@ clean: ## Remove build outputs, staging directories and Python bytecode.
 ##@ Build and packaging
 
 .PHONY: build image-build image-push chart-package chart-push
-build: ## Compile the operator binary, including the optional Connector.
+build: ## Compile the Operator and Connector binaries.
 	mkdir -p dist
 	GOWORK=off go build -trimpath -o dist/operator ./cmd
+	GOWORK=off go build -trimpath -o dist/connector ./cmd/connector
 
-image-build: ## Build the operator image.
-	$(CONTAINER_TOOL) build -f Containerfile -t "$(IMG)" .
+image-build: ## Build the Operator and Connector images.
+	$(CONTAINER_TOOL) build -f Containerfile --target operator -t "$(IMG)" .
+	$(CONTAINER_TOOL) build -f Containerfile --target connector -t "$(CONNECTOR_IMG)" .
 
-image-push: ## Push the operator image.
+image-push: ## Push the Operator and Connector images.
 	$(CONTAINER_TOOL) push "$(IMG)"
+	$(CONTAINER_TOOL) push "$(CONNECTOR_IMG)"
 
 chart-package: ## Package a versioned chart with the selected image defaults.
-	python3 hack/package_chart.py --version "$(VERSION)" --image "$(IMG)" --output "$(CURDIR)/dist"
+	python3 hack/package_chart.py --version "$(VERSION)" --image "$(IMG)" --connector-image "$(CONNECTOR_IMG)" --output "$(CURDIR)/dist"
 
 chart-push: chart-package ## Package and push the chart to CHART_OCI_REPO.
 	helm push "$(CURDIR)/dist/agentrally-operator-$(VERSION).tgz" "$(CHART_OCI_REPO)"

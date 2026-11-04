@@ -5,6 +5,9 @@ on:
       image:
         required: true
         type: string
+      connector_image:
+        required: true
+        type: string
       version:
         required: true
         type: string
@@ -24,6 +27,7 @@ jobs:
       packages: write
     env:
       IMAGE: ${{ inputs.image }}
+      CONNECTOR_IMAGE: ${{ inputs.connector_image }}
       VERSION: ${{ inputs.version }}
       CHART_REPOSITORY: ${{ inputs.chart_repository }}
     steps:
@@ -32,6 +36,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: agentrally-operator-image
+          path: dist/image
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agentrally-connector-image
           path: dist/image
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -44,6 +52,8 @@ jobs:
         run: |
           docker image load --input dist/image/agentrally-operator-image.tar
           docker image inspect "$IMAGE" >/dev/null
+          docker image load --input dist/image/agentrally-connector-image.tar
+          docker image inspect "$CONNECTOR_IMAGE" >/dev/null
           helm show chart "dist/chart/agentrally-operator-${VERSION}.tgz"
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -51,12 +61,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish the image and chart
+      - name: Publish the images and chart
         env:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USERNAME" --password-stdin
           docker image push "$IMAGE"
+          docker image push "$CONNECTOR_IMAGE"
           helm push "dist/chart/agentrally-operator-${VERSION}.tgz" "$CHART_REPOSITORY"
-          printf 'Image: %s\nChart: %s/agentrally-operator:%s\n' "$IMAGE" "$CHART_REPOSITORY" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Operator image: %s\nConnector image: %s\nChart: %s/agentrally-operator:%s\n' "$IMAGE" "$CONNECTOR_IMAGE" "$CHART_REPOSITORY" "$VERSION" >> "$GITHUB_STEP_SUMMARY"

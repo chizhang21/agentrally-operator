@@ -1,36 +1,58 @@
 {{- if .Values.connector.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-connector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentrally-connector
+    app.kubernetes.io/component: connector
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ .Release.Name }}-{{ .Release.Namespace }}-connector
   labels:
-    app.kubernetes.io/name: agentrally-operator
+    app.kubernetes.io/name: agentrally-connector
     app.kubernetes.io/component: connector
     {{- include "agentrally-operator.labels" . | nindent 4 }}
-# Other CR permissions are already granted by the manager role.
+# Direct management and observations; no controller status or reconciliation writes.
 rules:
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
     verbs: ["get", "list"]
   - apiGroups: [arally.io]
-    resources: [agentgroups, agentdefinitions]
-    verbs: [create, delete]
+    resources: [agentgroups, agentdefinitions, agentinstances]
+    verbs: [get, list, create, update, delete]
   - apiGroups: [arally.io]
-    resources: [agentinstances]
-    verbs: [create]
+    resources: [clustercapabilities]
+    verbs: [get, list]
   - apiGroups: [""]
-    resources: [secrets]
-    verbs: [list, create, delete]
+    resources: [secrets, configmaps]
+    verbs: [get, list, create, delete]
   - apiGroups: [""]
-    resources: [configmaps]
-    verbs: [create, delete]
+    resources: [namespaces, pods, services]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list]
+  - apiGroups: [agents.x-k8s.io]
+    resources: [sandboxes]
+    verbs: [get]
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxclaims, sandboxtemplates]
+    verbs: [get]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: {{ .Release.Name }}-{{ .Release.Namespace }}-connector
   labels:
-    app.kubernetes.io/name: agentrally-operator
+    app.kubernetes.io/name: agentrally-connector
     app.kubernetes.io/component: connector
     {{- include "agentrally-operator.labels" . | nindent 4 }}
 roleRef:
@@ -39,6 +61,41 @@ roleRef:
   name: {{ .Release.Name }}-{{ .Release.Namespace }}-connector
 subjects:
   - kind: ServiceAccount
-    name: {{ .Release.Name }}
+    name: {{ .Release.Name }}-connector
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: {{ .Release.Name }}-connector
+  namespace: {{ .Release.Namespace }}
+spec: {}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-connector
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [{{ .Release.Name }}-connector]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-connector
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-connector
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-connector
     namespace: {{ .Release.Namespace }}
 {{- end }}

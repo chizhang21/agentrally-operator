@@ -48,17 +48,18 @@ def parse_image(image):
     return repository, tag, digest
 
 
-def stage_chart(source, output, version, image):
+def stage_chart(source, output, version, image, connector_image):
     validate_version(version)
-    repository, tag, digest = parse_image(image)
     metadata = (source / "Chart.yaml").read_text()
     metadata = replace_field(metadata, "version", version)
     metadata = replace_field(metadata, "appVersion", version)
     values = (source / "values.yaml").read_text()
-    for field, value in [("repository", repository), ("tag", tag), ("digest", digest)]:
-        values = replace_field(values, "  " + field, value)
-    if version.partition("-")[2] == "dev":
-        values = replace_field(values, "  pullPolicy", "Always")
+    for reference, indent in [(image, "  "), (connector_image, "    ")]:
+        repository, tag, digest = parse_image(reference)
+        for field, value in [("repository", repository), ("tag", tag), ("digest", digest)]:
+            values = replace_field(values, indent + field, value)
+        if version.partition("-")[2] == "dev":
+            values = replace_field(values, indent + "pullPolicy", "Always")
     shutil.copytree(source, output)
     (output / "Chart.yaml").write_text(metadata)
     (output / "values.yaml").write_text(values)
@@ -68,6 +69,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument("--connector-image", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -75,7 +77,7 @@ if __name__ == "__main__":
         (root / ".cache").mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="chart.", dir=root / ".cache") as directory:
             chart = Path(directory) / "chart"
-            stage_chart(root / "chart", chart, args.version, args.image)
+            stage_chart(root / "chart", chart, args.version, args.image, args.connector_image)
             args.output.mkdir(parents=True, exist_ok=True)
             subprocess.run(["helm", "package", str(chart), "--destination", str(args.output)], check=True)
     except ValueError as error:

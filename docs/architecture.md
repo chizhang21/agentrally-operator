@@ -8,8 +8,9 @@ Direct Kubernetes and GitOps use require no backend.
 
 ## Responsibilities
 
-A controller-runtime manager runs four controllers and the optional outbound Connector.
-Leader election coordinates the active process.
+A controller-runtime manager runs four controllers.
+The optional outbound Connector runs in a separate Deployment.
+Each Deployment elects its own active replica.
 Controllers reconcile their own root resources through the Kubernetes API.
 
 | Resource | Scope | Responsibility |
@@ -23,7 +24,8 @@ Controllers reconcile their own root resources through the Kubernetes API.
 flowchart LR
     U["kubectl / GitOps"] --> K["Kubernetes API"]
     O["AgentRally Operator"] <--> K
-    O -.-> B["Optional backend"]
+    R["Optional Connector"] --> B["Optional backend"]
+    R <--> K
     E["agent-sandbox Extensions"] <--> K
     C["agent-sandbox Core"] <--> K
     K --> N["Kubelet and node runtime"]
@@ -185,8 +187,10 @@ ClusterCapabilities observes runtime/storage/network configuration and freshness
 It does not attest execution, storage I/O or filtering.
 See [capability evidence](cluster-capabilities.md).
 
-The optional Connector runs inside the elected Operator and initiates outbound HTTPS.
-It relays scoped Kubernetes management operations and exposes container-level observations.
+The optional Connector uses a separate image, Deployment and ServiceAccount.
+Its elected replica initiates outbound HTTPS.
+The Operator and Connector use independent leader-election Leases.
+Connector relays scoped Kubernetes management operations and exposes container-level observations.
 Authentication and caller authorization belong to the backend.
 
 Invocation is a default-off preview with pinned execution targets and bounded JSON/SSE transport.

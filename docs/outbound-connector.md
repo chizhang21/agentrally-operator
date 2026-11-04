@@ -3,9 +3,10 @@
 Use the [Orchestrator values example](../examples/values/orchestrator.yaml) to enable Connector.
 This document defines the protocol a backend must implement to manage resources through it.
 
-Connector is an optional worker inside the Operator process.
+Connector is an optional, separate Deployment with its own image and ServiceAccount.
 Enable it with `connector.enabled: true` in the chart; it is disabled by default.
-Only the elected Operator replica polls the backend over HTTPS.
+Only the elected Connector replica polls the backend over HTTPS.
+It uses a separate leader-election Lease; no Service or Ingress is needed.
 Controllers continue reconciling if Connector is disabled or disconnected.
 
 Connector executes restricted Kubernetes management requests.
@@ -29,12 +30,17 @@ For a first installation, create the release namespace and credentials before ru
 
 System CA roots are used by default.
 For a private backend CA, add `--from-file=ca.crt=/path/to/backend-ca.crt` when creating the Secret and uncomment `caFile` in the example.
-Token changes are read on each request; CA changes need an Operator restart.
+Token changes are read on each request; CA changes need a Connector restart.
 
-Connector uses the Operator's binary, Deployment and ServiceAccount.
-Enabling it adds CR write permissions, EndpointSlice reads and Secret list/create/delete permissions.
-It also adds ConfigMap create/delete permissions; the Controller's existing ConfigMap reads and watch remain unchanged.
-The top-level `resources` values cover the whole process.
+Use `connector.replicaCount` and `connector.resources` to size it independently.
+The Chart selects matching Operator and Connector image versions.
+Override `connector.image` for a custom build.
+Scheduling and Pod security settings apply to both Deployments.
+
+Only Connector mounts the backend credentials.
+Its RBAC permits the supported management operations and observations, without controller status writes.
+Disabling Connector removes its Deployment, ServiceAccount, RBAC and Lease.
+The existing credentials Secret remains under your control.
 
 The backend must bind credentials to cluster id and reject duplicate active connections for that id.
 
@@ -314,12 +320,19 @@ Request ids correlate messages; they do not guarantee exactly-once execution.
 Dispatch requests only during an authenticated live poll.
 Expire pending requests on disconnect and reject writes while offline.
 
-When enabled, `/readyz/connector` on the Operator health port reports backend
-connectivity on the elected replica; standby replicas pass this check without polling.
-A disconnected leader fails the aggregate `/readyz` check while `/healthz` and local
-reconciliation continue.
-A latched invocation-preview failure also fails Connector readiness.
-Management polling and local reconciliation continue until the Operator is restarted.
+`/readyz/connector` on the Connector health port reports backend connectivity on the elected replica.
+Standby replicas pass this check without polling while a readable, unexpired Lease has a holder.
+This allows rolling updates without treating failed election as a healthy standby.
+A disconnected leader fails `/readyz`, while `/healthz` remains healthy and the worker retries.
+A latched invocation-preview failure also fails Connector readiness; management polling continues.
+Restart Connector to reset that failure.
+
+Operator readiness and reconciliation are independent of Connector health.
+
+Helm owns the Connector Lease.
+If it is deleted, Connector cannot recreate it; replicas remain NotReady after losing leadership.
+Repeat the [Helm upgrade](installation.md#upgrade-agentrally) with the same Chart version and Connector values to recreate it.
+The replicas then elect a leader and reconnect without an Operator restart.
 
 Connector keeps no durable operation log or separate capability cache.
 

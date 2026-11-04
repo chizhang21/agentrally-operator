@@ -6,6 +6,12 @@ on:
       image:
         type: string
         default: ''
+      connector_image:
+        type: string
+        default: ''
+      connector_image_artifact:
+        type: string
+        default: ''
       image_artifact:
         type: string
         default: ''
@@ -42,6 +48,20 @@ jobs:
           test -n "$IMAGE"
           docker image load --input .cache/release/image/agentrally-operator-image.tar
           docker image inspect "$IMAGE" >/dev/null
+      - name: Download the release Connector image
+        if: inputs.connector_image_artifact != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.connector_image_artifact }}
+          path: .cache/release/image
+      - name: Load the release Connector image
+        if: inputs.connector_image_artifact != ''
+        env:
+          IMAGE: ${{ inputs.connector_image }}
+        run: |
+          test -n "$IMAGE"
+          docker image load --input .cache/release/image/agentrally-connector-image.tar
+          docker image inspect "$IMAGE" >/dev/null
       - name: Download the release chart
         if: inputs.chart_artifact != ''
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -60,4 +80,5 @@ jobs:
       - name: Test Core, Extensions and Operator in kind
         env:
           E2E_IMAGE: ${{ inputs.image }}
+          E2E_CONNECTOR_IMAGE: ${{ inputs.connector_image }}
         run: make e2e

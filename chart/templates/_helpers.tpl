@@ -13,3 +13,11 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "agentrally-operator.connectorImage" -}}
+{{- if .Values.connector.image.digest -}}
+{{- printf "%s@%s" .Values.connector.image.repository .Values.connector.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.connector.image.repository (default .Chart.AppVersion .Values.connector.image.tag) -}}
+{{- end -}}
+{{- end -}}

@@ -10,11 +10,11 @@ Custom images for other architectures require a matching node selector.
 For the current source checkout, use the
 [local installation workflow](#local-development-and-testing).
 
-Version-tag releases publish both the Operator image and OCI Chart to GHCR as soon as
+Version-tag releases publish the Operator image, Connector image and OCI Chart to GHCR as soon as
 packaging succeeds.
 Checks and E2E run independently of publication.
 PR and main-branch CI retain build artifacts without publishing them.
-See the [release workflow](../.github/workflows/release.yml) or [manual uploads](development.md#upload-image-and-chart).
+See the [release workflow](../.github/workflows/release.yml) or [manual uploads](development.md#upload-images-and-chart).
 The OCI commands below require an accessible, published Chart version.
 
 ## Standard installation
@@ -173,7 +173,7 @@ helm install agentrally-operator "$CHART_PACKAGE" \
 
 Keep the `--set` argument quoted so shells such as zsh do not expand the brackets.
 
-The Secret applies to the Operator Pod, including its optional Connector worker.
+The pull Secret applies to both Operator and Connector Pods.
 Private Agent images need their own pull Secrets in the Group namespace, configured in
 AgentDefinition.container or SandboxTemplate.
 
@@ -204,5 +204,6 @@ kubectl -n agentrally-system rollout status deployment \
   -l app.kubernetes.io/instance=agentrally-operator --timeout=5m
 ```
 
-Restarting the Operator also restarts its enabled Connector worker.
+This selector restarts both Deployments when Connector is enabled.
+Restarting only the Operator Deployment leaves Connector running.
 If you used a different Helm release name, replace `agentrally-operator` in the selector.

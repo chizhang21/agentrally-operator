@@ -33,10 +33,23 @@ startupProbe:
   failureThreshold: 60
   periodSeconds: 5
   timeoutSeconds: 2
-# Optional outbound relay in the elected Operator process.
+# Optional outbound Connector in its own Deployment.
 # See examples/values/orchestrator.yaml for the Orchestrator deployment mode.
 connector:
   enabled: false
+  replicaCount: 1
+  image:
+    repository: agentrally-connector
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
   # Controlled invocation testing only; production support is not yet advertised.
   invocationPreview: false
   endpoint: ""

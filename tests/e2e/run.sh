@@ -37,6 +37,7 @@ log_root="${E2E_LOG_DIR:-$PWD/.cache/e2e}"
 mkdir -p "$log_root"
 logs=$(mktemp -d "$log_root/$cluster.XXXXXX")
 image=${E2E_IMAGE:-agentrally-operator:e2e}
+connector_image=${E2E_CONNECTOR_IMAGE:-agentrally-connector:e2e}
 created=false
 
 cleanup_egress_fixtures() {
@@ -62,6 +63,7 @@ finish() {
       kubectl --request-timeout=5s get pods,events -A -o yaml > "$logs/resources.yaml" 2>&1 || true
       kubectl --request-timeout=5s get agentdefinitions,agentinstances,agentgroups,clustercapabilities -A -o yaml > "$logs/agentrally-resources.yaml" 2>&1 || true
       timeout 10s kubectl --request-timeout=5s -n agentrally-system logs deployment/agentrally-operator --pod-running-timeout=5s --all-containers > "$logs/operator.log" 2>&1 || true
+      timeout 10s kubectl --request-timeout=5s -n agentrally-system logs deployment/agentrally-operator-connector --pod-running-timeout=5s --all-containers > "$logs/connector.log" 2>&1 || true
       timeout 10s kubectl --request-timeout=5s -n agent-sandbox-system logs deployment/agent-sandbox-controller --pod-running-timeout=5s --all-containers > "$logs/upstream.log" 2>&1 || true
       timeout 30s "$KIND" export logs "$logs/kind" --name "$cluster" || true
     fi
@@ -89,9 +91,19 @@ if [[ "$image" == *@* || ${image##*/} != *:* ]]; then
   exit 1
 fi
 if [[ -z ${E2E_IMAGE:-} ]]; then
-  docker build -f Containerfile --tag "$image" .
+  docker build -f Containerfile --target operator --tag "$image" .
 else
   docker image inspect "$image" >/dev/null
+fi
+
+if [[ "$connector_image" == *@* || ${connector_image##*/} != *:* ]]; then
+  echo 'E2E_CONNECTOR_IMAGE must name a locally built image with an explicit tag.' >&2
+  exit 1
+fi
+if [[ -z ${E2E_CONNECTOR_IMAGE:-} ]]; then
+  docker build -f Containerfile --target connector --tag "$connector_image" .
+else
+  docker image inspect "$connector_image" >/dev/null
 fi
 
 node='kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a'
@@ -136,6 +148,7 @@ if [[ "$E2E_SNAPSHOTS" == true ]]; then
   install_snapshot_fixtures "$temporary" "$platform"
 fi
 load_image "$image"
+load_image "$connector_image"
 docker pull --platform="$platform" docker.io/library/busybox:1.37.0
 export E2E_DIGEST_IMAGE
 E2E_DIGEST_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/library/busybox:1.37.0)
@@ -152,10 +165,12 @@ repository=${image%:*}
 tag=${image##*:}
 helm install agentrally-operator "$chart" -n agentrally-system --create-namespace \
   --set-string image.repository="$repository" --set-string image.tag="$tag" \
-  --set image.pullPolicy=IfNotPresent --wait --timeout=240s
+  --set-string connector.image.repository="${connector_image%:*}" \
+  --set-string connector.image.tag="${connector_image##*:}" \
+  --set connector.image.pullPolicy=IfNotPresent --set image.pullPolicy=IfNotPresent --wait --timeout=240s
 set +e
 AGENTRALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
-  go test -p=1 -tags=e2e ./cmd ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v 2>&1 \
+  go test -p=1 -tags=e2e ./cmd/... ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v 2>&1 \
   | tee "$logs/lifecycle.log"
 test_results=("${PIPESTATUS[@]}")
 set -e

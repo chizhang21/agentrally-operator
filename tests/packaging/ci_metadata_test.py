@@ -15,6 +15,7 @@ class PackageIdentityTests(unittest.TestCase):
         result = metadata("pull_request", "Owner/AgentRally-Operator", "012345678901" + "0" * 28,
                           "refs/pull/123/merge", {"number": 123})
         self.assertEqual(result, {"image": "ghcr.io/owner/agentrally-operator",
+                                 "connector_image": "ghcr.io/owner/agentrally-connector",
                                  "tag": "v0.0.0-pr.123.g012345678901",
                                  "version": "0.0.0-pr.123.g012345678901",
                                  "chart_repository": "oci://ghcr.io/owner/helm"})

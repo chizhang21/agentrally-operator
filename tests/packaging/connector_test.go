@@ -1,14 +1,13 @@
 package packaging_test
 
 import (
-	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"sigs.k8s.io/yaml"
 )
 
-func TestConnectorChartWiresFlagsAndCredentials(t *testing.T) {
+func TestConnectorChartSeparatesCredentials(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		name := "disabled"
 		overrides := []string{}
@@ -19,27 +18,30 @@ func TestConnectorChartWiresFlagsAndCredentials(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			objects := renderObjects(t, overrides...)
-			var deployment appsv1.Deployment
-			if err := yaml.Unmarshal(objects["Deployment/agentrally-operator"], &deployment); err != nil {
+			var operator appsv1.Deployment
+			if err := yaml.Unmarshal(objects["Deployment/agentrally-operator"], &operator); err != nil {
 				t.Fatal(err)
 			}
-			pod := deployment.Spec.Template.Spec
-			if len(pod.Containers) != 1 {
-				t.Fatal("Connector must run inside the Operator process")
+			if len(operator.Spec.Template.Spec.Volumes) != 0 || len(operator.Spec.Template.Spec.Containers[0].VolumeMounts) != 0 {
+				t.Fatal("Operator retains Connector credentials")
 			}
-			container := pod.Containers[0]
+			data, exists := objects["Deployment/agentrally-operator-connector"]
+			if exists != enabled {
+				t.Fatal("Connector Deployment does not follow enabled")
+			}
 			if !enabled {
-				if len(pod.Volumes) != 0 || slices.Contains(container.Args, "--connector-enabled=true") {
-					t.Fatal("disabled Connector retains its credentials or startup flag")
-				}
 				return
 			}
-			for _, flag := range []string{"--connector-enabled=true", "--connector-endpoint=https://backend.example/", "--connector-id=test-cluster"} {
-				if !slices.Contains(container.Args, flag) {
-					t.Fatalf("missing Connector flag: %s", flag)
-				}
+			var relay appsv1.Deployment
+			if err := yaml.Unmarshal(data, &relay); err != nil {
+				t.Fatal(err)
 			}
-			if len(pod.Volumes) != 1 || pod.Volumes[0].Secret == nil || pod.Volumes[0].Secret.SecretName != "credentials" || len(container.VolumeMounts) != 1 || !container.VolumeMounts[0].ReadOnly {
+			pod := relay.Spec.Template.Spec
+			if pod.ServiceAccountName == operator.Spec.Template.Spec.ServiceAccountName {
+				t.Fatal("Connector shares controller privileges")
+			}
+			if len(pod.Volumes) != 1 || pod.Volumes[0].Secret == nil || pod.Volumes[0].Secret.SecretName != "credentials" ||
+				len(pod.Containers[0].VolumeMounts) != 1 || !pod.Containers[0].VolumeMounts[0].ReadOnly {
 				t.Fatal("Connector credentials are not mounted read-only")
 			}
 		})

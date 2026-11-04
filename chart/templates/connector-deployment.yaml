@@ -1,0 +1,97 @@
+{{- if .Values.connector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-connector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentrally-connector
+    app.kubernetes.io/component: connector
+    {{- include "agentrally-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.connector.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentrally-connector
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentrally-connector
+        app.kubernetes.io/component: connector
+        {{- include "agentrally-operator.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-connector
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: connector
+          image: {{ include "agentrally-operator.connectorImage" . | quote }}
+          imagePullPolicy: {{ .Values.connector.image.pullPolicy }}
+          args:
+            - --leader-election-id={{ .Release.Name }}-connector
+            - --health-probe-bind-address=:8081
+            - {{ printf "--connector-endpoint=%s" .Values.connector.endpoint | quote }}
+            - {{ printf "--connector-id=%s" .Values.connector.id | quote }}
+            {{- if .Values.connector.invocationPreview }}
+            - --connector-invocation-preview=true
+            {{- end }}
+            {{- with .Values.connector.caFile }}
+            - {{ printf "--connector-ca-file=%s" . | quote }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          env:
+            - name: OPERATOR_RELEASE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/instance']
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.connector.resources | nindent 12 }}
+          volumeMounts:
+            - name: connector-credentials
+              mountPath: /var/run/agentrally-connector
+              readOnly: true
+      volumes:
+        - name: connector-credentials
+          secret:
+            secretName: {{ .Values.connector.credentialsSecret | quote }}
+{{- end }}

@@ -22,7 +22,8 @@ func TestChartPackagePreservesVersionImageAndSources(t *testing.T) {
 	before := sourceSnapshot(t, stage)
 	const version = "1.2.3-rc.1"
 	image := "registry.example.com:5000/operator@sha256:" + strings.Repeat("a", 64)
-	runMake(t, stage, "chart-package", "VERSION="+version, "IMG="+image)
+	connectorImage := "registry.example.com:5000/connector:v" + version
+	runMake(t, stage, "chart-package", "VERSION="+version, "IMG="+image, "CONNECTOR_IMG="+connectorImage)
 	archive := filepath.Join(stage, "dist", "agentrally-operator-"+version+".tgz")
 	out, err := exec.Command("helm", "show", "chart", archive).CombinedOutput()
 	if err != nil {
@@ -35,13 +36,20 @@ func TestChartPackagePreservesVersionImageAndSources(t *testing.T) {
 	if err := yaml.Unmarshal(out, &metadata); err != nil || metadata.Version != version || metadata.AppVersion != version {
 		t.Fatalf("selected version was not packaged: %+v (%v)", metadata, err)
 	}
-	objects := testutil.RenderChart(t, archive)
+	objects := testutil.RenderChart(t, archive, "--set", "connector.enabled=true", "--set", "connector.endpoint=https://backend.example/", "--set", "connector.id=test", "--set", "connector.credentialsSecret=credentials")
 	var deployment appsv1.Deployment
 	if err := yaml.Unmarshal(objects["Deployment/agentrally-operator"], &deployment); err != nil {
 		t.Fatal(err)
 	}
 	if len(deployment.Spec.Template.Spec.Containers) != 1 || deployment.Spec.Template.Spec.Containers[0].Image != image {
 		t.Fatal("packaging lost the selected image digest")
+	}
+	var relay appsv1.Deployment
+	if err := yaml.Unmarshal(objects["Deployment/agentrally-operator-connector"], &relay); err != nil {
+		t.Fatal(err)
+	}
+	if relay.Spec.Template.Spec.Containers[0].Image != connectorImage {
+		t.Fatal("packaging lost the Connector image")
 	}
 	if !reflect.DeepEqual(before, sourceSnapshot(t, stage)) {
 		t.Fatal("packaging modified chart sources")

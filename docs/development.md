@@ -114,6 +114,8 @@ make image-build image-push chart-push \
 Helm adds `agentrally-operator:<VERSION>`.
 For CI publication, push a tag such as `vx.y.z`.
 The release workflow uses that version for both images and the Chart.
+After checks, E2E and OCI publication succeed, it creates a GitHub Release with the tag as its title and no release notes.
+GitHub selects the latest stable release automatically; prereleases do not replace it.
 
 The quick start also uses `ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3`.
 Its source and independent image workflow live in
@@ -203,7 +205,8 @@ SIGKILL or runner loss can prevent cleanup.
 
 The [E2E workflow](../.github/workflows/e2e.yml) supports manual dispatch.
 Tag releases test the same image archives and Chart artifact selected for publication.
-Publication follows packaging without waiting for E2E.
+OCI publication follows packaging without waiting for E2E.
+GitHub Release publication waits for E2E and OCI publication to succeed.
 PR/main, tag releases and manual E2E workflow dispatches run Kind tests.
 
 ### Optional Kata runtime profile

@@ -36,9 +36,11 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/
 
 ### 1. 安装 Operator
 
+将 `<version>` 替换为[最新 Release](https://github.com/chizhang21/agentrally-operator/releases/latest) 的版本号，去掉开头的 `v`。
+
 ```sh
 helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
-  --version 0.0.4 \
+  --version '<version>' \
   -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 

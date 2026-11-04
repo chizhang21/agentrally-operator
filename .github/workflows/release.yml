@@ -35,3 +35,25 @@ jobs:
       connector_image: ${{ needs.packages.outputs.connector_image }}
       version: ${{ needs.packages.outputs.version }}
       chart_repository: ${{ needs.packages.outputs.chart_repository }}
+  github-release:
+    name: Publish GitHub Release
+    needs: [e2e, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the version without release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            exit 0
+          fi
+          args=(--verify-tag --title "$RELEASE_TAG" --notes "")
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            args+=(--prerelease --latest=false)
+          fi
+          gh release create "$RELEASE_TAG" "${args[@]}"

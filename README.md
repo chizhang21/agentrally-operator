@@ -36,9 +36,11 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/
 
 ### 1. Install the Operator
 
+Replace `<version>` with the [latest release](https://github.com/chizhang21/agentrally-operator/releases/latest) version, without the leading `v`.
+
 ```sh
 helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
-  --version 0.0.4 \
+  --version '<version>' \
   -n agentrally-system --create-namespace --wait --timeout 5m
 ```
 

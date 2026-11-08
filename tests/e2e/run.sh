@@ -159,15 +159,25 @@ echo "b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970  $upstrea
 kubectl apply --server-side -f "$upstream"
 kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=240s
 
-# Use a local tag loaded into kind. Keep image lookup and all other manifests
-# identical to a real chart install; Connector remains disabled by default.
-repository=${image%:*}
-tag=${image##*:}
-helm install agentrally-operator "$chart" -n agentrally-system --create-namespace \
-  --set-string image.repository="$repository" --set-string image.tag="$tag" \
-  --set-string connector.image.repository="${connector_image%:*}" \
-  --set-string connector.image.tag="${connector_image##*:}" \
-  --set connector.image.pullPolicy=IfNotPresent --set image.pullPolicy=IfNotPresent --wait --timeout=240s
+if [[ -n ${E2E_UPGRADE_FROM:-} ]]; then
+  # Start with the published release, including its CRDs and image defaults.
+  # The Go scenario upgrades it to the candidate chart and images loaded above.
+  helm pull oci://ghcr.io/chizhang21/helm/agentrally-operator --version "$E2E_UPGRADE_FROM" --destination "$temporary"
+  export E2E_PREVIOUS_CHART="$temporary/agentrally-operator-$E2E_UPGRADE_FROM.tgz"
+  previous_image="ghcr.io/chizhang21/agentrally-operator:v$E2E_UPGRADE_FROM"
+  docker pull --platform="$platform" "$previous_image"
+  load_image "$previous_image"
+  helm install agentrally-operator "$E2E_PREVIOUS_CHART" -n agentrally-system --create-namespace \
+    --set image.pullPolicy=IfNotPresent --wait --timeout=240s
+  export E2E_TEST=${E2E_TEST:-^TestChartUpgrade$}
+else
+  helm install agentrally-operator "$chart" -n agentrally-system --create-namespace \
+    --set-string image.repository="${image%:*}" --set-string image.tag="${image##*:}" \
+    --set-string connector.image.repository="${connector_image%:*}" \
+    --set-string connector.image.tag="${connector_image##*:}" \
+    --set connector.image.pullPolicy=IfNotPresent --set image.pullPolicy=IfNotPresent --wait --timeout=240s
+fi
+export E2E_IMAGE="$image" E2E_CONNECTOR_IMAGE="$connector_image"
 set +e
 AGENTRALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
   go test -p=1 -tags=e2e ./cmd/... ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v 2>&1 \

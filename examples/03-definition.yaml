@@ -17,7 +17,7 @@ spec:
   # Optional invocation preview contract; only declare it for an image implementing it.
   # invocationProtocol: HTTPJSONSSEV1
   container:
-    image: ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3
+    image: ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3@sha256:7026fcd4ae6b6a6b33d2200ca260feff62296fbab26c651436fda69879a66ca5
     imagePullPolicy: IfNotPresent
     # Optional entrypoint overrides for your own image.
     # command: [/bin/agent]

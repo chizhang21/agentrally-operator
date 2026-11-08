@@ -35,16 +35,20 @@ func TestConditionEventsEmitOnlyMeaningfulTransitions(t *testing.T) {
 		t.Fatal("duplicate event", event)
 	default:
 	}
-	expected := []metav1.Condition{{Type: "Suspended", Status: metav1.ConditionTrue, Reason: "PodTerminated", Message: "suspended"}, {Type: "Finished", Status: metav1.ConditionTrue, Reason: "PodSucceeded", Message: "completed"}}
+	expected := []metav1.Condition{
+		{Type: "Suspended", Status: metav1.ConditionTrue, Reason: "PodTerminated", Message: "suspended"},
+		{Type: "Finished", Status: metav1.ConditionTrue, Reason: "PodSucceeded", Message: "completed"},
+		{Type: "Ready", Status: metav1.ConditionFalse, Reason: "DefinitionNotReady", Message: "waiting for configuration"},
+	}
 	RecordConditionChanges(recorder, w, nil, expected)
-	for range 2 {
+	for range expected {
 		select {
 		case event := <-recorder.Events:
 			if !strings.HasPrefix(event, "Normal ") {
 				t.Fatal(event)
 			}
 		default:
-			t.Fatal("completion event missing")
+			t.Fatal("normal event missing")
 		}
 	}
 	RecordConditionChanges(nil, w, nil, expected)

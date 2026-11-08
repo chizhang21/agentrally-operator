@@ -46,12 +46,11 @@ The readiness probe does not verify upstream controller health.
 
 ### Install AgentRally
 
-Install Chart `0.0.3` from GHCR.
-Use examples from the matching `v0.0.3` source tag.
-See the [packaging workflow](../.github/workflows/packages.yml) for the current distribution workflow.
+Replace `<version>` with the [latest release](https://github.com/chizhang21/agentrally-operator/releases/latest) version, without the leading `v`.
+Use examples from the matching source tag.
 
 ```sh
-CHART_VERSION=0.0.3
+CHART_VERSION='<version>'
 helm install agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
   --version "$CHART_VERSION" \
   -n agentrally-system --create-namespace --wait --timeout 5m
@@ -111,11 +110,11 @@ Scheduling, resources and security settings remain in the default values file.
 
 ### Upgrade AgentRally
 
-For an OCI installation, select the published Chart version to install.
+For an OCI installation, replace `<version>` with the [latest release](https://github.com/chizhang21/agentrally-operator/releases/latest) version, without the leading `v`.
 For a local archive, use [Updating a dev build](#updating-a-dev-build).
 
 ```sh
-CHART_VERSION=0.0.3
+CHART_VERSION='<version>'
 helm upgrade agentrally-operator oci://ghcr.io/chizhang21/helm/agentrally-operator \
   --version "$CHART_VERSION" \
   -n agentrally-system --reset-then-reuse-values --wait --timeout 5m
@@ -125,6 +124,7 @@ This updates the Operator and CRDs together.
 `--reset-then-reuse-values` uses the new chart defaults and preserves previous explicit
 settings, including pull Secrets.
 Pass `-f` or `--set` to change those settings.
+Update explicitly pinned `image.tag` or `image.digest` values for the new release, including those under `connector.image`.
 No separate `kubectl apply` of AgentRally CRDs is needed.
 
 Uninstall retains CRDs and Agent resources.

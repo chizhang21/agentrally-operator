@@ -4,7 +4,8 @@ This guide covers Agent configuration and day-to-day operations after
 [installing the controllers](installation.md).
 Build and test instructions are in [Development](development.md).
 
-Use a `v0.0.3` Operator checkout with Chart `0.0.3`.
+Use the source tag matching your installed Chart.
+See [installation](installation.md#install-agentrally) for the latest release.
 The shared [Group](../examples/02-group.yaml) and [Definition](../examples/03-definition.yaml)
 start the public demo Agent without additional configuration.
 Optional fields remain commented; prepare their dependencies before enabling them.
@@ -444,14 +445,16 @@ More detail is in
 ## Lifecycle
 
 Instances run by default.
-Suspend, wait for the Pod to disappear, then remove the explicit mode to resume:
+Suspend, then remove the explicit mode to resume:
 
 ```sh
 kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":"Suspended"}}' && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Suspended --timeout=120s
 kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge -p '{"spec":{"operatingMode":null}}'
 ```
 
-Core removes and recreates the Pod.
+The current-generation `Suspended=True` condition confirms that the Pod is gone.
+Core recreates it on resume, possibly with the same name but a new UID.
+Use `status.podUID` to distinguish executions.
 PVC data remains; process memory and emptyDir data do not.
 This is stop/start, not checkpoint/restore.
 

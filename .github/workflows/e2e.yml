@@ -22,8 +22,22 @@ permissions:
   contents: read
 jobs:
   lifecycle:
+    name: ${{ matrix.scenario }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: lifecycle
+            upgrade_from: ''
+            connector: 'false'
+          - scenario: upgrade-standalone
+            upgrade_from: '0.0.4'
+            connector: 'false'
+          - scenario: upgrade-connector
+            upgrade_from: '0.0.4'
+            connector: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,4 +95,6 @@ jobs:
         env:
           E2E_IMAGE: ${{ inputs.image }}
           E2E_CONNECTOR_IMAGE: ${{ inputs.connector_image }}
+          E2E_UPGRADE_FROM: ${{ matrix.upgrade_from }}
+          E2E_UPGRADE_CONNECTOR: ${{ matrix.connector }}
         run: make e2e

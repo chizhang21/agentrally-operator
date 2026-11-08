@@ -117,11 +117,10 @@ The release workflow uses that version for both images and the Chart.
 After checks, E2E and OCI publication succeed, it creates a GitHub Release with the tag as its title and no release notes.
 GitHub selects the latest stable release automatically; prereleases do not replace it.
 
-The quick start also uses `ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3`.
-Its source and independent image workflow live in
+The quick start uses a separate demo Agent image.
+Its source, pinned image reference and publication workflow live in
 [agentrally-examples](https://github.com/chizhang21/agentrally-examples/tree/main/operator/http-api-agent).
-Tag that repository `v0.0.3` to publish the matching image and source before releasing
-the Operator `v0.0.3` tag.
+The application image is released independently of the Operator.
 Set the demo GHCR package to Public so users can pull it without registry credentials.
 
 ## Tests
@@ -156,6 +155,8 @@ It never uses the caller's current kubeconfig.
 | `E2E_IMAGE=repository:tag` | Use an already built local Operator image; no publication |
 | `E2E_CONNECTOR_IMAGE=repository:tag` | Use an already built local Connector image; no publication |
 | `E2E_CHART=/path/to/chart.tgz` | Install a packaged Chart |
+| `E2E_UPGRADE_FROM=0.0.4` | Install the published release, then test upgrading to the candidate Chart and images |
+| `E2E_UPGRADE_CONNECTOR=true` | Include the old integrated Connector and verify management requests after upgrading |
 | `E2E_CNI=cilium` | Install Cilium and execute ingress, ConnectorOnly and native egress traffic tests |
 | `E2E_SNAPSHOTS=true` | Install CSI snapshot fixtures and test workspace initialization |
 | `E2E_LOG_DIR` | Select the local log directory |
@@ -164,6 +165,8 @@ It never uses the caller's current kubeconfig.
 make e2e
 E2E_CNI=cilium make e2e
 E2E_SNAPSHOTS=true make e2e
+E2E_UPGRADE_FROM=0.0.4 make e2e
+E2E_UPGRADE_FROM=0.0.4 E2E_UPGRADE_CONNECTOR=true make e2e
 ```
 
 The suite covers publication/revision pinning, dependency rotation, Group policies,
@@ -173,6 +176,9 @@ Workspace checks distinguish execution-private volumes from externally managed P
 Connector management uses its dedicated rendered RBAC rather than administrator permissions.
 It checks scoped metadata reads, write-result retries and guarded Secret/ConfigMap deletion.
 Startup tests verify leader handoff against the Kind API.
+CI runs the lifecycle suite and both upgrade scenarios separately.
+Upgrade tests retain existing CRDs, Agents and PVC data, then exercise suspend/resume.
+The Connector scenario verifies management requests before and after the split into a separate Deployment.
 Deployment tests exercise backend connectivity, outage isolation, Pod replacement and cleanup on disable.
 The Helm lifecycle test restores the selected Chart and values after checking CRD retention.
 Resource aggregation rules run in a pinned Prometheus engine with small attribution fixtures.

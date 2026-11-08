@@ -31,7 +31,7 @@ func RecordConditionChanges(recorder events.EventRecorder, object runtime.Object
 			ReasonExpired, "ShutdownTimeReached", "FinishedTTLReached",
 			ReasonPoolPending, ReasonAllocationSuspended, ReasonPoolAllocated, "PoolsDeleting",
 			"NamespacePending", "QuotaPending", "PolicyDeleting", "Deleting",
-			ReasonGroupNotReady, ReasonDependenciesNotReady,
+			ReasonGroupNotReady, ReasonDependenciesNotReady, "DefinitionNotReady",
 			"SandboxSuspended", "Suspending", "PodTerminating", "PodNotTerminated", "PodSucceeded", "NotSuspended",
 			"SchedulingGated", "PodStarting", "SandboxStarting", "ContainersNotReady", "PodNotReady", "SchedulingPending":
 			eventType = corev1.EventTypeNormal

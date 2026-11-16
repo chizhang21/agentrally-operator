@@ -42,7 +42,6 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 	definition.Spec.Container.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt32(8080)}}, PeriodSeconds: 1}
 	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{
 		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("32Mi")}}}}
-	instance.Spec.Lifecycle = &v1.AgentInstanceLifecycle{}
 	create(t, ctx, kube, definition)
 	create(t, ctx, kube, instance)
 	await(t, "missing RuntimeClass denied", func() (bool, error) {
@@ -104,20 +103,15 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 	logLatencySamples(t, "resume-observed", resume)
 	instance.Spec.OperatingMode = sandbox.Suspended
 	update(t, ctx, kube, instance)
-	await(t, "suspension before maximum lifetime cleanup", func() (bool, error) {
+	await(t, "suspension before explicit deletion", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
 		return conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
-	})
-	instance.Spec.Lifecycle.MaxLifetimeSeconds = ptr.To(int32(1))
-	update(t, ctx, kube, instance)
-	await(t, "maximum lifetime cleanup while suspended", func() (bool, error) {
-		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
-		return instance.Status.Lifecycle != nil && instance.Status.Lifecycle.Reason == "MaxLifetimeReached" && conditionTrue(instance.Status.Conditions, "CleanupReady", instance.Generation), err
 	})
 	if err := kube.Delete(ctx, instance); err != nil {
 		t.Fatal(err)
 	}
 	awaitDeleted(t, ctx, kube, instance)
+	awaitExecutionRemoved(t, ctx, kube, instance.Namespace)
 	deleteDefinitions(t, ctx, kube, group)
 	if err := kube.Delete(ctx, group); err != nil {
 		t.Fatal(err)

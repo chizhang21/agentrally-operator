@@ -34,7 +34,7 @@ type Reconciler struct {
 	// DirectClient bypasses the cache for allocation, workspace reservations
 	// and optional routing APIs.
 	DirectClient client.Client
-	// Now makes deadline planning deterministic in controller tests.
+	// Now makes allocation deadlines and timing observations deterministic in controller tests.
 	Now func() time.Time
 }
 
@@ -51,7 +51,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	if err := r.Get(ctx, req.NamespacedName, workload); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	defer func() { result = r.withExecutionDeadlines(workload, result) }()
+	defer func() { result = r.withAllocationDeadline(workload, result) }()
 	if workload.DeletionTimestamp != nil {
 		return r.finalize(ctx, workload)
 	}
@@ -59,9 +59,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 		return ctrl.Result{}, err
 	}
 	if handled, result, err := r.reconcileRestart(ctx, workload); handled || err != nil {
-		return result, err
-	}
-	if handled, result, err := r.reconcileExpiry(ctx, workload); handled || err != nil {
 		return result, err
 	}
 	// Stopping an owned execution and enforcing an in-flight allocation budget
@@ -100,17 +97,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	return r.reconcileExecution(ctx, workload, group)
 }
 
-// withExecutionDeadlines bounds all retry paths, including paths that exit before allocation.
-func (r *Reconciler) withExecutionDeadlines(workload *v1.AgentInstance, result ctrl.Result) ctrl.Result {
-	if lifecycle := workload.Status.Lifecycle; lifecycle != nil && lifecycle.ExpiredAt == nil && lifecycle.ExpiresAt != nil {
-		delay := lifecycle.ExpiresAt.Sub(r.now())
-		if delay <= 0 {
-			delay = time.Millisecond
-		}
-		if result.RequeueAfter == 0 || delay < result.RequeueAfter {
-			result.RequeueAfter = delay
-		}
-	}
+// withAllocationDeadline bounds all retry paths, including paths that exit before allocation.
+func (r *Reconciler) withAllocationDeadline(workload *v1.AgentInstance, result ctrl.Result) ctrl.Result {
 	if state := workload.Status.Provisioning; workload.DeletionTimestamp == nil && state != nil && state.CompletedAt == nil && state.TimedOutAt == nil && state.StartedAt != nil {
 		seconds := allocationTimeout(workload)
 		delay := state.StartedAt.Add(time.Duration(seconds) * time.Second).Sub(r.now())
@@ -198,9 +186,6 @@ func (r *Reconciler) reconcileExecution(ctx context.Context, workload *v1.AgentI
 	config.Issue = configurationIssue
 	if err := r.status(ctx, workload, object, current, interaction, validation, config); err != nil {
 		return ctrl.Result{}, err
-	}
-	if workload.Status.Lifecycle != nil && workload.Status.Lifecycle.ExpiredAt != nil {
-		return ctrl.Result{RequeueAfter: time.Millisecond}, nil
 	}
 	if interactionErr != nil {
 		return ctrl.Result{}, interactionErr

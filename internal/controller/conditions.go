@@ -11,7 +11,6 @@ const (
 	ConditionInteractionReady      = "InteractionReady"
 	ConditionCapabilityValidated   = "CapabilityValidated"
 	ConditionRestarting            = "Restarting"
-	ConditionExpired               = "Expired"
 	ConditionPodScheduled          = "PodScheduled"
 	ConditionFinished              = "Finished"
 	ConditionSuspended             = "Suspended"
@@ -22,7 +21,6 @@ const (
 const (
 	ReasonRestarting           = "Restarting"
 	ReasonRestartCompleted     = "RestartCompleted"
-	ReasonExpired              = "Expired"
 	ReasonPoolPending          = "PoolPending"
 	ReasonPoolAllocated        = "PoolAllocated"
 	ReasonPoolClaimTimeout     = "PoolClaimTimeout"

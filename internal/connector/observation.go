@@ -232,13 +232,6 @@ func observeInstanceState(out *InstanceObservation, instance *v1.AgentInstance, 
 		out.Reason = "Stopping"
 		return
 	}
-	if instance.Status.Lifecycle != nil && instance.Status.Lifecycle.ExpiredAt != nil {
-		out.Reason = "Stopping"
-		if currentCondition(instance, "CleanupReady") && pod == nil {
-			out.Reason = "ExecutionResourcesRemoved"
-		}
-		return
-	}
 	if instance.Spec.OperatingMode == sandbox.Suspended {
 		out.Reason = "Stopping"
 		if sandboxUID != "" && pod == nil && currentCondition(instance, "Suspended") {

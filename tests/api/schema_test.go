@@ -70,7 +70,7 @@ func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
 					"type": "Container", "default": map[string]interface{}{"cpu": "1", "memory": "128Mi"},
 				}}}
 				object["status"] = map[string]interface{}{"summary": map[string]interface{}{
-					"instances": map[string]interface{}{"total": int64(2), "ready": int64(1), "available": int64(1), "pending": int64(1), "suspended": int64(0), "expired": int64(0)},
+					"instances": map[string]interface{}{"total": int64(2), "ready": int64(1), "available": int64(1), "pending": int64(1), "suspended": int64(0)},
 					"pools":     map[string]interface{}{"total": int64(1), "desiredSpareReplicas": int64(2), "readySpareReplicas": int64(1)},
 					"storage":   map[string]interface{}{"pvcs": int64(2), "requested": "2Gi", "capacity": "1Gi"},
 				}}
@@ -88,17 +88,16 @@ func TestNativeObjectsSurviveStructuralPruning(t *testing.T) {
 				}
 				workload.Spec.Interaction = &v1.InteractionEndpoint{Type: "HTTPRoute", Port: 8080, Hostname: "agent.example.com", Scheme: "HTTPS",
 					GatewayRef: &v1.GatewayReference{Name: "shared", Namespace: "gateway-system", SectionName: "https"}}
-				ttl, timeout := int32(300), int32(60)
+				timeout := int32(60)
 				now := metav1.Now()
 				workload.Spec.RestartToken = "request-1"
 				workload.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{
 					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 					Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
 				}}
-				workload.Spec.Lifecycle = &v1.AgentInstanceLifecycle{ShutdownTime: &now, TTLSecondsAfterFinished: &ttl, ShutdownPolicy: "Retain"}
 				workload.Spec.Provisioning = &v1.AgentInstanceProvisioning{WarmPoolRef: &v1.WarmPoolReference{Name: "agents"}, ClaimTimeoutSeconds: &timeout}
 				workload.Status = v1.AgentInstanceStatus{DesiredRevision: "desired", AppliedRevision: "applied", PodName: "instance", PodUID: "pod-uid", LastRestartToken: "request-1",
-					Lifecycle:    &v1.AgentInstanceLifecycleStatus{FinishedAt: &now, FinishedReason: "PodSucceeded", ExpiresAt: &now, ExpiredAt: &now, Reason: "ShutdownTimeReached"},
+					Lifecycle:    &v1.AgentInstanceLifecycleStatus{FinishedAt: &now, FinishedReason: "PodSucceeded"},
 					Provisioning: &v1.AgentInstanceProvisioningStatus{Mode: "Pool", PoolName: "pool", TemplateName: "snapshot", ConfigurationRevision: "revision", ClaimName: "claim", StartedAt: &now, CompletedAt: &now, TimedOutAt: &now, LaunchType: "warm"},
 					Timings:      &v1.AgentInstanceTimings{PodCreatedAt: &now, PodReadyAt: &now, SuspensionStartedAt: &now, SuspendedAt: &now, CleanupStartedAt: &now, CleanupCompletedAt: &now}}
 				workload.Status.Interaction = &v1.InteractionEndpointStatus{ServiceName: "access", RouteName: "access", URL: "https://agent.example.com", Port: 8080, GatewayRef: workload.Spec.Interaction.GatewayRef.DeepCopy()}
@@ -218,36 +217,31 @@ func TestInteractionAdmission(t *testing.T) {
 	}
 }
 
-func TestExecutionPolicyAdmission(t *testing.T) {
+func TestAllocationPolicyAdmission(t *testing.T) {
 	accepts := admissionTransitionChecker(t, "agentinstances")
 	base := map[string]interface{}{"agentGroupRef": map[string]interface{}{"name": "team"}, "definitionRef": map[string]interface{}{"name": "agent"}}
 	pool := func(name string, timeout int64) map[string]interface{} {
 		return map[string]interface{}{"warmPoolRef": map[string]interface{}{"name": name}, "claimTimeoutSeconds": timeout}
 	}
 	for _, tc := range []struct {
-		name                    string
-		lifecycle, provisioning interface{}
-		oldPool                 interface{}
-		valid                   bool
+		name         string
+		provisioning interface{}
+		oldPool      interface{}
+		valid        bool
 	}{
-		{"zero-ttl", map[string]interface{}{"ttlSecondsAfterFinished": int64(0), "shutdownPolicy": "Retain"}, nil, nil, true},
-		{"zero-maximum-lifetime", map[string]interface{}{"maxLifetimeSeconds": int64(0)}, nil, nil, false},
-		{"pool", nil, pool("agents", 60), nil, true},
-		{"auto-pool", nil, map[string]interface{}{}, nil, true},
-		{"empty-pool", nil, pool("", 60), nil, false},
-		{"zero-timeout", nil, pool("agents", 0), nil, false},
-		{"oversized-timeout", nil, pool("agents", 3601), nil, false},
-		{"same-pool", nil, pool("agents", 90), pool("agents", 60), true},
-		{"changed-pool", nil, pool("other", 60), pool("agents", 60), false},
-		{"removed-pool", nil, nil, pool("agents", 60), false},
-		{"removed-pool-ref", nil, map[string]interface{}{"claimTimeoutSeconds": int64(60)}, pool("agents", 60), false},
-		{"added-pool-ref", nil, pool("agents", 60), map[string]interface{}{"claimTimeoutSeconds": int64(60)}, false},
+		{"pool", pool("agents", 60), nil, true},
+		{"auto-pool", map[string]interface{}{}, nil, true},
+		{"empty-pool", pool("", 60), nil, false},
+		{"zero-timeout", pool("agents", 0), nil, false},
+		{"oversized-timeout", pool("agents", 3601), nil, false},
+		{"same-pool", pool("agents", 90), pool("agents", 60), true},
+		{"changed-pool", pool("other", 60), pool("agents", 60), false},
+		{"removed-pool", nil, pool("agents", 60), false},
+		{"removed-pool-ref", map[string]interface{}{"claimTimeoutSeconds": int64(60)}, pool("agents", 60), false},
+		{"added-pool-ref", pool("agents", 60), map[string]interface{}{"claimTimeoutSeconds": int64(60)}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			value := runtime.DeepCopyJSON(base)
-			if tc.lifecycle != nil {
-				value["lifecycle"] = tc.lifecycle
-			}
 			if tc.provisioning != nil {
 				value["provisioning"] = tc.provisioning
 			}

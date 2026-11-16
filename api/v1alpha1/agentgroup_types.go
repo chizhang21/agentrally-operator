@@ -165,9 +165,8 @@ type AgentInstanceSummary struct {
 	Ready     int32 `json:"ready"`
 	Available int32 `json:"available"`
 	Suspended int32 `json:"suspended"`
-	// Pending counts non-expired, non-deleting instances that are neither Ready nor suspended.
+	// Pending counts non-deleting instances that are neither Ready nor suspended.
 	Pending int32 `json:"pending"`
-	Expired int32 `json:"expired"`
 }
 
 type AgentPoolSummary struct {

@@ -28,7 +28,6 @@ func RecordConditionChanges(recorder events.EventRecorder, object runtime.Object
 		}
 		switch condition.Reason {
 		case ReasonRestarting, ReasonRestartCompleted,
-			ReasonExpired, "ShutdownTimeReached", "FinishedTTLReached",
 			ReasonPoolPending, ReasonAllocationSuspended, ReasonPoolAllocated, "PoolsDeleting",
 			"NamespacePending", "QuotaPending", "PolicyDeleting", "Deleting",
 			ReasonGroupNotReady, ReasonDependenciesNotReady, "DefinitionNotReady",

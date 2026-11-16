@@ -94,11 +94,7 @@ func (r *Reconciler) status(
 	executionConfig := config
 	executionConfig.PodTemplate = sandbox.ExecutionPodTemplate(current.Metadata.Name, config.PodTemplate, config.VolumeClaimTemplates)
 	appliedConfigurationStatus(workload, executionConfig, pod, podErr)
-	decision, err := evaluateExecutionLifecycle(workload, pod, r.now())
-	if err != nil {
-		return err
-	}
-	workload.Status.Lifecycle = decision.Status
+	workload.Status.Lifecycle = executionCompletionStatus(workload, pod)
 	available := r.executionAvailableStatus(ctx, workload, current, generation, pod, podErr)
 	interactionReadyStatus(workload, interaction, available)
 	readyStatus(workload, available)
@@ -227,6 +223,7 @@ func (r *Reconciler) observeBlockedExecution(ctx context.Context, workload *v1.A
 	}
 	pod, podErr := r.executionPod(ctx, object)
 	mirrorCoreConditions(workload, current, object.GetGeneration(), pod, podErr)
+	workload.Status.Lifecycle = executionCompletionStatus(workload, pod)
 	r.executionAvailableStatus(ctx, workload, current, object.GetGeneration(), pod, podErr)
 	previousPodUID := workload.Status.PodUID
 	if pod != nil {

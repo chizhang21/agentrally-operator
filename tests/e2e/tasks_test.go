@@ -17,20 +17,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestTaskCompletionPolicies(t *testing.T) {
+func TestTaskCompletionRetainsExecution(t *testing.T) {
 	kube, _ := e2eClient(t)
 	ctx := t.Context()
-	group := readyGroup(t, ctx, kube, "task-policies")
+	group := readyGroup(t, ctx, kube, "task-completion")
 	ran := false
 	for _, tc := range []struct {
-		name           string
-		exitCode       int
-		retainFailed   *bool
-		shutdownPolicy string
+		name     string
+		exitCode int
 	}{
-		{"successful", 0, nil, "Delete"},
-		{"failed-retained", 7, nil, "Delete"},
-		{"failed-expired", 9, ptr.To(false), "Retain"},
+		{"successful", 0},
+		{"failed", 7},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ran = true
@@ -63,36 +60,34 @@ func TestTaskCompletionPolicies(t *testing.T) {
 			definition, instance := testAgent(group, tc.name, "")
 			definition.Spec.Template, definition.Spec.Container = "", nil
 			definition.Spec.TemplateRef = &v1.SandboxTemplateReference{Name: template.GetName()}
-			instance.Spec.Lifecycle = &v1.AgentInstanceLifecycle{TTLSecondsAfterFinished: ptr.To(int32(0)), RetainFailed: tc.retainFailed, ShutdownPolicy: tc.shutdownPolicy}
 			create(t, ctx, kube, definition)
 			create(t, ctx, kube, instance)
-			if tc.exitCode != 0 && tc.retainFailed == nil {
-				await(t, "failed task retained despite zero TTL", func() (bool, error) {
-					err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
-					finished := meta.FindStatusCondition(instance.Status.Conditions, "Finished")
-					return finished != nil && finished.Status == "True" && finished.Reason == "PodFailed" &&
-						instance.Status.Lifecycle != nil && instance.Status.Lifecycle.FinishedAt != nil && instance.Status.Lifecycle.ExpiresAt == nil, err
-				})
-				// Policy edits must apply to the already recorded completion.
-				instance.Spec.Lifecycle.RetainFailed = ptr.To(false)
-				update(t, ctx, kube, instance)
+			reason := "PodSucceeded"
+			if tc.exitCode != 0 {
+				reason = "PodFailed"
 			}
-			if tc.shutdownPolicy == "Delete" {
-				awaitDeleted(t, ctx, kube, instance)
-			} else {
-				await(t, "expired task retains its logical instance", func() (bool, error) {
-					err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
-					return conditionTrue(instance.Status.Conditions, "Expired", instance.Generation), err
-				})
+			await(t, "task completion recorded", func() (bool, error) {
+				err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
+				finished := meta.FindStatusCondition(instance.Status.Conditions, "Finished")
+				return conditionTrue(instance.Status.Conditions, "Finished", instance.Generation) && finished.Reason == reason &&
+					instance.Status.Lifecycle != nil && instance.Status.Lifecycle.FinishedAt != nil && instance.Status.Lifecycle.FinishedReason == reason, err
+			})
+			execution := sandbox.Object()
+			if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.SandboxName}, execution); err != nil {
+				t.Fatal("completed task lost its Sandbox", err)
 			}
-			// Verify expiry's cleanup before explicit deletion can mask a failure.
+			podState := &corev1.Pod{}
+			if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, podState); err != nil {
+				t.Fatal("completed task lost its Pod and diagnostics", err)
+			}
+			if execution.GetDeletionTimestamp() != nil || podState.DeletionTimestamp != nil {
+				t.Fatal("completion started automatic cleanup")
+			}
+			if err := kube.Delete(ctx, instance); err != nil {
+				t.Fatal(err)
+			}
+			awaitDeleted(t, ctx, kube, instance)
 			awaitExecutionRemoved(t, ctx, kube, group.Status.Namespace)
-			if tc.shutdownPolicy == "Retain" {
-				if err := kube.Delete(ctx, instance); err != nil {
-					t.Fatal(err)
-				}
-				awaitDeleted(t, ctx, kube, instance)
-			}
 			if err := kube.Delete(ctx, definition); err != nil {
 				t.Fatal(err)
 			}

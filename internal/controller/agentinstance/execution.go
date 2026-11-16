@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -115,7 +114,7 @@ func (r *Reconciler) reconcileRestart(ctx context.Context, w *v1.AgentInstance) 
 	for _, kind := range []string{
 		controller.ConditionReady, controller.ConditionAvailable, controller.ConditionConfigurationAccepted, controller.ConditionConfigurationApplied,
 		controller.ConditionProvisioningReady, controller.ConditionPodScheduled, controller.ConditionFinished,
-		controller.ConditionSuspended, controller.ConditionExpired, controller.ConditionInteractionReady,
+		controller.ConditionSuspended, controller.ConditionInteractionReady,
 		controller.ConditionCleanupReady,
 	} {
 		meta.RemoveStatusCondition(&w.Status.Conditions, kind)
@@ -180,82 +179,6 @@ func (r *Reconciler) cleanupDiagnostic(ctx context.Context, w *v1.AgentInstance)
 		return "ExecutionCleanupStalled", "Foreground cleanup has not completed for at least 5 minutes; inspect upstream controllers, dependents and finalizers"
 	}
 	return "CleanupPending", "Waiting for owned execution and access resources to finish foreground cleanup"
-}
-
-func (r *Reconciler) reconcileExpiry(ctx context.Context, w *v1.AgentInstance) (bool, ctrl.Result, error) {
-	now := r.now()
-	decision, err := evaluateExecutionLifecycle(w, nil, now)
-	finished := meta.FindStatusCondition(w.Status.Conditions, controller.ConditionFinished)
-	unconfirmed := finished != nil && finished.Status == metav1.ConditionTrue &&
-		(w.Status.Lifecycle == nil || w.Status.Lifecycle.FinishedAt == nil)
-	completionExpired := decision.Expired && decision.Status.Reason == "FinishedTTLReached"
-	absoluteExpired := false
-	if policy := w.Spec.Lifecycle; policy != nil && policy.ShutdownTime != nil && !policy.ShutdownTime.IsZero() {
-		absoluteExpired = !now.Before(retentionDeadline(policy.ShutdownTime.Time, 0))
-	}
-	if decision.Status != nil && decision.Expired && decision.Status.Reason == "MaxLifetimeReached" {
-		absoluteExpired = true
-	}
-	if err == nil && !absoluteExpired && (unconfirmed || completionExpired) && (w.Status.Lifecycle == nil || w.Status.Lifecycle.ExpiredAt == nil) {
-		// Observe completion even when configuration is blocked, and recheck
-		// before TTL cleanup in case a resumed Pod invalidated the old anchor.
-		var pod *corev1.Pod
-		object, observeErr := r.existingExecution(ctx, w)
-		if observeErr == nil {
-			pod, observeErr = r.executionPod(ctx, object)
-		}
-		if observeErr != nil && !apierrors.IsNotFound(observeErr) {
-			return true, ctrl.Result{}, observeErr
-		}
-		decision, err = evaluateExecutionLifecycle(w, pod, now)
-	}
-	if err != nil {
-		result, statusErr := r.pending(ctx, w, "InvalidConfiguration", err.Error())
-		return true, result, statusErr
-	}
-	base := w.DeepCopy()
-	w.Status.Lifecycle = decision.Status
-	if !decision.Expired {
-		return false, ctrl.Result{}, r.patchStatus(ctx, w, base)
-	}
-	setInstanceCondition(w, controller.ConditionExpired, metav1.ConditionTrue, decision.Status.Reason, "Execution lifetime ended; owned execution resources are being removed")
-	setInstanceCondition(w, controller.ConditionReady, metav1.ConditionFalse, controller.ReasonExpired, "Execution lifetime ended")
-	setInstanceCondition(w, controller.ConditionAvailable, metav1.ConditionUnknown, controller.ReasonExpired, "Execution cleanup is in progress")
-	if hasInteraction(w) {
-		setInstanceCondition(w, controller.ConditionInteractionReady, metav1.ConditionFalse, controller.ReasonExpired, "Execution lifetime ended")
-	}
-
-	if err := r.patchStatus(ctx, w, base); err != nil {
-		return true, ctrl.Result{}, err
-	}
-	done, err := r.cleanupExecution(ctx, w)
-	if err != nil {
-		return true, ctrl.Result{}, err
-	}
-	if !done {
-		return true, ctrl.Result{RequeueAfter: time.Second}, nil
-	}
-	if w.Spec.Lifecycle != nil && w.Spec.Lifecycle.ShutdownPolicy == "Delete" {
-		err := r.Delete(ctx, w, &client.DeleteOptions{Preconditions: &metav1.Preconditions{UID: ptr.To(w.UID)}})
-		return true, ctrl.Result{RequeueAfter: time.Second}, client.IgnoreNotFound(err)
-	}
-	base = w.DeepCopy()
-	w.Status.ServiceName = ""
-	w.Status.ServiceFQDN = ""
-	w.Status.Interaction = nil
-	w.Status.PodName = ""
-	w.Status.PodUID = ""
-	w.Status.AppliedRevision = ""
-	setInstanceCondition(w, controller.ConditionAvailable, metav1.ConditionFalse, controller.ReasonExpired, "Owned execution cleanup completed")
-	w.Status.VolumeClaims = nil
-	for _, kind := range []string{controller.ConditionReady, controller.ConditionConfigurationAccepted, controller.ConditionConfigurationApplied} {
-		setInstanceCondition(w, kind, metav1.ConditionFalse, controller.ReasonExpired, "Execution expired; change restartToken and use a future deadline to start another execution")
-	}
-	for _, kind := range []string{controller.ConditionPodScheduled, controller.ConditionSuspended, controller.ConditionInteractionReady, controller.ConditionProvisioningReady} {
-		meta.RemoveStatusCondition(&w.Status.Conditions, kind)
-	}
-	w.Status.ObservedGeneration = w.Generation
-	return true, ctrl.Result{}, r.patchStatus(ctx, w, base)
 }
 
 func (r *Reconciler) allocationClaim(w *v1.AgentInstance) *unstructured.Unstructured {

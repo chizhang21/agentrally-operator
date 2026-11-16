@@ -17,8 +17,9 @@ kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=co
 kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
 ```
 
-Follow the [README walkthrough](../README.md#3-call-the-agent) to call the Agent,
-suspend/resume and clean up.
+For a complete application walkthrough, choose an example from
+[Start an Agent](../README.md#2-start-an-agent).
+See [Lifecycle](#lifecycle) to suspend, resume and clean up the resources above.
 The demo returns a fixed response until model credentials are configured.
 
 ## Users and permissions
@@ -382,7 +383,7 @@ The Operator exports cached state and resource attribution:
 
 | Metric | Observation |
 | --- | --- |
-| `agentrally_agentinstances{state}` | Cached total, ready, available, suspended, pending and expired counts |
+| `agentrally_agentinstances{state}` | Cached total, ready, available, suspended and pending counts |
 | `agentrally_pool_spare_replicas{state}` / `agentrally_pools` | Ready/desired spare capacity and pool count from Group summaries |
 | `agentrally_namespace_pvcs` / `agentrally_namespace_storage_bytes{state}` | Namespace PVC count and requested/provisioned capacity, including external PVCs |
 | `agentrally_instance_pod_info` | Instance and accepted Definition identity for the observed execution Pod |
@@ -509,34 +510,15 @@ Deleting the Group's Namespace deletes remaining namespaced resources, including
 Secrets.
 Do not use Group deletion as a substitute for data retention planning.
 
-### Execution expiry
+### Natural completion
 
-The optional `lifecycle` block in [04-instance-full.yaml](../examples/04-instance-full.yaml) controls expiry:
+A task's natural completion is reported through `Finished` and
+`status.lifecycle.finishedAt` / `finishedReason`.
+Successful and failed executions remain available for inspection until explicitly deleted.
+Suspension does not count as task completion.
 
-| Field | Behavior |
-| --- | --- |
-| `shutdownTime` | Absolute deadline, including time waiting for dependencies or allocation. Also applies to failed and suspended agents. |
-| `maxLifetimeSeconds` | Wall-clock execution limit from validated allocation, including suspension. |
-| `ttlSecondsAfterFinished` | Starts when Core confirms that the current owned Pod completed naturally. Suspension does not start this TTL. |
-| `retainFailed` | True by default; false allows completion TTL to remove failed executions. |
-| `shutdownPolicy: Retain` | Removes execution and interaction resources, keeps the instance with `Expired=True`. |
-| `shutdownPolicy: Delete` | Deletes the instance through its finalizer. |
-
-The earliest applicable execution deadline wins.
-Users can update `AgentInstance.spec.operatingMode` directly.
-When an Orchestrator manages agents, it owns activity tracking and the decision to
-suspend or resume, and sends native CR updates through Connector.
-The Operator reconciles the requested state without inferring idleness.
-
-Sandbox-owned workspace PVCs are removed with execution; externally supplied Secrets and
-externally managed workspace PVCs remain.
-`Retain` preserves the AgentInstance and diagnostics; it does not retain Sandbox-owned
-private PVCs.
-
-To run an expired retained instance again with a replacement execution, change
-`restartToken` and move any elapsed `shutdownTime` into the future or remove it.
-
-Omit lifecycle for no configured expiry.
+Users or Orchestrators decide when to suspend, resume or delete an Instance.
+The Operator reconciles those explicit requests without a business lifetime or idle timer.
 
 ## Pool allocation
 
@@ -566,8 +548,8 @@ The default 60-second budget starts at persisted `status.provisioning.startedAt`
 covers capacity/instance creation until an owned, matching Sandbox is observed.
 
 `completedAt` ends that budget independently of Core/Pod readiness.
-Startup failures or delays are reported without deleting the allocated execution; use
-`lifecycle.shutdownTime` for an overall cleanup deadline.
+Startup failures or delays are reported without deleting the allocated execution.
+Delete the Instance explicitly when the execution is no longer needed.
 
 A timeout while still waiting for valid allocation removes the native Claim; change
 restartToken to retry.

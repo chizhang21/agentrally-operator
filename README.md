@@ -125,7 +125,7 @@ execution resources and PVCs are removed.
 
 AgentDefinition edits leave existing AgentInstances on their accepted revision.
 Restarts keep that revision; upgrades require a new `spec.revision` and `restartToken`.
-See [Lifecycle](docs/usage.md#lifecycle) for commands and execution expiry settings.
+See [Lifecycle](docs/usage.md#lifecycle) for suspend, resume and deletion commands.
 
 ### Observed timings
 

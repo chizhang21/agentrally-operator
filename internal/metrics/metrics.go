@@ -67,7 +67,7 @@ func (o *Observer) Collect(ch chan<- prometheus.Metric) {
 	}
 	ch <- prometheus.MustNewConstMetric(o.success, prometheus.GaugeValue, 1)
 	counts := controller.SummarizeInstances(instances.Items)
-	for state, count := range map[string]int32{"total": counts.Total, "ready": counts.Ready, "available": counts.Available, "pending": counts.Pending, "suspended": counts.Suspended, "expired": counts.Expired} {
+	for state, count := range map[string]int32{"total": counts.Total, "ready": counts.Ready, "available": counts.Available, "pending": counts.Pending, "suspended": counts.Suspended} {
 		ch <- prometheus.MustNewConstMetric(o.instances, prometheus.GaugeValue, float64(count), state)
 	}
 	var pools, desired, ready, pvcs, requested, capacity float64

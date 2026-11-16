@@ -124,7 +124,7 @@ spec:
 
 修改 AgentDefinition 不会自动升级已有 AgentInstance。
 重启保留已接受的版本，升级需设置新的 `spec.revision` 和 `restartToken`。
-操作命令及执行到期配置见[生命周期](docs/usage.md#lifecycle)。
+挂起、恢复及删除命令见[生命周期](docs/usage.md#lifecycle)。
 
 ### 实测耗时
 

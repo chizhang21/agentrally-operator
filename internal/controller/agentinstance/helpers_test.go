@@ -108,7 +108,7 @@ func reconcileWithUpstreamSimulation(t *testing.T, r *Reconciler, w *v1.AgentIns
 	if w.Spec.Provisioning == nil {
 		simulateUpstreamGarbageCollection(t, r, w)
 		state := &v1.AgentInstance{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(w), state); err == nil && state.DeletionTimestamp == nil && (state.Status.Lifecycle == nil || state.Status.Lifecycle.ExpiredAt == nil) && state.Status.Provisioning != nil && state.Status.Provisioning.ClaimName != "" && state.Status.Provisioning.TimedOutAt == nil {
+		if err := r.Get(ctx, client.ObjectKeyFromObject(w), state); err == nil && state.DeletionTimestamp == nil && state.Status.Provisioning != nil && state.Status.Provisioning.ClaimName != "" && state.Status.Provisioning.TimedOutAt == nil {
 			claim := desiredPoolClaim(state)
 			if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(claim), claim); err == nil {
 				name, _, _ := unstructured.NestedString(claim.Object, "status", "sandbox", "name")

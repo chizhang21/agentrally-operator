@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
-func TestCleanupStallIsVisibleDuringRestartExpiryAndDeletion(t *testing.T) {
-	for _, operation := range []string{"restart", "expiry", "delete"} {
+func TestCleanupStallIsVisibleDuringRestartAndDeletion(t *testing.T) {
+	for _, operation := range []string{"restart", "delete"} {
 		t.Run(operation, func(t *testing.T) {
 			group, ns, definition, w, source := testutil.Fixture()
 			c, scheme := clientWithPublishedDefinitions(t, definition, nativeTemplate(definition, source), group, ns, w)
@@ -37,8 +37,6 @@ func TestCleanupStallIsVisibleDuringRestartExpiryAndDeletion(t *testing.T) {
 			switch operation {
 			case "restart":
 				state.Spec.RestartToken = "replace"
-			case "expiry":
-				state.Spec.Lifecycle = &v1.AgentInstanceLifecycle{ShutdownTime: &metav1.Time{Time: now.Add(-time.Second)}}
 			case "delete":
 				if err := c.Delete(ctx, state); err != nil {
 					t.Fatal(err)

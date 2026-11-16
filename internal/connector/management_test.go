@@ -316,7 +316,6 @@ func TestObservationLifecycleDoesNotPromiseExecutionRelease(t *testing.T) {
 		{"suspending", "", "Stopping"},
 		{"suspended", "Idle", "SuspendedResourcesObserved"},
 		{"stale-suspension", "", "Stopping"},
-		{"expired", "", "ExecutionResourcesRemoved"},
 		{"restart-with-newer-spec", "", "Stopping"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -338,9 +337,7 @@ func TestObservationLifecycleDoesNotPromiseExecutionRelease(t *testing.T) {
 					generation--
 				}
 				_ = unstructured.SetNestedSlice(instance.Object, []any{map[string]any{"type": "Suspended", "status": "True", "observedGeneration": generation}}, "status", "conditions")
-			case "expired":
-				_ = unstructured.SetNestedField(instance.Object, "2026-10-28T00:00:00Z", "status", "lifecycle", "expiredAt")
-				_ = unstructured.SetNestedSlice(instance.Object, []any{map[string]any{"type": "CleanupReady", "status": "True", "observedGeneration": instance.GetGeneration()}}, "status", "conditions")
+
 			}
 			if err := kube.Tracker().Update(workloadGVR, instance, req.Namespace); err != nil {
 				t.Fatal(err)
@@ -348,7 +345,7 @@ func TestObservationLifecycleDoesNotPromiseExecutionRelease(t *testing.T) {
 			if err := kube.Tracker().Update(podResource, pod, req.Namespace); err != nil {
 				t.Fatal(err)
 			}
-			if scenario.name == "suspended" || scenario.name == "stale-suspension" || scenario.name == "expired" {
+			if scenario.name == "suspended" || scenario.name == "stale-suspension" {
 				if err := kube.Tracker().Delete(podResource, req.Namespace, pod.GetName()); err != nil {
 					t.Fatal(err)
 				}

@@ -83,7 +83,6 @@ func TestOperatorLifecycle(t *testing.T) {
 			AgentGroupRef: v1.AgentGroupReference{Name: group.Name}, DefinitionRef: v1.AgentDefinitionReference{Name: definition.Name},
 			Provisioning: &v1.AgentInstanceProvisioning{ClaimTimeoutSeconds: ptr.To(int32(180))},
 			Workspace:    &v1.WorkspaceMount{VolumeClaimTemplate: &workspaceSpec, MountPath: "/workspace"},
-			Lifecycle:    &v1.AgentInstanceLifecycle{TTLSecondsAfterFinished: ptr.To(int32(0))},
 		},
 	}
 	// The local-path provisioner supplies writable directories in this test
@@ -249,25 +248,7 @@ func TestOperatorLifecycle(t *testing.T) {
 		t.Fatal("execution replacement did not start with a fresh workspace", out)
 	}
 
-	t.Log("Expiry removes execution and its PVC while retaining the instance")
-	deadline := metav1.NewTime(time.Now().Add(-time.Minute))
-	claim.Spec.Lifecycle = &v1.AgentInstanceLifecycle{ShutdownTime: &deadline, ShutdownPolicy: "Retain"}
-	update(t, ctx, kube, claim)
-	await(t, "latched expiry", func() (bool, error) {
-		err := refresh()
-		return conditionTrue(claim.Status.Conditions, "Expired", claim.Generation), err
-	})
-	awaitExecutionRemoved(t, ctx, kube, ns)
-	if err := kube.Delete(ctx, claim); err != nil {
-		t.Fatal(err)
-	}
-	awaitDeleted(t, ctx, kube, claim)
-
-	t.Log("Deletion of an active instance also waits for real upstream GC")
-	claim = &v1.AgentInstance{ObjectMeta: metav1.ObjectMeta{Name: "delete-active", Namespace: ns}, Spec: claim.Spec}
-	claim.Spec.Lifecycle = nil
-	create(t, ctx, kube, claim)
-	awaitReady()
+	t.Log("Explicit deletion removes the execution and its template PVC")
 	deletedInstanceUID, deletedPVCUID := claim.UID, allocatedWorkspace(t, ctx, kube, claim).UID
 	if err := kube.Delete(ctx, claim); err != nil {
 		t.Fatal(err)
@@ -325,7 +306,7 @@ func verifyWarmWorkspaces(t *testing.T, ctx context.Context, kube client.Client,
 	t.Helper()
 	namespace := group.Status.Namespace
 	t.Log("Warm allocation transfers independent pre-provisioned PVCs")
-	spec.Lifecycle, spec.Provisioning, spec.RestartToken = nil, nil, ""
+	spec.Provisioning, spec.RestartToken = nil, ""
 	observed := map[string][]time.Duration{}
 	ready := func(claim *v1.AgentInstance) {
 		await(t, claim.Name+" readiness", func() (bool, error) {

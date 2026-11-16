@@ -68,7 +68,7 @@ func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID
 		}
 	}
 	for _, w := range workloads.Items {
-		if w.DeletionTimestamp == nil && (w.Status.Lifecycle == nil || w.Status.Lifecycle.ExpiredAt == nil) && w.Status.Provisioning != nil && w.Status.Provisioning.TimedOutAt == nil {
+		if w.DeletionTimestamp == nil && w.Status.Provisioning != nil && w.Status.Provisioning.TimedOutAt == nil {
 			used[w.Status.Provisioning.PoolName] = true
 			remainingTemplates[w.Status.Provisioning.TemplateName] = true
 		}

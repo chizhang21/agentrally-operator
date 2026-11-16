@@ -41,14 +41,6 @@ spec:
       namespace: gateway-system
       sectionName: https
   restartToken: initial
-  lifecycle:
-    shutdownPolicy: Retain
-    retainFailed: true
-    ttlSecondsAfterFinished: 3600
-    # Wall-clock limit from allocation, including suspended time.
-    maxLifetimeSeconds: 28800
-    # Optional absolute deadline, including dependency/allocation time:
-    # shutdownTime: "2099-01-01T00:00:00Z"
   provisioning:
     claimTimeoutSeconds: 300
     # Optional: select an existing external pool referencing the matching

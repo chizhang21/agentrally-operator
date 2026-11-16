@@ -17,7 +17,7 @@ type WorkspaceMount struct {
 	// +optional
 	ExistingClaimRef *PersistentVolumeClaimReference `json:"existingClaimRef,omitempty"`
 	// Exclusive reserves the external PVC for this Instance UID until instance deletion.
-	// Suspension, expiry and explicit execution replacement retain the reservation.
+	// Suspension and explicit execution replacement retain the reservation.
 	// +optional
 	Exclusive bool `json:"exclusive,omitempty"`
 	// +kubebuilder:validation:MinLength=1
@@ -106,34 +106,6 @@ type InteractionEndpointStatus struct {
 	GatewayRef *GatewayReference `json:"gatewayRef,omitempty"`
 }
 
-// AgentInstanceLifecycle controls execution cleanup, including Sandbox-owned PVCs.
-type AgentInstanceLifecycle struct {
-	// MaxLifetimeSeconds bounds wall-clock execution lifetime from validated
-	// allocation, including suspension. Pod recreation does not reset it.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=2147483647
-	// +optional
-	MaxLifetimeSeconds *int32 `json:"maxLifetimeSeconds,omitempty"`
-	// ShutdownTime is an absolute deadline, including time spent waiting for dependencies.
-	// +optional
-	ShutdownTime *metav1.Time `json:"shutdownTime,omitempty"`
-	// TTLSecondsAfterFinished starts when Core confirms natural completion of the
-	// current owned Pod. Suspension and Pod deletion do not start this TTL.
-	// +kubebuilder:validation:Minimum=0
-	// +optional
-	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
-	// ShutdownPolicy defaults to Retain, which keeps the AgentInstance and diagnostics
-	// after execution cleanup. Delete removes the AgentInstance through its finalizer.
-	// +kubebuilder:validation:Enum=Retain;Delete
-	// +kubebuilder:default=Retain
-	// +optional
-	ShutdownPolicy string `json:"shutdownPolicy,omitempty"`
-	// RetainFailed skips completion TTL for failures; an absolute deadline still applies.
-	// +kubebuilder:default=true
-	// +optional
-	RetainFailed *bool `json:"retainFailed,omitempty"`
-}
-
 // WarmPoolReference selects a namespaced upstream SandboxWarmPool.
 type WarmPoolReference struct {
 	// +kubebuilder:validation:MinLength=1
@@ -151,7 +123,7 @@ type AgentInstanceProvisioning struct {
 	// +optional
 	WarmPoolRef *WarmPoolReference `json:"warmPoolRef,omitempty"`
 	// ClaimTimeoutSeconds bounds waiting for an owned, matching Sandbox allocation.
-	// Application startup is observed separately; Lifecycle controls execution cleanup.
+	// Application startup is observed separately from this allocation budget.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3600
 	// +kubebuilder:default=60
@@ -165,13 +137,6 @@ type AgentInstanceLifecycleStatus struct {
 	// FinishedReason persists success/failure even when dependency conditions change.
 	// +optional
 	FinishedReason string `json:"finishedReason,omitempty"`
-	// +optional
-	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
-	// ExpiredAt latches expiration, preventing execution resources from being recreated.
-	// +optional
-	ExpiredAt *metav1.Time `json:"expiredAt,omitempty"`
-	// +optional
-	Reason string `json:"reason,omitempty"`
 }
 
 type AgentInstanceProvisioningStatus struct {
@@ -226,8 +191,6 @@ type AgentInstanceSpec struct {
 	// +kubebuilder:validation:MaxLength=128
 	// +optional
 	RestartToken string `json:"restartToken,omitempty"`
-	// +optional
-	Lifecycle *AgentInstanceLifecycle `json:"lifecycle,omitempty"`
 	// +optional
 	Provisioning *AgentInstanceProvisioning `json:"provisioning,omitempty"`
 }

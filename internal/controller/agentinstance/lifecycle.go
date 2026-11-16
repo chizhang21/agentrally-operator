@@ -1,21 +1,14 @@
 package agentinstance
 
 import (
-	"fmt"
-	"time"
-
 	v1 "agentrally/operator/api/v1alpha1"
+	"agentrally/operator/internal/controller"
 	"agentrally/operator/internal/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-type lifecycleDecision struct {
-	Status  *v1.AgentInstanceLifecycleStatus
-	Expired bool
-}
 
 // executionMode is explicit user intent. Health observations never change it.
 func executionMode(instance *v1.AgentInstance) string {
@@ -37,88 +30,20 @@ func executionFinishedCondition(w *v1.AgentInstance, pod *corev1.Pod, finished *
 	return finished
 }
 
-func evaluateExecutionLifecycle(w *v1.AgentInstance, pod *corev1.Pod, now time.Time) (lifecycleDecision, error) {
-	prior := w.Status.Lifecycle
-	if prior != nil && prior.ExpiredAt == nil && pod != nil && pod.DeletionTimestamp == nil &&
+// Completion is diagnostic history, not a request to remove execution resources.
+// Callers first verify Pod ownership and mirror current-generation Core conditions.
+func executionCompletionStatus(w *v1.AgentInstance, pod *corev1.Pod) *v1.AgentInstanceLifecycleStatus {
+	if pod != nil && pod.DeletionTimestamp == nil &&
 		(pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning) {
-		// A live owned Pod invalidates completion recorded for an earlier Pod.
-		// Absolute deadlines are recomputed below; latched expiry stays terminal.
-		prior = nil
+		return nil
 	}
-	finished := executionFinishedCondition(w, pod, meta.FindStatusCondition(w.Status.Conditions, "Finished"))
-	var allocatedAt *metav1.Time
-	if w.Status.Provisioning != nil {
-		allocatedAt = w.Status.Provisioning.CompletedAt
+	status := w.Status.Lifecycle.DeepCopy()
+	finished := executionFinishedCondition(w, pod, meta.FindStatusCondition(w.Status.Conditions, controller.ConditionFinished))
+	if finished == nil || finished.Status != metav1.ConditionTrue || finished.LastTransitionTime.IsZero() {
+		return status
 	}
-	return evaluateLifecycle(w.Spec.Lifecycle, prior, allocatedAt, finished, now)
-}
-
-// retentionDeadline normalizes lifecycle timestamps to UTC second precision.
-func retentionDeadline(anchor time.Time, retention time.Duration) time.Time {
-	deadline := anchor.Add(retention)
-	if deadline.IsZero() {
-		return deadline
+	if status == nil || status.FinishedAt == nil {
+		return &v1.AgentInstanceLifecycleStatus{FinishedAt: finished.LastTransitionTime.DeepCopy(), FinishedReason: finished.Reason}
 	}
-	return deadline.Round(0).Truncate(time.Second).UTC()
-}
-
-// evaluateLifecycle plans cleanup without changing resources or input status.
-// The caller must supply a Finished condition from the current execution.
-func evaluateLifecycle(policy *v1.AgentInstanceLifecycle, prior *v1.AgentInstanceLifecycleStatus, allocatedAt *metav1.Time, finished *metav1.Condition, now time.Time) (lifecycleDecision, error) {
-	status := prior.DeepCopy()
-	if status == nil {
-		status = &v1.AgentInstanceLifecycleStatus{}
-	}
-	if status.ExpiredAt != nil {
-		return lifecycleDecision{Status: status, Expired: true}, nil
-	}
-	if finished != nil && finished.Type == "Finished" && finished.Status == metav1.ConditionTrue && !finished.LastTransitionTime.IsZero() {
-		if status.FinishedAt == nil {
-			status.FinishedAt = finished.LastTransitionTime.DeepCopy()
-			status.FinishedReason = finished.Reason
-		} else if status.FinishedReason == "" && status.FinishedAt.Equal(&finished.LastTransitionTime) {
-			status.FinishedReason = finished.Reason
-		}
-	}
-	status.ExpiresAt, status.Reason = nil, ""
-	if policy != nil {
-		if policy.ShutdownPolicy != "" && policy.ShutdownPolicy != "Retain" && policy.ShutdownPolicy != "Delete" {
-			return lifecycleDecision{}, fmt.Errorf("unsupported lifecycle shutdownPolicy %q", policy.ShutdownPolicy)
-		}
-		if policy.TTLSecondsAfterFinished != nil && *policy.TTLSecondsAfterFinished < 0 {
-			return lifecycleDecision{}, fmt.Errorf("lifecycle ttlSecondsAfterFinished must be non-negative")
-		}
-		if policy.ShutdownTime != nil && !policy.ShutdownTime.IsZero() {
-			deadline := metav1.NewTime(retentionDeadline(policy.ShutdownTime.Time, 0))
-			status.ExpiresAt, status.Reason = &deadline, "ShutdownTimeReached"
-		}
-		if policy.MaxLifetimeSeconds != nil {
-			if *policy.MaxLifetimeSeconds <= 0 {
-				return lifecycleDecision{}, fmt.Errorf("lifecycle maxLifetimeSeconds must be positive")
-			}
-			if allocatedAt != nil {
-				deadline := metav1.NewTime(retentionDeadline(allocatedAt.Time, time.Duration(*policy.MaxLifetimeSeconds)*time.Second))
-				if status.ExpiresAt == nil || deadline.Before(status.ExpiresAt) {
-					status.ExpiresAt, status.Reason = &deadline, "MaxLifetimeReached"
-				}
-			}
-		}
-		retainFailed := policy.RetainFailed == nil || *policy.RetainFailed
-		if policy.TTLSecondsAfterFinished != nil && status.FinishedAt != nil && !(retainFailed && status.FinishedReason == "PodFailed") {
-			deadline := metav1.NewTime(retentionDeadline(status.FinishedAt.Time, time.Duration(*policy.TTLSecondsAfterFinished)*time.Second))
-			if status.ExpiresAt == nil || deadline.Before(status.ExpiresAt) {
-				status.ExpiresAt, status.Reason = &deadline, "FinishedTTLReached"
-			}
-		}
-	}
-	decision := lifecycleDecision{Status: status}
-	if status.ExpiresAt != nil {
-		if !now.Before(status.ExpiresAt.Time) {
-			expiredAt := metav1.NewTime(retentionDeadline(now, 0))
-			status.ExpiredAt, decision.Expired = &expiredAt, true
-		}
-	} else if prior == nil && status.FinishedAt == nil {
-		decision.Status = nil
-	}
-	return decision, nil
+	return status
 }

@@ -37,7 +37,7 @@ func observationDiagnostic(out *InstanceObservation, instance *v1.AgentInstance,
 	if out.State == "Idle" {
 		return newInstanceDiagnostic("Idle", "SandboxSuspended", "Suspension is confirmed and the execution Pod is absent; process release remains unverified", "AgentInstance", instance)
 	}
-	if out.Reason == "Stopping" || out.Reason == "ExecutionResourcesRemoved" {
+	if out.Reason == "Stopping" {
 		if pod != nil && pod.DeletionTimestamp != nil {
 			issue := diagnostics.Termination(pod, now)
 			return newInstanceDiagnostic("Cleanup", issue.Reason, issue.Message, "Pod", pod)

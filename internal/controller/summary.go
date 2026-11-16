@@ -12,10 +12,6 @@ func SummarizeInstances(instances []v1.AgentInstance) v1.AgentInstanceSummary {
 	result := v1.AgentInstanceSummary{Total: int32(len(instances))}
 	for i := range instances {
 		instance := &instances[i]
-		if instance.Status.Lifecycle != nil && instance.Status.Lifecycle.ExpiredAt != nil {
-			result.Expired++
-			continue
-		}
 		if instance.DeletionTimestamp != nil {
 			continue
 		}

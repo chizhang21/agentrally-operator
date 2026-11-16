@@ -165,7 +165,8 @@ func TestManagedPrewarmingPolicySurvivesIdleReconciliationRestart(t *testing.T) 
 	if replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas"); replicas != 1 {
 		t.Fatal("changed policy was not reconciled", replicas)
 	}
-	state.Status.Lifecycle = &v1.AgentInstanceLifecycleStatus{ExpiredAt: ptr.To(metav1.NewTime(anchor))}
+	state.Status.Provisioning.CompletedAt = nil
+	state.Status.Provisioning.TimedOutAt = ptr.To(metav1.NewTime(anchor))
 	if err := c.Status().Update(ctx, state); err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +185,7 @@ func TestManagedPrewarmingPolicySurvivesIdleReconciliationRestart(t *testing.T) 
 	if prune() {
 		t.Fatal("manager restart reset or shortened idle retention")
 	}
-	state.Status.Lifecycle = nil
+	state.Status.Provisioning.TimedOutAt = nil
 	if err := c.Status().Update(ctx, state); err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,8 @@ func TestManagedPrewarmingPolicySurvivesIdleReconciliationRestart(t *testing.T) 
 	if pool.GetAnnotations()["arally.io/unused-since"] != "" {
 		t.Fatal("active reference did not clear idle anchor")
 	}
-	state.Status.Lifecycle = &v1.AgentInstanceLifecycleStatus{ExpiredAt: ptr.To(metav1.NewTime(anchor))}
+	state.Status.Provisioning.CompletedAt = nil
+	state.Status.Provisioning.TimedOutAt = ptr.To(metav1.NewTime(anchor))
 	if err := c.Status().Update(ctx, state); err != nil {
 		t.Fatal(err)
 	}
@@ -866,8 +868,9 @@ func TestGroupPrunesOnlyUnusedManagedCapacityAfterPoolCleanup(t *testing.T) {
 	if prune() {
 		t.Fatal("live AgentInstance lost shared capacity")
 	}
-	// Native claims protect the pool even when the AgentRally AgentInstance has expired.
-	state.Status.Lifecycle = &v1.AgentInstanceLifecycleStatus{ExpiredAt: ptr.To(metav1.Now())}
+	// Native claims protect the pool while timed-out allocation cleanup is pending.
+	state.Status.Provisioning.CompletedAt = nil
+	state.Status.Provisioning.TimedOutAt = ptr.To(metav1.Now())
 	if err := c.Status().Update(ctx, state); err != nil {
 		t.Fatal(err)
 	}
@@ -910,7 +913,7 @@ func TestGroupPrunesOnlyUnusedManagedCapacityAfterPoolCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	state = getAgentInstance(t, c, w)
-	state.Status.Lifecycle = nil
+	state.Status.Provisioning.TimedOutAt = nil
 	state.Status.Provisioning.TemplateName = orphan.GetName()
 	if err := c.Status().Update(ctx, state); err != nil {
 		t.Fatal(err)

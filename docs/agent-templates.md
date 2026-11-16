@@ -65,7 +65,7 @@ By default, Core creates a private PVC for every Sandbox, including unassigned w
 The PVC belongs to that Sandbox.
 
 Suspend/resume and Pod recreation within the same Sandbox retain workspace data.
-Explicit execution replacement (`restartToken`), deletion and expiry remove the Sandbox
+Explicit execution replacement (`restartToken`) and deletion remove the Sandbox
 and its private PVCs.
 Replacement starts with a new private workspace.
 

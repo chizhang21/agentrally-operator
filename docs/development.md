@@ -170,8 +170,8 @@ E2E_UPGRADE_FROM=0.0.4 E2E_UPGRADE_CONNECTOR=true make e2e
 ```
 
 The suite covers publication/revision pinning, dependency rotation, Group policies,
-allocation, prewarming, suspend/resume, replacement, expiry and ownership cleanup.
-Generic native-template tasks verify completion policies.
+allocation, prewarming, suspend/resume, replacement, task completion and ownership cleanup.
+Generic native-template tasks verify completion diagnostics and explicit cleanup.
 Workspace checks distinguish execution-private volumes from externally managed PVCs.
 Connector management uses its dedicated rendered RBAC rather than administrator permissions.
 It checks scoped metadata reads, write-result retries and guarded Secret/ConfigMap deletion.

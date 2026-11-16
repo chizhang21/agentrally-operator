@@ -1063,7 +1063,7 @@ spec:
                   exclusive:
                     description: |-
                       Exclusive reserves the external PVC for this Instance UID until instance deletion.
-                      Suspension, expiry and explicit execution replacement retain the reservation.
+                      Suspension and explicit execution replacement retain the reservation.
                     type: boolean
                   existingClaimRef:
                     description: |-

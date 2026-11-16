@@ -147,45 +147,6 @@ spec:
                 x-kubernetes-validations:
                 - message: gatewayRef is only valid for HTTPRoute
                   rule: self.type != 'OpenShiftRoute' || !has(self.gatewayRef)
-              lifecycle:
-                description: AgentInstanceLifecycle controls execution cleanup, including
-                  Sandbox-owned PVCs.
-                properties:
-                  maxLifetimeSeconds:
-                    description: |-
-                      MaxLifetimeSeconds bounds wall-clock execution lifetime from validated
-                      allocation, including suspension. Pod recreation does not reset it.
-                    format: int32
-                    maximum: 2147483647
-                    minimum: 1
-                    type: integer
-                  retainFailed:
-                    default: true
-                    description: RetainFailed skips completion TTL for failures; an
-                      absolute deadline still applies.
-                    type: boolean
-                  shutdownPolicy:
-                    default: Retain
-                    description: |-
-                      ShutdownPolicy defaults to Retain, which keeps the AgentInstance and diagnostics
-                      after execution cleanup. Delete removes the AgentInstance through its finalizer.
-                    enum:
-                    - Retain
-                    - Delete
-                    type: string
-                  shutdownTime:
-                    description: ShutdownTime is an absolute deadline, including time
-                      spent waiting for dependencies.
-                    format: date-time
-                    type: string
-                  ttlSecondsAfterFinished:
-                    description: |-
-                      TTLSecondsAfterFinished starts when Core confirms natural completion of the
-                      current owned Pod. Suspension and Pod deletion do not start this TTL.
-                    format: int32
-                    minimum: 0
-                    type: integer
-                type: object
               operatingMode:
                 default: Running
                 enum:
@@ -201,7 +162,7 @@ spec:
                     default: 60
                     description: |-
                       ClaimTimeoutSeconds bounds waiting for an owned, matching Sandbox allocation.
-                      Application startup is observed separately; Lifecycle controls execution cleanup.
+                      Application startup is observed separately from this allocation budget.
                     format: int32
                     maximum: 3600
                     minimum: 1
@@ -241,7 +202,7 @@ spec:
                   exclusive:
                     description: |-
                       Exclusive reserves the external PVC for this Instance UID until instance deletion.
-                      Suspension, expiry and explicit execution replacement retain the reservation.
+                      Suspension and explicit execution replacement retain the reservation.
                     type: boolean
                   existingClaimRef:
                     description: |-
@@ -618,22 +579,12 @@ spec:
                 type: string
               lifecycle:
                 properties:
-                  expiredAt:
-                    description: ExpiredAt latches expiration, preventing execution
-                      resources from being recreated.
-                    format: date-time
-                    type: string
-                  expiresAt:
-                    format: date-time
-                    type: string
                   finishedAt:
                     format: date-time
                     type: string
                   finishedReason:
                     description: FinishedReason persists success/failure even when
                       dependency conditions change.
-                    type: string
-                  reason:
                     type: string
                 type: object
               observedGeneration:

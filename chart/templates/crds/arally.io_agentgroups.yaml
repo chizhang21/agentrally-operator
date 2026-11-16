@@ -891,12 +891,9 @@ spec:
                       available:
                         format: int32
                         type: integer
-                      expired:
-                        format: int32
-                        type: integer
                       pending:
-                        description: Pending counts non-expired, non-deleting instances
-                          that are neither Ready nor suspended.
+                        description: Pending counts non-deleting instances that are
+                          neither Ready nor suspended.
                         format: int32
                         type: integer
                       ready:
@@ -910,7 +907,6 @@ spec:
                         type: integer
                     required:
                     - available
-                    - expired
                     - pending
                     - ready
                     - suspended

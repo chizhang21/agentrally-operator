@@ -124,7 +124,7 @@ UID checks prevent same-name replacements from being accepted as original resour
 Pruning reads current Instance, Definition and native Claim references.
 It uses UID/resource-version preconditions and waits for pool deletion before deleting a snapshot.
 Group deletion bypasses idle retention but still respects active references.
-Instance restart, expiry and deletion request foreground Claim cleanup.
+Instance restart and deletion request foreground Claim cleanup.
 Definition deletion waits for referencing Instances; Group deletion waits before removing its namespace.
 
 ## Lifecycle and workspace
@@ -146,9 +146,8 @@ Optional exclusive reservation Leases coordinate Operator-managed consumers and 
 They do not fence nodes or other writers.
 VolumeSnapshot sources initialize private PVCs through CSI; they do not restore process memory or a microVM checkpoint.
 
-Shutdown deadlines and maximum lifetime include suspension.
-Completion TTL starts after confirmed natural completion of the current owned execution.
-`shutdownPolicy: Retain` keeps the logical Instance and diagnostics while removing execution.
+Natural completion records the current execution result without deleting resources.
+Users or Orchestrators decide when to suspend, resume or delete an Instance.
 Storage follows the table above.
 Operating commands are in [Lifecycle](usage.md#lifecycle).
 

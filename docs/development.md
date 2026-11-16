@@ -153,7 +153,7 @@ Run profiles sequentially on a shared Docker host; CI matrix jobs use separate r
 
 | Setting | Purpose |
 | --- | --- |
-| `E2E_PROFILE` | `baseline` (default), `newer-kubernetes`, `operator-upgrade`, `connector-upgrade` or `sandbox-upgrade` |
+| `E2E_PROFILE` | `baseline` (default), `newer-kubernetes`, `operator-upgrade`, `connector-upgrade`, `sandbox-upgrade` or `shared-storage` |
 | `E2E_TEST` | Override the selected Go tests; any skip in an explicit selection fails the run |
 | `E2E_IMAGE=repository:tag` | Use an already built local Operator image; no publication |
 | `E2E_CONNECTOR_IMAGE=repository:tag` | Use an already built local Connector image; no publication |
@@ -172,6 +172,7 @@ E2E_PROFILE=newer-kubernetes make e2e
 E2E_PROFILE=operator-upgrade make e2e
 E2E_PROFILE=connector-upgrade make e2e
 E2E_PROFILE=sandbox-upgrade make e2e
+E2E_PROFILE=shared-storage make e2e
 ```
 
 The suite covers publication/revision pinning, dependency rotation, Group policies,
@@ -183,12 +184,19 @@ It checks scoped metadata reads, write-result retries and guarded Secret/ConfigM
 Startup tests verify leader handoff against the Kind API.
 Before a release candidate, review `versions.env` against the published releases.
 Keep the Operator upgrade source pinned to the latest release preceding that candidate.
-CI runs all five profiles separately using the same candidate artifacts.
+CI runs all six profiles separately using the same candidate artifacts.
 Component upgrade tests start with a running private workspace and an already
 suspended instance using an external PVC.
 They check Instance, Claim, Sandbox and PVC identity, accepted revision, file read/write
 and application responses before and after explicit resume.
 The Connector profile verifies scoped requests before and after its upgrade.
+The shared-storage profile installs a pinned NFS Ganesha test service in its own
+namespace and keeps the Agents under Restricted admission.
+It reads the public YAML with the documented template, instance and storage adaptations.
+Test volumes request 32Mi so the scenario does not depend on production-sized capacity.
+Two instances verify private files, shared read-only content, POSIX access denial,
+revision selection, deletion ownership and real mount-failure diagnostics.
+The fixture uses native NFS volumes; it does not certify a CSI driver or EFS authorization.
 The public-example test applies the repository YAML unchanged and checks the demo
 reply, suspend/resume, persistent files, restart, explicit revision update and cleanup.
 Deployment tests exercise backend connectivity, outage isolation, Pod replacement and cleanup on disable.
@@ -213,7 +221,7 @@ An explicitly requested infrastructure profile must pass; missing infrastructure
 Every initialized Kind run has a new directory under `.cache/e2e/`.
 Go test output appears in the terminal and is saved to `lifecycle.log`.
 Each profile has required scenarios; a missing, failed or skipped required case fails the run.
-Default baseline runs may skip unselected Kata, Cilium, snapshot and upgrade cases.
+Default baseline runs may skip unselected Kata, Cilium, snapshot, shared-storage and upgrade cases.
 Those skips remain visible and provide no compatibility evidence.
 An explicit `E2E_TEST` selection must execute at least one scenario beyond the target
 guard and cannot contain a skipped case.

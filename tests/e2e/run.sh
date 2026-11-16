@@ -32,6 +32,10 @@ case "$E2E_PROFILE" in
     upstream_version=$SANDBOX_PREVIOUS_VERSION
     upstream_sha=$SANDBOX_PREVIOUS_SHA256
     ;;
+  shared-storage)
+    required=TestSharedStorage
+    export E2E_TEST=${E2E_TEST:-'^TestSharedStorage$'}
+    ;;
   *) echo 'Unknown E2E_PROFILE.' >&2; exit 1 ;;
 esac
 if [[ -n ${E2E_UPGRADE_FROM:-} ]]; then
@@ -102,10 +106,18 @@ finish() {
       timeout 10s kubectl --request-timeout=5s -n agentrally-system logs deployment/agentrally-operator --pod-running-timeout=5s --all-containers > "$logs/operator.log" 2>&1 || true
       timeout 10s kubectl --request-timeout=5s -n agentrally-system logs deployment/agentrally-operator-connector --pod-running-timeout=5s --all-containers > "$logs/connector.log" 2>&1 || true
       timeout 10s kubectl --request-timeout=5s -n agent-sandbox-system logs deployment/agent-sandbox-controller --pod-running-timeout=5s --all-containers > "$logs/upstream.log" 2>&1 || true
+      if [[ "$E2E_PROFILE" == shared-storage ]]; then
+        timeout 10s kubectl --request-timeout=5s -n agentrally-test-storage logs statefulset/nfs-nfs-server-provisioner --pod-running-timeout=5s > "$logs/nfs.log" 2>&1 || true
+        timeout 10s kubectl --request-timeout=5s -n agentrally-test-storage exec nfs-nfs-server-provisioner-0 -- cat /export/ganesha.log > "$logs/nfs-server.log" 2>&1 || true
+      fi
       timeout 30s "$KIND" export logs "$logs/kind" --name "$cluster" || true
     fi
     cleanup_egress_fixtures
     fixtures_result=$?
+    if [[ "$E2E_PROFILE" == shared-storage ]]; then
+      # Unmount clients in the example namespace while the test NFS server is alive.
+      timeout 100s kubectl --request-timeout=5s delete namespace agentrally-demo --ignore-not-found --wait --timeout=90s || fixtures_result=1
+    fi
     timeout 120s "$KIND" delete cluster --name "$cluster"
     cluster_result=$?
     if (( fixtures_result != 0 || cluster_result != 0 )); then
@@ -205,6 +217,10 @@ docker pull --platform="$platform" docker.io/library/busybox:1.37.0
 export E2E_DIGEST_IMAGE
 E2E_DIGEST_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/library/busybox:1.37.0)
 load_image docker.io/library/busybox:1.37.0
+if [[ "$E2E_PROFILE" == shared-storage ]]; then
+  source tests/e2e/nfs.sh
+  install_nfs_fixture "$temporary" "$platform" "$logs/inputs.txt"
+fi
 upstream="$temporary/upstream.yaml"
 download_upstream() {
   curl -fsSL --retry 3 "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/$1/sandbox-with-extensions.yaml" -o "$3"

@@ -37,8 +37,10 @@ The exact node images and manifest checksums are pinned in
 | Operator 0.0.6 → this candidate, Connector off/on | 1.34.11 | 1.0.5 | Passed locally |
 | Upstream upgrade with this candidate fixed | 1.34.11 | 1.0.5 → 1.0.11 | Passed locally |
 | Packaged Chart defaults and public examples | 1.34.11 | 1.0.11 | Passed locally |
+| Private workspaces and shared read-only NFS content | 1.34.11 | 1.0.11 | Passed locally |
 
-These scenarios use runc, kindnet and local-path storage.
+These scenarios use runc and kindnet.
+Storage uses local-path, except for the dedicated NFS scenario.
 They do not establish Kubernetes cluster upgrade compatibility, or validate OKD,
 Kata, gVisor, EFS or another storage backend.
 The upgrade source is the latest published Operator version selected for this candidate;

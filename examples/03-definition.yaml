@@ -11,6 +11,7 @@ spec:
   template: generic
   # Optional alternative: remove template and container, then use templateRef.
   # If using a native source, refer to sandbox-template.yaml and apply it first.
+  # That example also requires a prepared shared-content PVC; see docs/usage.md.
   # templateRef:
   #   name: custom-agent
   agentContainer: agent

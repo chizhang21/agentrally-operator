@@ -336,6 +336,89 @@ The Operator records its UID without adoption or deletion and enforces zero spar
 Use one PVC per resident assistant; a retained volume is not a backup.
 Application paths, probes and upgrade steps belong to each project in `agentrally-examples`.
 
+### Private workspaces and shared content
+
+Use `workspace` for each instance's main workspace and a custom
+[SandboxTemplate](../examples/sandbox-template.yaml) for additional mounts.
+The example mounts an existing `shared-content` PVC at `/shared`, read-only in both
+`volumes[].persistentVolumeClaim` and `volumeMounts`.
+It leaves `/workspace` for the instance configuration.
+
+After creating the Group, prepare a shared filesystem PVC in its namespace:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-content
+  namespace: agentrally-demo
+spec:
+  storageClassName: your-shared-filesystem-class
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 1Gi
+```
+
+Choose a class that supports concurrent mounts on the target nodes, such as an
+administrator-configured NFS or EFS class.
+Publish files into stable directories such as `v1/skills.txt` and `v2/skills.txt`.
+Prepare ownership and permissions for the Agent's non-root UID before deployment.
+`fsGroup` is not a substitute for server-side permissions and may not apply to NFS.
+
+To use this template:
+
+1. In `03-definition.yaml`, remove `template` and `container`, then enable
+   `templateRef.name: custom-agent`.
+   Set `security.runAsUser` only when an explicit UID is required by the storage policy.
+2. Apply `sandbox-template.yaml`, then the modified Definition.
+3. Create two instances referencing that Definition, with different names.
+   Each can use the full example's `workspace.volumeClaimTemplate` with the chosen
+   StorageClass to obtain its own PVC.
+   For externally retained private data, replace that block with
+   `existingClaimRef.name` pointing to a separately prepared PVC for that instance.
+
+The shared mount and each private workspace can use the same filesystem backend.
+Each private PVC must map to a distinct, appropriately authorized data scope.
+Native `volumeClaimTemplates` inside SandboxTemplate also create one PVC per Sandbox;
+sharing a template does not share those volumes.
+
+Inspect the mount in either running instance:
+
+```sh
+POD=$(kubectl -n agentrally-demo get agentinstance <instance-name> -o jsonpath='{.status.podName}')
+kubectl -n agentrally-demo exec "$POD" -- sh -c 'cat "$SHARED_CONTENT_PATH/skills.txt"'
+kubectl -n agentrally-demo exec "$POD" -- sh -c 'printf test >> "$SHARED_CONTENT_PATH/skills.txt"'
+```
+
+The read should return the published content; the write should fail as read-only.
+`SHARED_CONTENT_PATH` is an application convention, not an Operator skills loader.
+The demo's HTTP handler does not interpret these files.
+
+To select new shared content, change the source template's `SHARED_CONTENT_PATH`
+from `/shared/v1` to `/shared/v2` and wait for the Definition's new revision.
+[Explicitly upgrade](#lifecycle) only the intended instance.
+Other instances retain their accepted revision and content path.
+Keep the PVC and mount layout unchanged; replacing storage is not an application upgrade.
+Do not overwrite directories still used by old revisions.
+Read-only mounts do not prevent the publisher from changing files or prevent Agents
+from reading other public version directories on the same mount.
+
+Access modes and different PVC names do not establish tenant authorization.
+The Operator adds only the configured mounts; backend exports, POSIX permissions,
+network access and any EFS Access Point/IAM restrictions remain administrator responsibilities.
+Same-Group sharing does not provide protection from an administrator who can change templates.
+PVC references are namespace-local; prepare separate claims for other Groups.
+
+Missing PVCs appear in Instance conditions.
+Mount failures also require inspecting the affected Pod's Events and the storage backend.
+AgentRally does not substitute an empty directory or relax workload permissions.
+
+Deleting an instance removes its template-created private PVC.
+Its external private PVC and the shared PVC remain independently owned.
+The Kind NFS test covers actual file access, permission rejection and these lifecycle
+behaviors; it does not validate EFS-specific authorization or hostile NFS clients.
+
 ### Initialize from a VolumeSnapshot
 
 Set the native PVC `dataSource` (or local `dataSourceRef`) to a ready

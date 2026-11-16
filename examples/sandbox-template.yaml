@@ -1,5 +1,7 @@
 # Optional native source for 03-definition.yaml's templateRef.
-# Apply 02-group.yaml first; replace the image and Pod settings before use.
+# Apply 02-group.yaml first and prepare the shared-content PVC in this namespace.
+# See docs/usage.md: Private workspaces and shared content.
+# Adapt the image, process identity and storage permissions for your application.
 apiVersion: extensions.agents.x-k8s.io/v1beta1
 kind: SandboxTemplate
 metadata:
@@ -23,15 +25,37 @@ spec:
           type: RuntimeDefault
       containers:
       - name: agent
-        image: registry.example.com/my-agent:v1
+        image: ghcr.io/chizhang21/agentrally-demo-agent:v0.0.3@sha256:7026fcd4ae6b6a6b33d2200ca260feff62296fbab26c651436fda69879a66ca5
+        imagePullPolicy: IfNotPresent
+        env:
+        # Application convention; the Operator does not load or interpret these files.
+        - name: SHARED_CONTENT_PATH
+          value: /shared/v1
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 5
+        volumeMounts:
+        - name: shared-content
+          mountPath: /shared
+          readOnly: true
         resources:
           requests:
-            cpu: "1"
-            memory: 2Gi
+            cpu: 100m
+            memory: 128Mi
           limits:
-            cpu: "2"
-            memory: 4Gi
+            cpu: 500m
+            memory: 512Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop: [ALL]
+      volumes:
+      - name: shared-content
+        persistentVolumeClaim:
+          claimName: shared-content
+          readOnly: true

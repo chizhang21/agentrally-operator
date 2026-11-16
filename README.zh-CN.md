@@ -115,15 +115,15 @@ spec:
 | 操作 | 执行资源 | 工作区数据 |
 | --- | --- | --- |
 | 挂起和恢复 | 在同一 Sandbox 中删除并重建 Pod。 | 私有 PVC 和已有 PVC 均保留，内存和临时文件丢失。 |
-| 重启或升级 | 替换 Sandbox 及其 Pod。 | 私有 PVC 被替换，已有 PVC 保留。 |
+| 重启或升级 | 在同一 Sandbox 中重建 Pod。 | 私有 PVC 和已有 PVC 均保留，内存和临时文件丢失。 |
 | 删除 AgentInstance | 清理该实例的执行资源。 | 私有 PVC 被删除，已有 PVC 保留。 |
 
-需要在重启、升级或删除 AgentInstance 后保留数据时，使用 `workspace.existingClaimRef`。
+需要在删除 AgentInstance 后保留数据时，使用 `workspace.existingClaimRef`。
 
 删除 AgentGroup 前需清理其中的 AgentDefinition、AgentInstance、执行资源和 PVC，否则报告 `GroupInUse`。
 
 修改 AgentDefinition 不会自动升级已有 AgentInstance。
-重启保留已接受的版本，升级需设置新的 `spec.revision` 和 `restartToken`。
+重启保留已接受的版本；设置新的 `spec.revision` 即可升级指定实例。
 挂起、恢复及删除命令见[生命周期](docs/usage.md#lifecycle)。
 
 ### 实测耗时

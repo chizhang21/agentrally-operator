@@ -254,15 +254,23 @@ func TestKataRuntimeLifecycle(t *testing.T) {
 	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/canary"); got != "kata-workspace" {
 		t.Fatal("Kata resume lost workspace state", got)
 	}
-	instance.Spec.RestartToken = "replace-kata-execution"
+	sandboxUID, pvcUID := instance.Status.SandboxUID, allocatedWorkspace(t, ctx, kube, instance).UID
+	oldPod = instance.Status.PodUID
+	instance.Spec.RestartToken = "restart-kata-execution"
 	update(t, ctx, kube, instance)
-	await(t, "Kata replacement", func() (bool, error) {
+	await(t, "Kata restart", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
 		return instance.Status.LastRestartToken == instance.Spec.RestartToken && conditionTrue(instance.Status.Conditions, "Ready", instance.Generation), err
 	})
 	pod := &corev1.Pod{}
 	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, pod); err != nil {
 		t.Fatal(err)
+	}
+	if instance.Status.SandboxUID != sandboxUID || allocatedWorkspace(t, ctx, kube, instance).UID != pvcUID || instance.Status.PodUID == oldPod {
+		t.Fatal("Kata restart did not preserve allocation and replace only the Pod")
+	}
+	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/canary"); got != "kata-workspace" {
+		t.Fatal("Kata restart lost workspace state", got)
 	}
 	const hold = "e2e.arally.io/hold-cleanup"
 	changePodFinalizer(t, ctx, kube, pod, hold, true)

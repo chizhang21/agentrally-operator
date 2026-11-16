@@ -187,8 +187,8 @@ spec:
                 - message: warmPoolRef cannot be added or removed after creation
                   rule: has(self.warmPoolRef) == has(oldSelf.warmPoolRef)
               restartToken:
-                description: RestartToken changes explicitly replace this execution
-                  through its owning CR.
+                description: RestartToken requests a process restart while preserving
+                  the allocated Sandbox and PVCs.
                 maxLength: 128
                 type: string
               revision:
@@ -202,7 +202,7 @@ spec:
                   exclusive:
                     description: |-
                       Exclusive reserves the external PVC for this Instance UID until instance deletion.
-                      Suspension and explicit execution replacement retain the reservation.
+                      Suspension, restart and revision updates retain the reservation.
                     type: boolean
                   existingClaimRef:
                     description: |-
@@ -501,6 +501,21 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              configuration:
+                description: Configuration is the current Sandbox configuration; Provisioning
+                  retains its original allocation source.
+                properties:
+                  poolName:
+                    type: string
+                  revision:
+                    type: string
+                  templateName:
+                    type: string
+                required:
+                - poolName
+                - revision
+                - templateName
+                type: object
               definition:
                 description: Definition pins the published configuration independently
                   of later updates.
@@ -574,8 +589,8 @@ spec:
                 - serviceName
                 type: object
               lastRestartToken:
-                description: LastRestartToken records the accepted restart request
-                  for idempotent replacement.
+                description: LastRestartToken records the restart request applied
+                  to the Sandbox configuration.
                 type: string
               lifecycle:
                 properties:
@@ -599,6 +614,10 @@ spec:
               provisioning:
                 properties:
                   claimName:
+                    type: string
+                  claimUID:
+                    description: ClaimUID pins the allocation owner even if a same-name
+                      Claim is recreated.
                     type: string
                   completedAt:
                     description: CompletedAt records validated Sandbox assignment,
@@ -669,6 +688,50 @@ spec:
                   suspensionStartedAt:
                     format: date-time
                     type: string
+                type: object
+              update:
+                description: Update records an accepted restart or revision update
+                  until it converges.
+                properties:
+                  configuration:
+                    description: AgentInstanceConfiguration identifies an immutable
+                      configuration snapshot.
+                    properties:
+                      poolName:
+                        type: string
+                      revision:
+                        type: string
+                      templateName:
+                        type: string
+                    required:
+                    - poolName
+                    - revision
+                    - templateName
+                    type: object
+                  phase:
+                    enum:
+                    - Stopping
+                    - Starting
+                    type: string
+                  restartToken:
+                    type: string
+                  startedAt:
+                    format: date-time
+                    type: string
+                required:
+                - configuration
+                - phase
+                - startedAt
+                type: object
+              volumeClaimUIDs:
+                additionalProperties:
+                  description: |-
+                    UID is a type that holds unique ID values, including UUIDs.  Because we
+                    don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                    intent and helps make sure that UIDs and names do not get conflated.
+                  type: string
+                description: VolumeClaimUIDs pins persistent volume identities independently
+                  of Pod recreation.
                 type: object
               volumeClaims:
                 additionalProperties:

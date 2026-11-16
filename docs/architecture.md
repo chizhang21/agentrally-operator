@@ -124,25 +124,39 @@ UID checks prevent same-name replacements from being accepted as original resour
 Pruning reads current Instance, Definition and native Claim references.
 It uses UID/resource-version preconditions and waits for pool deletion before deleting a snapshot.
 Group deletion bypasses idle retention but still respects active references.
-Instance restart and deletion request foreground Claim cleanup.
+Instance deletion and retry of an unfinished allocation request foreground Claim cleanup.
 Definition deletion waits for referencing Instances; Group deletion waits before removing its namespace.
 
 ## Lifecycle and workspace
 
 Logical Instance UID, allocated Sandbox UID and running container identity have different lifetimes.
 Suspend/resume removes and recreates the Pod while retaining the Sandbox.
-Changing `restartToken` replaces the allocation after cleanup.
+Changing `restartToken` restarts the process at the accepted Definition revision.
 A Definition update alone does not upgrade accepted Instances.
-Explicit upgrades select `spec.revision` and a new replacement token.
+Selecting a new `spec.revision` upgrades that instance.
+Both operations retain the Instance, Claim, Sandbox and PVC identities.
 
-| Storage | Suspend/resume | Execution replacement or Instance deletion |
+The controller persists update intent, suspends the Sandbox and waits for the old Pod
+to disappear and Core to acknowledge suspension.
+It points the existing Claim at an immutable target configuration pool; Extensions
+synchronizes template metadata without reallocating the owned Sandbox.
+AgentRally updates the stopped Sandbox PodSpec and service setting, then resumes only
+when the Instance requests Running.
+Current and pending configuration references protect their pools from pruning.
+The original provisioning record remains available for allocation provenance.
+
+Storage defaults affect new allocations.
+Incompatible storage changes are rejected before stopping; updates never rewrite native
+volumeClaimTemplates or transfer PVC ownership.
+
+| Storage | Suspend/resume, restart or upgrade | Instance deletion |
 | --- | --- | --- |
 | Ephemeral files | Lost with the Pod | Lost |
-| Execution-private PVC | Same PVC | Deleted with the Sandbox; replacement gets new storage |
-| External PVC | Same PVC | Retained; same-Instance replacement reuses its pinned binding |
+| Execution-private PVC | Same PVC | Deleted with the Sandbox |
+| External PVC | Same pinned PVC | Retained |
 
 External RWX sharing needs application-level concurrency control.
-Optional exclusive reservation Leases coordinate Operator-managed consumers and survive replacement.
+Optional exclusive reservation Leases coordinate Operator-managed consumers and survive process updates.
 They do not fence nodes or other writers.
 VolumeSnapshot sources initialize private PVCs through CSI; they do not restore process memory or a microVM checkpoint.
 

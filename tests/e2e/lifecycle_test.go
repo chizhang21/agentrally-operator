@@ -196,7 +196,7 @@ func TestOperatorLifecycle(t *testing.T) {
 		return len(pods.Items) == 0 && conditionTrue(claim.Status.Conditions, "Suspended", claim.Generation), err
 	})
 	if claim.Status.Lifecycle != nil && claim.Status.Lifecycle.FinishedAt != nil {
-		t.Fatal("suspension started completion TTL", claim.Status.Lifecycle)
+		t.Fatal("suspension was recorded as natural completion", claim.Status.Lifecycle)
 	}
 	if claim.Status.Timings == nil || claim.Status.Timings.SuspensionStartedAt == nil || claim.Status.Timings.SuspendedAt == nil {
 		t.Fatal("suspension observations were not persisted")
@@ -227,25 +227,25 @@ func TestOperatorLifecycle(t *testing.T) {
 	}
 	awaitDeleted(t, ctx, kube, blocked)
 
-	t.Log("Explicit revision upgrade applies the new configuration after upstream cleanup")
-	claim.Spec.Revision, claim.Spec.RestartToken = definition.Status.CurrentRevision, "apply-v2"
+	t.Log("Explicit revision upgrade preserves the allocation and workspace")
+	claim.Spec.Revision = definition.Status.CurrentRevision
 	update(t, ctx, kube, claim)
 	awaitReady()
 	current := sandbox.Object()
 	if err := kube.Get(ctx, client.ObjectKey{Namespace: ns, Name: claim.Status.SandboxName}, current); err != nil {
 		t.Fatal(err)
 	}
-	if current.GetUID() == oldSandboxUID || claim.Status.PodUID == oldPod {
-		t.Fatal("explicit restart reused the old execution")
+	if current.GetUID() != oldSandboxUID || claim.Status.PodUID == oldPod {
+		t.Fatal("revision update replaced the Sandbox or kept the old Pod")
 	}
 	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/tmp/www/index.html"); out != "v2" {
 		t.Fatal("replacement did not apply desired configuration", out)
 	}
-	if allocatedWorkspace(t, ctx, kube, claim).UID == pvcUID {
-		t.Fatal("execution replacement reused the old Sandbox's PVC")
+	if allocatedWorkspace(t, ctx, kube, claim).UID != pvcUID {
+		t.Fatal("revision update replaced the workspace PVC")
 	}
-	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/workspace/session"); out != "fresh" {
-		t.Fatal("execution replacement did not start with a fresh workspace", out)
+	if out := execPod(t, kubeconfig, ns, claim.Status.PodName, "cat", "/workspace/session"); out != "persisted-before-restart" {
+		t.Fatal("revision update lost the workspace", out)
 	}
 
 	t.Log("Explicit deletion removes the execution and its template PVC")
@@ -410,6 +410,71 @@ func verifyWarmWorkspaces(t *testing.T, ctx context.Context, kube client.Client,
 	ready(externalClaim)
 	if externalClaim.Status.Provisioning.TemplateName != seed.Status.Provisioning.TemplateName {
 		t.Fatal("external pool did not use the verified snapshot")
+	}
+	t.Log("Warm and external allocations accept custom-template revisions without reallocating")
+	definition := &v1.AgentDefinition{}
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: spec.DefinitionRef.Name}, definition); err != nil {
+		t.Fatal(err)
+	}
+	source := sandbox.ExtensionObject("SandboxTemplate")
+	// Use the published application template, before Instance workspace injection.
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: definition.Status.TemplateName}, source); err != nil {
+		t.Fatal(err)
+	}
+	custom := sandbox.ExtensionObject("SandboxTemplate")
+	custom.SetName("updated-source")
+	custom.SetNamespace(namespace)
+	custom.Object["spec"] = source.DeepCopy().Object["spec"]
+	podTemplate, found, err := sandbox.TemplatePod(custom)
+	if err != nil || !found {
+		t.Fatal("published Pod template unavailable", err)
+	}
+	// Custom templates declare their own security settings; built-in defaults
+	// are applied during resolution and are not part of the source snapshot.
+	if podTemplate.Spec.Containers[0].SecurityContext == nil {
+		podTemplate.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{}
+	}
+	podTemplate.Spec.Containers[0].SecurityContext.Capabilities = &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}
+	podFields, err := runtime.DefaultUnstructuredConverter.ToUnstructured(podTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unstructured.SetNestedMap(custom.Object, podFields, "spec", "podTemplate"); err != nil {
+		t.Fatal(err)
+	}
+	if err := unstructured.SetNestedStringMap(custom.Object, map[string]string{"application-version": "v3"}, "spec", "podTemplate", "metadata", "labels"); err != nil {
+		t.Fatal(err)
+	}
+	create(t, ctx, kube, custom)
+	previousRevision := definition.Status.CurrentRevision
+	definition.Spec.Template, definition.Spec.Container = "", nil
+	definition.Spec.TemplateRef = &v1.SandboxTemplateReference{Name: custom.GetName()}
+	update(t, ctx, kube, definition)
+	await(t, "custom template publication", func() (bool, error) {
+		err := kube.Get(ctx, client.ObjectKeyFromObject(definition), definition)
+		return definition.Status.CurrentRevision != previousRevision && conditionTrue(definition.Status.Conditions, "Ready", definition.Generation), err
+	})
+	for _, instance := range []*v1.AgentInstance{agents[0], externalClaim} {
+		oldSandbox, oldClaim, oldPod, oldPVC := instance.Status.SandboxUID, instance.Status.Provisioning.ClaimUID, instance.Status.PodUID, allocatedWorkspace(t, ctx, kube, instance).UID
+		instance.Spec.Revision = definition.Status.CurrentRevision
+		update(t, ctx, kube, instance)
+		readyAgent(t, ctx, kube, instance)
+		pod := &corev1.Pod{}
+		if err := kube.Get(ctx, client.ObjectKey{Namespace: namespace, Name: instance.Status.PodName}, pod); err != nil {
+			t.Fatal(err)
+		}
+		if instance.Status.SandboxUID != oldSandbox || instance.Status.Provisioning.ClaimUID != oldClaim || instance.Status.PodUID == oldPod || allocatedWorkspace(t, ctx, kube, instance).UID != oldPVC || pod.Labels["application-version"] != "v3" {
+			t.Fatal("custom metadata handoff failed or replaced an allocated Sandbox/PVC")
+		}
+	}
+	if got := execPod(t, kubeconfig, namespace, agents[0].Status.PodName, "cat", "/workspace/private"); got != "private" {
+		t.Fatal("warm revision update lost private data", got)
+	}
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(agents[1]), agents[1]); err != nil {
+		t.Fatal(err)
+	}
+	if agents[1].Status.Definition.Revision != previousRevision || agents[1].Status.Configuration != nil {
+		t.Fatal("warm update changed a sibling allocation")
 	}
 	if err := kube.Delete(ctx, externalClaim); err != nil {
 		t.Fatal(err)

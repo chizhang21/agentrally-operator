@@ -17,7 +17,7 @@ type WorkspaceMount struct {
 	// +optional
 	ExistingClaimRef *PersistentVolumeClaimReference `json:"existingClaimRef,omitempty"`
 	// Exclusive reserves the external PVC for this Instance UID until instance deletion.
-	// Suspension and explicit execution replacement retain the reservation.
+	// Suspension, restart and revision updates retain the reservation.
 	// +optional
 	Exclusive bool `json:"exclusive,omitempty"`
 	// +kubebuilder:validation:MinLength=1
@@ -151,6 +151,9 @@ type AgentInstanceProvisioningStatus struct {
 
 	// +optional
 	ClaimName string `json:"claimName,omitempty"`
+	// ClaimUID pins the allocation owner even if a same-name Claim is recreated.
+	// +optional
+	ClaimUID types.UID `json:"claimUID,omitempty"`
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 	// CompletedAt records validated Sandbox assignment, independently of Pod readiness.
@@ -187,7 +190,7 @@ type AgentInstanceSpec struct {
 	// Interaction optionally exposes the Agent's HTTP API or management page.
 	// +optional
 	Interaction *InteractionEndpoint `json:"interaction,omitempty"`
-	// RestartToken changes explicitly replace this execution through its owning CR.
+	// RestartToken requests a process restart while preserving the allocated Sandbox and PVCs.
 	// +kubebuilder:validation:MaxLength=128
 	// +optional
 	RestartToken string `json:"restartToken,omitempty"`
@@ -205,6 +208,22 @@ type DefinitionBinding struct {
 	AgentContainer string `json:"agentContainer,omitempty"`
 	// +optional
 	InvocationProtocol string `json:"invocationProtocol,omitempty"`
+}
+
+// AgentInstanceConfiguration identifies an immutable configuration snapshot.
+type AgentInstanceConfiguration struct {
+	PoolName     string `json:"poolName"`
+	TemplateName string `json:"templateName"`
+	Revision     string `json:"revision"`
+}
+
+// AgentInstanceUpdate persists progress before changing an allocated execution.
+type AgentInstanceUpdate struct {
+	Configuration AgentInstanceConfiguration `json:"configuration"`
+	RestartToken  string                     `json:"restartToken,omitempty"`
+	// +kubebuilder:validation:Enum=Stopping;Starting
+	Phase     string      `json:"phase"`
+	StartedAt metav1.Time `json:"startedAt"`
 }
 
 type AgentInstanceStatus struct {
@@ -226,6 +245,15 @@ type AgentInstanceStatus struct {
 	// an externally managed workspace when configured.
 	// +optional
 	VolumeClaims map[string]string `json:"volumeClaims,omitempty"`
+	// VolumeClaimUIDs pins persistent volume identities independently of Pod recreation.
+	// +optional
+	VolumeClaimUIDs map[string]types.UID `json:"volumeClaimUIDs,omitempty"`
+	// Configuration is the current Sandbox configuration; Provisioning retains its original allocation source.
+	// +optional
+	Configuration *AgentInstanceConfiguration `json:"configuration,omitempty"`
+	// Update records an accepted restart or revision update until it converges.
+	// +optional
+	Update *AgentInstanceUpdate `json:"update,omitempty"`
 	// +optional
 	ServiceName string `json:"serviceName,omitempty"`
 	// +optional
@@ -242,7 +270,7 @@ type AgentInstanceStatus struct {
 	PodName string `json:"podName,omitempty"`
 	// +optional
 	PodUID string `json:"podUID,omitempty"`
-	// LastRestartToken records the accepted restart request for idempotent replacement.
+	// LastRestartToken records the restart request applied to the Sandbox configuration.
 	// +optional
 	LastRestartToken string `json:"lastRestartToken,omitempty"`
 	// +optional

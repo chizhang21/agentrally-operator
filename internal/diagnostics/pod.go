@@ -102,6 +102,8 @@ func containerDiagnostic(status corev1.ContainerStatus) *ExecutionDiagnostic {
 	}
 	prefix := fmt.Sprintf("Container %s: ", status.Name)
 	switch waiting.Reason {
+	case "ErrImageNeverPull":
+		return &ExecutionDiagnostic{waiting.Reason, prefix + "requires a locally available image; load it or change imagePullPolicy"}
 	case "ErrImagePull", "ImagePullBackOff", "InvalidImageName":
 		return &ExecutionDiagnostic{waiting.Reason, prefix + "cannot pull its image; check the image reference, registry access and imagePullSecrets"}
 	case "CrashLoopBackOff":

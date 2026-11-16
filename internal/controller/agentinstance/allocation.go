@@ -141,6 +141,7 @@ func (r *Reconciler) completePoolAllocation(ctx context.Context, w *v1.AgentInst
 	base := w.DeepCopy()
 	now := metav1.NewTime(r.now())
 	w.Status.Provisioning.CompletedAt = &now
+	w.Status.SandboxName, w.Status.SandboxUID = current.Metadata.Name, current.Metadata.UID
 	launch := current.Metadata.Labels["agents.x-k8s.io/launch-type"]
 	if launch == "warm" || launch == "cold" {
 		w.Status.Provisioning.LaunchType = launch

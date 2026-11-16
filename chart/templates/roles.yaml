@@ -145,11 +145,13 @@ rules:
   - extensions.agents.x-k8s.io
   resources:
   - sandboxclaims
+  - sandboxwarmpools
   verbs:
   - create
   - delete
   - get
   - list
+  - patch
 - apiGroups:
   - extensions.agents.x-k8s.io
   resources:
@@ -161,16 +163,6 @@ rules:
   - list
   - patch
   - watch
-- apiGroups:
-  - extensions.agents.x-k8s.io
-  resources:
-  - sandboxwarmpools
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
 - apiGroups:
   - gateway.networking.k8s.io
   resources:

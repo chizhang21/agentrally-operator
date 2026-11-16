@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestExistingWorkspaceSurvivesExecutionReplacement(t *testing.T) {
+func TestExistingWorkspacePinsIdentityAndDisablesSpareCapacity(t *testing.T) {
 	group, ns, definition, instance, _ := testutil.Fixture()
 	group.Spec.Prewarming = &v1.PrewarmingPolicy{Replicas: 2}
 	definition.Spec.TemplateRef = nil
@@ -44,27 +44,9 @@ func TestExistingWorkspaceSurvivesExecutionReplacement(t *testing.T) {
 	if replicas, _, _ := unstructured.NestedInt64(pool.Object, "spec", "replicas"); replicas != 0 {
 		t.Fatal("Group policy re-enabled unsafe workspace spares")
 	}
-	definition.Spec.Container.Image = "example/assistant:v2"
-	saveDefinition(t, c, definition)
-	testutil.PublishDefinitions(t, c, scheme)
-	if err := c.Get(ctx, client.ObjectKeyFromObject(definition), definition); err != nil {
-		t.Fatal(err)
-	}
-	state.Spec.Revision = definition.Status.CurrentRevision
-	state.Spec.RestartToken = "upgrade"
-	if err := c.Update(ctx, state); err != nil {
-		t.Fatal(err)
-	}
-	for range 4 {
-		reconcileWithUpstreamSimulation(t, r, state)
-	}
-	current, err := sandbox.Decode(getSandbox(t, c, instance))
-	if err != nil || current.Spec.PodTemplate.Spec.Containers[0].Image != "example/assistant:v2" || len(current.Spec.VolumeClaimTemplates) != 0 {
-		t.Fatal("replacement did not retain the external workspace blueprint", err)
-	}
 	after := &corev1.PersistentVolumeClaim{}
 	if err := c.Get(ctx, client.ObjectKeyFromObject(pvc), after); err != nil || after.UID != pvc.UID || !reflect.DeepEqual(after.OwnerReferences, pvc.OwnerReferences) || !reflect.DeepEqual(after.Spec, pvc.Spec) {
-		t.Fatal("replacement changed external storage", err)
+		t.Fatal("binding changed external storage", err)
 	}
 	// Recreating a PVC under the same name must not silently change user data.
 	if err := c.Delete(ctx, after); err != nil {

@@ -97,7 +97,11 @@ func (r *Reconciler) status(
 	workload.Status.Lifecycle = executionCompletionStatus(workload, pod)
 	available := r.executionAvailableStatus(ctx, workload, current, generation, pod, podErr)
 	interactionReadyStatus(workload, interaction, available)
+	completeExecutionUpdate(workload, pod, available)
 	readyStatus(workload, available)
+	if workload.Status.Update != nil && workload.Status.Update.Phase == "Stopping" {
+		setInstanceCondition(workload, controller.ConditionReady, metav1.ConditionFalse, controller.ReasonRestarting, "Waiting for the accepted execution update")
+	}
 	r.observeTimings(workload, base.Status.PodUID, pod)
 	return r.patchStatus(ctx, workload, base)
 }
@@ -153,14 +157,14 @@ func currentCoreCondition(current *sandbox.Sandbox, kind string, generation, tar
 func acceptedConfigurationStatus(workload *v1.AgentInstance, config executionConfiguration) {
 	configuration := metav1.Condition{Type: controller.ConditionConfigurationAccepted, Status: metav1.ConditionTrue,
 		ObservedGeneration: workload.Generation, Reason: "PoolConfigurationAccepted", Message: "The assigned Sandbox configuration matches the AgentInstance; Extensions manages allocation"}
+	if config.Issue != nil {
+		configuration = *config.Issue
+		configuration.ObservedGeneration = workload.Generation
+	}
 	if config.Fallback {
 		configuration.Status = metav1.ConditionFalse
 		configuration.Reason = "SuspendedUsingExistingConfiguration"
 		configuration.Message = "Suspension submitted using existing PodTemplate; desired model/workspace configuration could not be resolved"
-	}
-	if config.Issue != nil {
-		configuration = *config.Issue
-		configuration.ObservedGeneration = workload.Generation
 	}
 	meta.SetStatusCondition(&workload.Status.Conditions, configuration)
 	workload.Status.DesiredRevision = config.Revision
@@ -286,7 +290,7 @@ func (r *Reconciler) patchStatus(ctx context.Context, workload, base *v1.AgentIn
 	if equality.Semantic.DeepEqual(base.Status, workload.Status) {
 		return nil
 	}
-	if err := r.Status().Patch(ctx, workload, client.MergeFrom(base)); err != nil {
+	if err := r.Status().Patch(ctx, workload, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 		return err
 	}
 	controller.RecordConditionChanges(r.Recorder, workload, base.Status.Conditions, workload.Status.Conditions)

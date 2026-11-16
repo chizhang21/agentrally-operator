@@ -317,12 +317,15 @@ func TestObservationLifecycleDoesNotPromiseExecutionRelease(t *testing.T) {
 		{"suspended", "Idle", "SuspendedResourcesObserved"},
 		{"stale-suspension", "", "Stopping"},
 		{"restart-with-newer-spec", "", "Stopping"},
+		{"unaccepted-restart", "Active", "ContainerObserved"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			kube, req := managementFixture(t)
 			instance, _ := kube.Resource(workloadGVR).Namespace(req.Namespace).Get(context.Background(), req.Name, metav1.GetOptions{})
 			pod, _ := kube.Resource(podResource).Namespace(req.Namespace).Get(context.Background(), "warm-pod", metav1.GetOptions{})
 			switch scenario.name {
+			case "unaccepted-restart":
+				_ = unstructured.SetNestedField(instance.Object, "rejected-request", "spec", "restartToken")
 			case "restart-with-newer-spec":
 				_ = unstructured.SetNestedSlice(instance.Object, []any{map[string]any{"type": "Restarting", "status": "True", "observedGeneration": instance.GetGeneration() - 1}}, "status", "conditions")
 			case "missing-container-id":

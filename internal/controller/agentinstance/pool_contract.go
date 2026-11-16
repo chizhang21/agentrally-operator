@@ -106,14 +106,14 @@ func validateAssignedSandbox(current *sandbox.Sandbox, config allocation.Configu
 		return poolDiagnostic("PoolTemplateMismatch", "the allocated Sandbox and desired Pod template must be available")
 	}
 	if current.Metadata.DeletionTimestamp != nil {
-		return poolDiagnostic("DependencyTerminating", "the allocated Sandbox is terminating; wait for its replacement")
+		return poolDiagnostic("DependencyTerminating", "the allocated Sandbox is terminating")
 	}
 	actual, wanted := current.Spec.PodTemplate.DeepCopy(), desired.DeepCopy()
 	defaultWarmToken(actual)
 	defaultWarmToken(wanted)
 	if current.Spec.Service != service || !equality.Semantic.DeepEqual(current.Spec.VolumeClaimTemplates, claims) || !podconfig.MatchesDeclared(&wanted.Spec, &actual.Spec) ||
 		!requestedPoolMetadata(wanted.Labels, actual.Labels) || !requestedPoolMetadata(wanted.Annotations, actual.Annotations) {
-		return poolDiagnostic("PoolTemplateMismatch", "the allocated Sandbox differs from the workload; refresh the pool and restart the allocation")
+		return poolDiagnostic("PoolTemplateMismatch", "the allocated Sandbox differs from the desired configuration")
 	}
 	return nil
 }

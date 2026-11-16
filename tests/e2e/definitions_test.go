@@ -62,37 +62,27 @@ func TestDefinitionRevisionsAndDeletion(t *testing.T) {
 	t.Log("Ordinary restart preserves the accepted revision after a new publication")
 	first.Spec.RestartToken = "same-revision"
 	update(t, ctx, kube, first)
-	await(t, "replacement on original revision", func() (bool, error) {
+	await(t, "restart on original revision", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(first), first)
 		return first.Status.PodUID != oldPod && conditionTrue(first.Status.Conditions, "Ready", first.Generation), err
 	})
 	if first.Status.Definition.Revision != oldRevision || execPod(t, kubeconfig, first.Namespace, first.Status.PodName, "printenv", "RELEASE") != "v1" {
 		t.Fatal("ordinary restart implicitly upgraded the accepted definition")
 	}
-	oldPod = first.Status.PodUID
-
-	t.Log("Selecting a revision preserves availability until an explicit restart")
-	first.Spec.Revision = newRevision
-	update(t, ctx, kube, first)
-	await(t, "revision change pending explicit restart", func() (bool, error) {
-		err := kube.Get(ctx, client.ObjectKeyFromObject(first), first)
-		applied := meta.FindStatusCondition(first.Status.Conditions, "ConfigurationApplied")
-		return applied != nil && applied.ObservedGeneration == first.Generation && applied.Reason == "RestartRequired" &&
-			conditionTrue(first.Status.Conditions, "Available", first.Generation) && first.Status.PodUID == oldPod, err
-	})
-	for _, step := range []struct{ token, revision, release string }{
+	t.Log("Selecting a revision upgrades the process without a new restart token")
+	for _, step := range []struct{ operation, revision, release string }{
 		{"upgrade", newRevision, "v2"}, {"rollback", oldRevision, "v1"},
 	} {
 		previousPod := first.Status.PodUID
-		first.Spec.Revision, first.Spec.RestartToken = step.revision, step.token
+		first.Spec.Revision = step.revision
 		update(t, ctx, kube, first)
-		await(t, step.token+" execution", func() (bool, error) {
+		await(t, step.operation+" execution", func() (bool, error) {
 			err := kube.Get(ctx, client.ObjectKeyFromObject(first), first)
 			return first.Status.Definition != nil && first.Status.Definition.Revision == step.revision && first.Status.PodUID != previousPod &&
 				conditionTrue(first.Status.Conditions, "Ready", first.Generation), err
 		})
 		if got := execPod(t, kubeconfig, first.Namespace, first.Status.PodName, "printenv", "RELEASE"); got != step.release {
-			t.Fatalf("%s executed %s, want %s", step.token, got, step.release)
+			t.Fatalf("%s executed %s, want %s", step.operation, got, step.release)
 		}
 	}
 

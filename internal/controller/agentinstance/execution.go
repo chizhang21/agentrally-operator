@@ -44,6 +44,9 @@ func (r *Reconciler) prepareExecutionConfiguration(ctx context.Context, instance
 	if err := r.bindWorkspace(ctx, instance, config.Workspace); err != nil {
 		return executionConfiguration{}, err
 	}
+	if err := r.retainAllocatedStorage(ctx, instance, &config); err != nil {
+		return executionConfiguration{}, err
+	}
 	config.SnapshotSources, err = r.resolveSnapshotSources(ctx, instance, group, config.VolumeClaimTemplates)
 	if err != nil {
 		return executionConfiguration{}, err
@@ -66,19 +69,39 @@ func (r *Reconciler) referenceReader() client.Reader {
 	return r.Client
 }
 
-// Persist intent before any deletion, and finish cleanup before accepting a new execution.
-func (r *Reconciler) reconcileRestart(ctx context.Context, w *v1.AgentInstance) (bool, ctrl.Result, error) {
+// Retry only an unallocated attempt; allocated executions update in place.
+func (r *Reconciler) reconcileAllocationRetry(ctx context.Context, w *v1.AgentInstance) (bool, ctrl.Result, error) {
+	// Allocated instances restart in place after configuration and identity checks.
+	if w.Status.SandboxUID != "" || (w.Status.Provisioning != nil && w.Status.Provisioning.CompletedAt != nil) {
+		return false, ctrl.Result{}, nil
+	}
 	phase := meta.FindStatusCondition(w.Status.Conditions, controller.ConditionRestarting)
+	if w.Spec.RestartToken != w.Status.LastRestartToken && w.Status.Provisioning != nil && w.Status.Provisioning.TimedOutAt == nil {
+		object, err := r.existingExecution(ctx, w)
+		if err == nil {
+			current, decodeErr := sandbox.Decode(object)
+			if decodeErr != nil {
+				return true, ctrl.Result{}, decodeErr
+			}
+			if err := r.completePoolAllocation(ctx, w, current); err != nil {
+				return true, ctrl.Result{}, err
+			}
+			return false, ctrl.Result{}, nil
+		}
+		if reason, _ := diagnostics.Classify(err); !apierrors.IsNotFound(err) && reason != controller.ReasonPoolPending {
+			return true, ctrl.Result{}, err
+		}
+	}
 	if w.Spec.RestartToken != w.Status.LastRestartToken {
 		base := w.DeepCopy()
 		w.Status.LastRestartToken = w.Spec.RestartToken
-		setInstanceCondition(w, controller.ConditionReady, metav1.ConditionFalse, controller.ReasonRestarting, "Explicit restart is replacing the execution")
-		setInstanceCondition(w, controller.ConditionAvailable, metav1.ConditionUnknown, controller.ReasonRestarting, "Execution availability is being rechecked during replacement")
-		setInstanceCondition(w, controller.ConditionConfigurationApplied, metav1.ConditionUnknown, controller.ReasonRestarting, "Waiting for the replacement execution")
+		setInstanceCondition(w, controller.ConditionReady, metav1.ConditionFalse, controller.ReasonRestarting, "Retrying the unallocated attempt")
+		setInstanceCondition(w, controller.ConditionAvailable, metav1.ConditionUnknown, controller.ReasonRestarting, "Waiting for allocation retry cleanup")
+		setInstanceCondition(w, controller.ConditionConfigurationApplied, metav1.ConditionUnknown, controller.ReasonRestarting, "Waiting for a new allocation attempt")
 		if hasInteraction(w) {
-			setInstanceCondition(w, controller.ConditionInteractionReady, metav1.ConditionFalse, controller.ReasonRestarting, "The interaction endpoint is unavailable during replacement")
+			setInstanceCondition(w, controller.ConditionInteractionReady, metav1.ConditionFalse, controller.ReasonRestarting, "The interaction endpoint is unavailable before allocation")
 		}
-		setInstanceCondition(w, controller.ConditionRestarting, metav1.ConditionTrue, controller.ReasonRestarting, "Accepted explicit restart; waiting for owned execution cleanup")
+		setInstanceCondition(w, controller.ConditionRestarting, metav1.ConditionTrue, controller.ReasonRestarting, "Accepted allocation retry; waiting for unfinished attempt cleanup")
 		if err := r.patchStatus(ctx, w, base); err != nil {
 			return true, ctrl.Result{}, err
 		}
@@ -199,6 +222,9 @@ func (r *Reconciler) existingExecution(ctx context.Context, w *v1.AgentInstance)
 	if err := controller.CheckOwner(claim, w); err != nil {
 		return nil, err
 	}
+	if err := checkClaimIdentity(w, claim); err != nil {
+		return nil, err
+	}
 	name, err := claimSandboxName(claim)
 	if err != nil {
 		return nil, err
@@ -209,10 +235,13 @@ func (r *Reconciler) existingExecution(ctx context.Context, w *v1.AgentInstance)
 	object := sandbox.Object()
 	object.SetName(name)
 	object.SetNamespace(w.Namespace)
-	if err := r.Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
+	if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
 		return nil, err
 	}
-	return object, checkClaimSandboxOwner(object, claim)
+	if err := checkClaimSandboxOwner(object, claim); err != nil {
+		return nil, err
+	}
+	return object, checkSandboxIdentity(w, object)
 }
 
 // Core's annotation also handles warm Pod names that differ from Sandbox names.

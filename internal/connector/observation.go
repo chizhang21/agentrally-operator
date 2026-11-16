@@ -228,7 +228,7 @@ func observeInstanceState(out *InstanceObservation, instance *v1.AgentInstance, 
 	// Restarting is a persisted operation. Other spec edits must not make its
 	// in-flight cleanup disappear merely by advancing metadata.generation.
 	restarting := meta.IsStatusConditionTrue(instance.Status.Conditions, "Restarting")
-	if instance.DeletionTimestamp != nil || restarting || instance.Spec.RestartToken != instance.Status.LastRestartToken {
+	if instance.DeletionTimestamp != nil || restarting {
 		out.Reason = "Stopping"
 		return
 	}

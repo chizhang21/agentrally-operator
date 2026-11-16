@@ -122,7 +122,7 @@ func (r *Reconciler) provisionFromPool(ctx context.Context, w *v1.AgentInstance,
 		return object, issue, nil
 	}
 	if w.Status.Provisioning.CompletedAt != nil {
-		return nil, nil, poolDiagnostic("PoolAllocationLost", "The assigned Sandbox is unavailable; waiting for upstream recovery or an explicit restart")
+		return nil, nil, poolDiagnostic("PoolAllocationLost", "The assigned Sandbox is unavailable; inspect upstream resources before retrying")
 	}
 	if !r.now().Before(deadline) {
 		return nil, nil, r.expireAllocation(ctx, w, poolDiagnostic(controller.ReasonPoolClaimTimeout, fmt.Sprintf("No valid Sandbox allocation was observed within %d seconds; change restartToken to retry", allocationTimeout(w))))
@@ -161,7 +161,7 @@ func (r *Reconciler) createPoolClaim(ctx context.Context, w *v1.AgentInstance, c
 		return nil, poolDiagnostic(controller.ReasonAllocationSuspended, "Allocation is paused until operatingMode is Running")
 	}
 	if w.Status.Provisioning != nil && w.Status.Provisioning.ClaimName != "" {
-		return nil, r.recordPoolFailure(ctx, w, poolDiagnostic("PoolAllocationLost", "The recorded Claim disappeared; change restartToken to request another allocation"))
+		return nil, r.recordPoolFailure(ctx, w, poolDiagnostic("PoolAllocationLost", "The recorded Claim disappeared; inspect upstream resources before retrying"))
 	}
 	group := &v1.AgentGroup{}
 	if err := r.referenceReader().Get(ctx, client.ObjectKey{Name: w.Spec.AgentGroupRef.Name}, group); err != nil {
@@ -204,8 +204,11 @@ func (r *Reconciler) recordPoolClaim(ctx context.Context, w *v1.AgentInstance, c
 	if err := controller.CheckOwner(claim, w); err != nil {
 		return time.Time{}, diagnostics.New("PoolOwnershipConflict", "The SandboxClaim is controlled by another workload; refusing adoption", err)
 	}
+	if err := checkClaimIdentity(w, claim); err != nil {
+		return time.Time{}, err
+	}
 	ref, err := sandbox.ClaimPoolName(claim)
-	if err != nil || ref != allocation.PoolName(w) {
+	if err != nil || !allowedClaimPool(w, ref) {
 		return time.Time{}, poolDiagnostic("PoolOwnershipConflict", "The owned Claim references a different warm pool; refusing to rewrite it")
 	}
 	if claim.GetDeletionTimestamp() != nil {
@@ -217,7 +220,7 @@ func (r *Reconciler) recordPoolClaim(ctx context.Context, w *v1.AgentInstance, c
 	}
 	status := w.Status.Provisioning
 	status.Mode = "Pool"
-	status.ClaimName = claim.GetName()
+	status.ClaimName, status.ClaimUID = claim.GetName(), claim.GetUID()
 	created := claim.GetCreationTimestamp()
 	if status.StartedAt == nil && !created.IsZero() {
 		status.StartedAt = &created
@@ -245,7 +248,7 @@ func (r *Reconciler) allocatedSandbox(ctx context.Context, w *v1.AgentInstance, 
 		object = sandbox.Object()
 		object.SetName(name)
 		object.SetNamespace(w.Namespace)
-		if err := r.Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
+		if err := r.directClient().Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return nil, nil, err
 			}
@@ -254,6 +257,9 @@ func (r *Reconciler) allocatedSandbox(ctx context.Context, w *v1.AgentInstance, 
 	}
 	if object != nil {
 		if err := checkClaimSandboxOwner(object, claim); err != nil {
+			return nil, nil, err
+		}
+		if err := checkSandboxIdentity(w, object); err != nil {
 			return nil, nil, err
 		}
 		current, err := sandbox.Decode(object)
@@ -272,23 +278,11 @@ func (r *Reconciler) observePoolAllocation(
 	if err := r.completePoolAllocation(ctx, w, current); err != nil {
 		return nil, r.recordPoolFailure(ctx, w, err)
 	}
-	// Existing execution keeps its creation configuration until explicit restart.
-	// Requested mode changes apply even when the new desired template differs.
-	if err := r.updateClaimedMode(ctx, object, mode); err != nil {
+	issue, err := r.reconcileAllocatedUpdate(ctx, w, object, current, config, mode)
+	if err != nil {
 		return nil, err
 	}
-	mismatch := validateAssignedSandbox(current, config.Configuration)
-	if mismatch == nil && mode != sandbox.Suspended {
-		mismatch = r.poolPreflight(ctx, w, config)
-	}
-	var issue *metav1.Condition
-	if mismatch != nil {
-		reason, message := diagnostics.Classify(mismatch)
-		issue = &metav1.Condition{
-			Type: controller.ConditionConfigurationAccepted, Status: metav1.ConditionFalse,
-			Reason: reason, Message: message + "; change restartToken to replace this execution",
-		}
-	}
+
 	if err := r.provisioningCondition(ctx, w, metav1.ConditionTrue, controller.ReasonPoolAllocated,
 		"The Claim allocated an owned Sandbox; Core controls application startup"); err != nil {
 		return nil, err
@@ -308,5 +302,5 @@ func (r *Reconciler) updateClaimedMode(ctx context.Context, object *unstructured
 	if err := unstructured.SetNestedField(object.Object, mode, "spec", "operatingMode"); err != nil {
 		return err
 	}
-	return r.Patch(ctx, object, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+	return r.directClient().Patch(ctx, object, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }

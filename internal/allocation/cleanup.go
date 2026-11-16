@@ -69,8 +69,23 @@ func (m *Manager) prune(ctx context.Context, group *v1.AgentGroup, definitionUID
 	}
 	for _, w := range workloads.Items {
 		if w.DeletionTimestamp == nil && w.Status.Provisioning != nil && w.Status.Provisioning.TimedOutAt == nil {
-			used[w.Status.Provisioning.PoolName] = true
+			if w.Status.Configuration == nil {
+				used[w.Status.Provisioning.PoolName] = true
+			}
 			remainingTemplates[w.Status.Provisioning.TemplateName] = true
+		}
+	}
+	for _, w := range workloads.Items {
+		if w.DeletionTimestamp != nil {
+			continue
+		}
+		if config := w.Status.Configuration; config != nil {
+			used[config.PoolName] = true
+			remainingTemplates[config.TemplateName] = true
+		}
+		if update := w.Status.Update; update != nil {
+			used[update.Configuration.PoolName] = true
+			remainingTemplates[update.Configuration.TemplateName] = true
 		}
 	}
 	for _, claim := range claims.Items {

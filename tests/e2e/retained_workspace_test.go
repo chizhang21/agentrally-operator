@@ -85,6 +85,7 @@ func TestRetainedWorkspaceUpgrade(t *testing.T) {
 	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/session"); got != "retained-user-state" {
 		t.Fatal("external workspace lost data during suspension", got)
 	}
+	originalSandboxUID, originalClaimUID := instance.Status.SandboxUID, instance.Status.Provisioning.ClaimUID
 	previousRevision, previousPod := instance.Status.Definition.Revision, instance.Status.PodUID
 	definition.Spec.Container.Args = []string{agentCommand("v2")}
 	update(t, ctx, kube, definition)
@@ -92,7 +93,7 @@ func TestRetainedWorkspaceUpgrade(t *testing.T) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(definition), definition)
 		return definition.Status.CurrentRevision != previousRevision && conditionTrue(definition.Status.Conditions, "Ready", definition.Generation), err
 	})
-	instance.Spec.Revision, instance.Spec.RestartToken = definition.Status.CurrentRevision, "upgrade-v2"
+	instance.Spec.Revision = definition.Status.CurrentRevision
 	update(t, ctx, kube, instance)
 	await(t, "retained assistant upgrade", func() (bool, error) {
 		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
@@ -101,11 +102,14 @@ func TestRetainedWorkspaceUpgrade(t *testing.T) {
 	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/session"); got != "retained-user-state" {
 		t.Fatal("upgrade lost state", got)
 	}
+	if instance.Status.SandboxUID != originalSandboxUID || instance.Status.Provisioning.ClaimUID != originalClaimUID {
+		t.Fatal("upgrade replaced the external workspace allocation")
+	}
 	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/tmp/www/index.html"); got != "v2" {
 		t.Fatal("upgrade kept old application", got)
 	}
 	pool := sandbox.ExtensionObject("SandboxWarmPool")
-	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.Provisioning.PoolName}, pool); err != nil {
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.Configuration.PoolName}, pool); err != nil {
 		t.Fatal(err)
 	}
 	if count, _, err := unstructured.NestedInt64(pool.Object, "spec", "replicas"); err != nil || count != 0 {

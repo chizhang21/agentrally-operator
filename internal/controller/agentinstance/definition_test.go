@@ -5,7 +5,6 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/diagnostics"
-	"agentrally/operator/internal/sandbox"
 	"agentrally/operator/internal/testutil"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,47 +61,5 @@ func TestDefinitionVersionSelectionAndIdentity(t *testing.T) {
 	}
 	if state.Status.Definition.UID != pinned.UID {
 		t.Fatal("failure changed accepted identity")
-	}
-}
-
-func TestRestartRetainsAcceptedRevisionUntilExplicitUpgrade(t *testing.T) {
-	group, ns, definition, instance, _ := testutil.Fixture()
-	definition.Spec.TemplateRef = nil
-	definition.Spec.Template = "generic"
-	definition.Spec.Container = &v1.AgentContainerSpec{Image: "example/agent:v1"}
-	c, scheme := clientWithPublishedDefinitions(t, group, ns, definition, instance)
-	r := &Reconciler{Client: c, Scheme: scheme}
-	reconcileWithUpstreamSimulation(t, r, instance)
-	pinned := getAgentInstance(t, c, instance).Status.Definition.DeepCopy()
-	definition.Spec.InvocationProtocol = "HTTPJSONSSEV1"
-	definition.Spec.Container.Image = "example/agent:v2"
-	saveDefinition(t, c, definition)
-	testutil.PublishDefinitions(t, c, scheme)
-	if err := c.Get(ctx, client.ObjectKeyFromObject(definition), definition); err != nil {
-		t.Fatal(err)
-	}
-	if definition.Status.CurrentRevision == pinned.Revision {
-		t.Fatal("publishing a new invocation declaration did not change the revision")
-	}
-	for _, upgrade := range []bool{false, true} {
-		state := getAgentInstance(t, c, instance)
-		state.Spec.RestartToken = "restart"
-		wantRevision, wantProtocol, wantImage := pinned.Revision, "", "example/agent:v1"
-		if upgrade {
-			state.Spec.RestartToken = "upgrade"
-			state.Spec.Revision = definition.Status.CurrentRevision
-			wantRevision, wantProtocol, wantImage = definition.Status.CurrentRevision, "HTTPJSONSSEV1", "example/agent:v2"
-		}
-		if err := c.Update(ctx, state); err != nil {
-			t.Fatal(err)
-		}
-		for range 4 {
-			reconcileWithUpstreamSimulation(t, r, instance)
-		}
-		state = getAgentInstance(t, c, instance)
-		current, err := sandbox.Decode(getSandbox(t, c, instance))
-		if err != nil || state.Status.Definition.Revision != wantRevision || state.Status.Definition.InvocationProtocol != wantProtocol || current.Spec.PodTemplate.Spec.Containers[0].Image != wantImage {
-			t.Fatalf("upgrade=%v accepted the wrong revision/protocol/image: %+v, %v", upgrade, state.Status.Definition, err)
-		}
 	}
 }

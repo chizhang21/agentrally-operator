@@ -20,7 +20,8 @@ const (
 var GroupVersion = schema.GroupVersion{Group: "agents.x-k8s.io", Version: "v1beta1"}
 
 // Spec follows upstream api/v1beta1/sandbox_types.go. Core provisions the PVC
-// templates copied by Extensions; AgentRally only changes the requested operating mode.
+// templates copied by Extensions. AgentRally changes operating mode and applies
+// application configuration to stopped Sandboxes without changing their PVC templates.
 type Spec struct {
 	PodTemplate          corev1.PodTemplateSpec                 `json:"podTemplate"`
 	VolumeClaimTemplates []corev1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplates,omitempty"`

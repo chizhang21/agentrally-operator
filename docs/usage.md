@@ -153,7 +153,8 @@ For Definitions with an explicit prewarming policy, it also drains desired spare
 to zero; upstream work already submitted can finish.
 On-demand pools without a Definition preparation policy keep their configured spare behavior.
 
-Restart cleanup can finish while paused; the replacement waits for unpause.
+Allocated instances can still restart or upgrade in place.
+Retrying an unfinished allocation waits for unpause.
 
 
 ### Agent process identity
@@ -296,7 +297,7 @@ See
 
 ### Externally managed workspaces
 
-For storage retained across execution upgrades, use an existing PVC on the instance:
+For storage retained after Instance deletion, use an existing PVC on the instance:
 
 ```yaml
 workspace:
@@ -318,9 +319,9 @@ and fits within the requested storage capacity when `restoreSize` is reported.
 New allocations include the source UID in configuration identity, so an old warmed
 workspace cannot be reused for a recreated source.
 
-After allocation, suspend/resume reuses that execution's private workspace even if its
-initialization snapshot is deleted or no longer ready.
-A replacement execution needs a ready source again.
+After allocation, suspend/resume, restart and revision updates reuse the private workspace,
+even if its initialization snapshot is deleted or no longer ready.
+Creating a new instance needs a ready source again.
 
 The snapshot CRDs, snapshot controller and a compatible CSI driver must already exist.
 The PVC StorageClass must use a driver that can restore that snapshot.
@@ -344,7 +345,7 @@ to be ready, including a requested interaction endpoint.
 
 `Available` reports current Core/Pod health independently.
 A healthy old instance can have `Available=True` and `Ready=False/RestartRequired` while
-an update waits for explicit restart.
+rotated dependency values await an explicit restart.
 An unverified creation revision cannot produce `Ready=True`.
 
 Neither condition proves application credentials work.
@@ -366,7 +367,7 @@ missing provenance stays unknown.
 
 `AgentInstance.status.timings` records observed Pod creation/first availability,
 suspension submission/completion and cleanup submission/completion.
-Pod timings reset with a new Pod UID; replacement starts a new execution timing record.
+Pod timings reset with a new Pod UID; in-place updates retain the original allocation timing record.
 
 Lifecycle condition changes are published as Kubernetes Events after a successful status write.
 The timing fields remain on the Instance; lifecycle histograms are not exported.
@@ -421,7 +422,9 @@ Credential values and application content are never metric labels.
 
 | Ready reason | What to check |
 | --- | --- |
-| `RestartRequired` | Desired configuration has changed; set a new restart token when replacement is appropriate. The old instance may remain Available. |
+| `PoolAllocationLost`, `WorkspaceIdentityChanged` | A pinned Claim, Sandbox or PVC is missing or has changed identity; inspect the original resources. Restart does not replace an established allocation. |
+| `StorageChangeRejected` | Keep the allocated volume identities and mount layout; storage changes require a separate instance. |
+| `RestartRequired` | Referenced dependency values changed; set a new restart token to apply them. The old instance may remain Available. |
 | `AllocationPaused` | The Group has paused new allocations. Unpause it to begin a new request. |
 | `PoolConfigurationUnverified` | An external pool must reference the matching Group-owned AgentRally snapshot. |
 | `SnapshotAPIUnavailable`, `SnapshotNotFound`, `SnapshotNotReady`, `SnapshotCapacityInsufficient` | Snapshot API/CSI prerequisites, source readiness and PVC restore capacity. |
@@ -459,7 +462,7 @@ Use `status.podUID` to distinguish executions.
 PVC data remains; process memory and emptyDir data do not.
 This is stop/start, not checkpoint/restore.
 
-To replace execution using the same definition revision, set a new restart token:
+To restart the process using the same Definition revision, set a new restart token:
 
 ```sh
 kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
@@ -470,10 +473,19 @@ Change the token for each restart; repeating it does nothing.
 Definition edits publish a new revision and leave pinned instances running on their old
 version.
 Restart preserves the accepted revision and its invocation protocol declaration.
-Upgrade by setting `spec.revision` to the desired hash from the Definition's
-`status.currentRevision`, and change `restartToken` in the same update.
-Changing only the selected revision or rotating environment credentials can report
-RestartRequired until restart.
+Upgrade by setting `spec.revision` to a published revision.
+For example, select the Definition's current revision:
+
+```sh
+revision=$(kubectl -n agentrally-demo get agentdefinition demo-agent -o jsonpath='{.status.currentRevision}')
+kubectl -n agentrally-demo patch agentinstance demo-agent --type=merge \
+  -p "{\"spec\":{\"revision\":\"$revision\"}}"
+```
+
+A revision change starts the upgrade without a new restart token.
+Repeating the same revision does not restart the process.
+Rotating referenced environment credentials may report `RestartRequired`; use a new
+restart token to apply their current values.
 
 An optional `AgentDefinition.spec.invocationProtocol: HTTPJSONSSEV1` declares an
 application protocol and becomes part of its immutable revision.
@@ -489,11 +501,26 @@ Secret volumes retain Kubernetes update behavior; AgentRally does not freeze or 
 contents.
 The pending-update condition describes creation evidence.
 
-AgentRally replaces execution through its owning SandboxClaim.
-**Default Sandbox-owned workspaces are replaced:** upstream garbage collection removes the old Sandbox
-and its PVCs.
-An external `existingClaimRef` retains its PVC across replacement.
-Suspend/resume and Pod recreation within the same Sandbox retain its PVCs.
+Restart and upgrade keep the same Instance, SandboxClaim, Sandbox and PVC UIDs.
+The old Pod must terminate before the new configuration starts.
+An upgrade interrupts running tasks and loses process memory and ephemeral files.
+It does not migrate application data or undo writes made by a failed version.
+
+Definition storage defaults apply to new instances.
+Existing instances keep their allocated volumes; incompatible mount changes or explicit
+Instance storage changes report `StorageChangeRejected` before stopping the old process.
+Missing or replaced PVCs block the update rather than being accepted as restored data.
+
+`status.provisioning` records the original allocation.
+`status.configuration` identifies the applied Sandbox configuration source.
+`status.update` records an accepted update in `Stopping` or `Starting`.
+A suspended instance can prepare its target without starting a Pod.
+Resume it explicitly to verify the new process.
+Check current-generation `Ready` and `ConfigurationApplied`, and the new `status.podUID`,
+before treating a running update as complete.
+
+Deleting the Instance removes its Sandbox and Sandbox-owned PVCs.
+An external `existingClaimRef` remains under its original ownership.
 
 Delete AgentInstances, then
 AgentDefinitions, before the Group.

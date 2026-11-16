@@ -227,7 +227,11 @@ MCP management credentials need a management-side source; this interface cannot 
 Metadata negotiation does not change Kubernetes RBAC: the Operator still has the native Secret get permission its controllers need.
 
 The backend owns rotation and cleanup timing.
-Create a new named Secret, switch references and replace affected executions before retiring the old one.
+Create a new named Secret, publish the changed references and upgrade affected Instances
+before retiring the old one.
+Set only `spec.revision` for an upgrade; use a new `restartToken` for a same-revision restart.
+Both preserve the existing allocation and persistent volumes.
+See [lifecycle results and retry behavior](usage.md#lifecycle).
 Consider suspended or retained instances pinned to older Revisions as well as the current Definition.
 The Operator does not scan references or restart Pods in response to Secret changes.
 The initial Connector token still comes from the installation workflow.

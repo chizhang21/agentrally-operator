@@ -107,11 +107,11 @@ func TestExecutionDiagnostics(t *testing.T) {
 	if instance.Status.PodUID != oldPod || instance.Status.Definition.Revision != oldRevision || meta.IsStatusConditionTrue(instance.Status.Conditions, "Ready") {
 		t.Fatal("publishing a fixed probe implicitly upgraded or marked the old execution ready")
 	}
-	instance.Spec.Revision, instance.Spec.RestartToken = definition.Status.CurrentRevision, "accept-fixed-readiness"
+	instance.Spec.Revision = definition.Status.CurrentRevision
 	update(t, ctx, kube, instance)
 	readyAgent(t, ctx, kube, instance)
-	if instance.Status.PodUID == oldPod || instance.Status.SandboxUID == oldSandbox || instance.Status.Definition.Revision != definition.Status.CurrentRevision {
-		t.Fatal("explicit upgrade did not replace the failed execution and revision")
+	if instance.Status.PodUID == oldPod || instance.Status.SandboxUID != oldSandbox || instance.Status.Definition.Revision != definition.Status.CurrentRevision {
+		t.Fatal("explicit upgrade did not repair the process in the same Sandbox")
 	}
 	if err := kube.Delete(ctx, instance); err != nil {
 		t.Fatal(err)

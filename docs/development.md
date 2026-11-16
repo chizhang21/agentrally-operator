@@ -170,7 +170,7 @@ E2E_UPGRADE_FROM=0.0.4 E2E_UPGRADE_CONNECTOR=true make e2e
 ```
 
 The suite covers publication/revision pinning, dependency rotation, Group policies,
-allocation, prewarming, suspend/resume, replacement, task completion and ownership cleanup.
+allocation, prewarming, suspend/resume, storage-preserving revision updates, task completion and ownership cleanup.
 Generic native-template tasks verify completion diagnostics and explicit cleanup.
 Workspace checks distinguish execution-private volumes from externally managed PVCs.
 Connector management uses its dedicated rendered RBAC rather than administrator permissions.
@@ -228,7 +228,7 @@ E2E_TEST='^TestKataRuntimeLifecycle$' make e2e
 
 The driver applies that installer only inside its new cluster.
 The selected RuntimeClass must exist.
-The test exercises actual execution, workspace suspension/replacement and a controlled
+The test exercises actual execution, workspace suspension and revision updates and a controlled
 cleanup hold exceeding five minutes.
 It removes only its own finalizer on the same Pod UID.
 

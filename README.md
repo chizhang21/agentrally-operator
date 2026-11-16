@@ -115,16 +115,16 @@ See [runtime configuration](docs/agent-templates.md#container-runtime) for templ
 | Operation | Execution | Workspace data |
 | --- | --- | --- |
 | Suspend and resume | Recreate the Pod within the same Sandbox. | Private and existing PVCs remain. Memory and ephemeral files are lost. |
-| Restart or upgrade | Replace the Sandbox and its Pod. | Private PVCs are replaced. An existing PVC remains. |
+| Restart or upgrade | Recreate the Pod within the same Sandbox. | Private and existing PVCs remain. Memory and ephemeral files are lost. |
 | Delete an AgentInstance | Remove its execution resources. | Private PVCs are removed. An existing PVC remains. |
 
-Use `workspace.existingClaimRef` when data must survive a restart, upgrade or AgentInstance deletion.
+Use `workspace.existingClaimRef` when data must survive AgentInstance deletion.
 
 AgentGroup deletion reports `GroupInUse` until its AgentDefinitions, AgentInstances,
 execution resources and PVCs are removed.
 
 AgentDefinition edits leave existing AgentInstances on their accepted revision.
-Restarts keep that revision; upgrades require a new `spec.revision` and `restartToken`.
+Restarts keep that revision; select a new `spec.revision` to upgrade an instance.
 See [Lifecycle](docs/usage.md#lifecycle) for suspend, resume and deletion commands.
 
 ### Observed timings

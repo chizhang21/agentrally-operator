@@ -58,7 +58,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ct
 	if err := controller.AddFinalizer(ctx, r.Client, workload, AgentInstanceFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
-	if handled, result, err := r.reconcileRestart(ctx, workload); handled || err != nil {
+	if handled, result, err := r.reconcileAllocationRetry(ctx, workload); handled || err != nil {
 		return result, err
 	}
 	// Stopping an owned execution and enforcing an in-flight allocation budget

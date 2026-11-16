@@ -64,12 +64,11 @@ Choose capacity, access modes and optionally a StorageClass.
 By default, Core creates a private PVC for every Sandbox, including unassigned warm instances.
 The PVC belongs to that Sandbox.
 
-Suspend/resume and Pod recreation within the same Sandbox retain workspace data.
-Explicit execution replacement (`restartToken`) and deletion remove the Sandbox
-and its private PVCs.
-Replacement starts with a new private workspace.
+Suspend/resume, restart and revision upgrades retain the Sandbox and its private PVCs.
+Instance deletion removes the Sandbox and its private PVCs.
+Definition storage defaults only apply when provisioning new instances.
 
-For files that must survive replacement, use
+For files that must survive Instance deletion, use
 `AgentInstance.spec.workspace.existingClaimRef` to mount a namespace-local, externally
 managed PVC.
 Its UID stays bound across restart.
@@ -131,7 +130,7 @@ Kubernetes evaluates nodes, affinity, tolerations and capacity.
 The setting flows into the snapshot, pool and Pod.
 
 For a runtime change published by the Definition, select the new `spec.revision`
-and set a new `restartToken` on the instance.
+on the instance.
 An ordinary restart preserves its accepted Definition revision.
 
 ## Browser environment

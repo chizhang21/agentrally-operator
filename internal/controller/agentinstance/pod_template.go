@@ -19,6 +19,10 @@ func desiredExecution(ctx context.Context, reader client.Reader, instance *v1.Ag
 	effective := instance.DeepCopy()
 	if effective.Spec.Workspace == nil {
 		effective.Spec.Workspace = revision.Spec.Workspace.DeepCopy()
+		if effective.Spec.Workspace != nil && instance.Status.Workspace != nil {
+			effective.Spec.Workspace.ExistingClaimRef = &v1.PersistentVolumeClaimReference{Name: instance.Status.Workspace.ClaimName}
+			effective.Spec.Workspace.VolumeClaimTemplate = nil
+		}
 	}
 	resolved, err := executionconfig.Resolve(ctx, reader, instance.Namespace, instance.Spec.DefinitionRef.Name, effective.Spec.Workspace, revision)
 	if err != nil {

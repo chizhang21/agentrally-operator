@@ -26,12 +26,15 @@ AgentGroup 创建命名空间，供其 AgentDefinition 和 AgentInstance 使用�
 
 ## 快速开始
 
+安装已发布版本时，请使用对应 Git tag 中的 README。
+当前源码采用了更新的依赖，详见[兼容性说明](docs/installation.md#compatibility)。
+
 ### 依赖：agent-sandbox
 
 集群尚未安装 [agent-sandbox](docs/installation.md#install-upstream-agent-sandbox) 时，先执行：
 
 ```sh
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.11/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
 ```
 
 ### 1. 安装 Operator

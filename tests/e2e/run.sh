@@ -43,11 +43,6 @@ if [[ -n ${E2E_UPGRADE_FROM:-} ]]; then
   required=TestChartUpgrade
   export E2E_TEST=${E2E_TEST:-'^TestChartUpgrade$'}
 fi
-if [[ ${E2E_PUBLIC_RELEASE:-false} == true ]]; then
-  # Match the documented public quick-start dependency, including its defaults.
-  upstream_version=$SANDBOX_PREVIOUS_VERSION
-  upstream_sha=$SANDBOX_PREVIOUS_SHA256
-fi
 if [[ "$explicit_test" == true ]]; then required=''; fi
 export E2E_CNI=${E2E_CNI:-kindnet}
 export E2E_SNAPSHOTS=${E2E_SNAPSHOTS:-false}

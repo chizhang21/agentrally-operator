@@ -26,12 +26,15 @@ One AgentDefinition can serve multiple independent AgentInstances.
 
 ## Quick start
 
+For published releases, use the README from the matching Git tag.
+The current source uses a newer dependency; see [compatibility](docs/installation.md#compatibility).
+
 ### Dependency: agent-sandbox
 
 Install [agent-sandbox](docs/installation.md#install-upstream-agent-sandbox) if it is not already present.
 
 ```sh
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.11/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
 ```
 
 ### 1. Install the Operator

@@ -21,6 +21,10 @@ The OCI commands below require an accessible, published Chart version.
 
 ## Compatibility
 
+The current source uses agent-sandbox 1.0.11 for new installations.
+For published Operator 0.0.6, use agent-sandbox 1.0.5 as documented in its tagged installation guide.
+For an existing installation, [upgrade AgentRally before agent-sandbox](#upgrade-agent-sandbox).
+
 These are representative Kind configurations for this source revision, not a claim
 that every Kubernetes, CNI, CSI or RuntimeClass combination has been tested.
 The exact node images and manifest checksums are pinned in
@@ -32,7 +36,7 @@ The exact node images and manifest checksums are pinned in
 | Newer Kubernetes sample | 1.37.0 | 1.0.11 | Passed locally |
 | Operator 0.0.6 → this candidate, Connector off/on | 1.34.11 | 1.0.5 | Passed locally |
 | Upstream upgrade with this candidate fixed | 1.34.11 | 1.0.5 → 1.0.11 | Passed locally |
-| Packaged Chart defaults and public examples | 1.34.11 | 1.0.5 | Passed locally |
+| Packaged Chart defaults and public examples | 1.34.11 | 1.0.11 | Passed locally |
 
 These scenarios use runc, kindnet and local-path storage.
 They do not establish Kubernetes cluster upgrade compatibility, or validate OKD,
@@ -47,10 +51,10 @@ Anonymous retrieval of the candidate artifacts is checked by the tag workflow af
 
 AgentRally needs agent-sandbox Core and Extensions.
 Install both using the
-[official combined manifest](https://github.com/kubernetes-sigs/agent-sandbox/tree/v1.0.5#installation):
+[official combined manifest](https://github.com/kubernetes-sigs/agent-sandbox/tree/v1.0.11#installation):
 
 ```sh
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.11/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
 ```
 
 This creates the `agent-sandbox-system` namespace, four CRDs, RBAC and one controller
@@ -161,7 +165,6 @@ Upgrade AgentRally to a build containing this compatibility fix **before** upgra
 agent-sandbox from 1.0.5 to 1.0.11.
 Operator 0.0.6 does not support the new template default added by agent-sandbox 1.0.11;
 it can reject existing revisions with `DefinitionRevisionConflict`.
-The quick-start dependency remains 1.0.5 for the published Operator 0.0.6.
 
 After upgrading AgentRally, apply the target manifest in place:
 

@@ -35,9 +35,20 @@ jobs:
       connector_image: ${{ needs.packages.outputs.connector_image }}
       version: ${{ needs.packages.outputs.version }}
       chart_repository: ${{ needs.packages.outputs.chart_repository }}
+  public-smoke:
+    needs: [packages, publish]
+    uses: ./.github/workflows/e2e.yml
+    with:
+      image: ${{ needs.packages.outputs.image }}
+      connector_image: ${{ needs.packages.outputs.connector_image }}
+      image_artifact: agentrally-operator-image
+      connector_image_artifact: agentrally-connector-image
+      chart_artifact: agentrally-operator-chart
+      public_version: ${{ needs.packages.outputs.version }}
+      chart_repository: ${{ needs.packages.outputs.chart_repository }}
   github-release:
     name: Publish GitHub Release
-    needs: [e2e, publish]
+    needs: [e2e, public-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

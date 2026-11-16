@@ -4,9 +4,51 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 KIND=${KIND:-kind}
-for tool in "$KIND" docker kubectl helm go curl timeout tee awk; do
+for tool in "$KIND" docker kubectl helm go curl timeout tee awk sha256sum git rg; do
   command -v "$tool" >/dev/null || { echo "Required E2E tool is missing: $tool" >&2; exit 1; }
 done
+source tests/e2e/versions.env
+export E2E_PROFILE=${E2E_PROFILE:-baseline}
+explicit_test=${E2E_TEST:+true}
+node=$KIND_NODE_BASELINE
+upstream_version=$SANDBOX_VERSION
+upstream_sha=$SANDBOX_SHA256
+required='TestPublishedExamples TestStableRevisionUpdates TestRetainedWorkspaceUpgrade TestOperatorLifecycle TestRuntimePolicyAndExplicitLifecycle TestConnectorManagement'
+case "$E2E_PROFILE" in
+  baseline) ;;
+  newer-kubernetes)
+    node=$KIND_NODE_NEWER
+    required='TestPublishedExamples TestStableRevisionUpdates TestRetainedWorkspaceUpgrade TestRuntimePolicyAndExplicitLifecycle'
+    export E2E_TEST=${E2E_TEST:-'^(TestPublishedExamples|TestStableRevisionUpdates|TestRetainedWorkspaceUpgrade|TestRuntimePolicyAndExplicitLifecycle)$'}
+    ;;
+  operator-upgrade|connector-upgrade)
+    export E2E_UPGRADE_FROM=${E2E_UPGRADE_FROM:-$OPERATOR_PREVIOUS_VERSION}
+    export E2E_UPGRADE_CONNECTOR=false
+    if [[ "$E2E_PROFILE" == connector-upgrade ]]; then export E2E_UPGRADE_CONNECTOR=true; fi
+    ;;
+  sandbox-upgrade)
+    required=TestSandboxUpgrade
+    export E2E_TEST=${E2E_TEST:-'^TestSandboxUpgrade$'}
+    upstream_version=$SANDBOX_PREVIOUS_VERSION
+    upstream_sha=$SANDBOX_PREVIOUS_SHA256
+    ;;
+  *) echo 'Unknown E2E_PROFILE.' >&2; exit 1 ;;
+esac
+if [[ -n ${E2E_UPGRADE_FROM:-} ]]; then
+  if [[ "$E2E_PROFILE" != baseline && "$E2E_PROFILE" != operator-upgrade && "$E2E_PROFILE" != connector-upgrade ]]; then
+    echo 'Operator upgrade cannot be combined with another E2E profile.' >&2; exit 1
+  fi
+  upstream_version=$SANDBOX_PREVIOUS_VERSION
+  upstream_sha=$SANDBOX_PREVIOUS_SHA256
+  required=TestChartUpgrade
+  export E2E_TEST=${E2E_TEST:-'^TestChartUpgrade$'}
+fi
+if [[ ${E2E_PUBLIC_RELEASE:-false} == true ]]; then
+  # Match the documented public quick-start dependency, including its defaults.
+  upstream_version=$SANDBOX_PREVIOUS_VERSION
+  upstream_sha=$SANDBOX_PREVIOUS_SHA256
+fi
+if [[ "$explicit_test" == true ]]; then required=''; fi
 export E2E_CNI=${E2E_CNI:-kindnet}
 export E2E_SNAPSHOTS=${E2E_SNAPSHOTS:-false}
 export E2E_RUNTIME_CLASS=${E2E_RUNTIME_CLASS:-}
@@ -76,6 +118,7 @@ finish() {
       if (( result == 0 )); then result=1; fi
     fi
   fi
+  printf 'exit_code=%s\n' "$result" >> "$logs/inputs.txt"
   echo "E2E logs: $logs"
   rm -rf "$temporary"
   exit "$result"
@@ -106,7 +149,21 @@ else
   docker image inspect "$connector_image" >/dev/null
 fi
 
-node='kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a'
+{
+  printf 'profile=%s\nselected_tests=%s\nrequired_tests=%s\n' "$E2E_PROFILE" "${E2E_TEST:-.}" "$required"
+  printf 'public_release=%s\nupgrade_connector=%s\n' "${E2E_PUBLIC_RELEASE:-false}" "${E2E_UPGRADE_CONNECTOR:-false}"
+  printf 'source_commit=%s\n' "$(git rev-parse HEAD)"
+  git status --porcelain --untracked-files=normal
+  printf 'tracked_diff_sha256='; git diff --binary --no-ext-diff HEAD | sha256sum
+  printf 'untracked_files_sha256='; git ls-files --others --exclude-standard -z | sort -z | xargs -0 -r sha256sum | sha256sum
+  printf 'examples_sha256='; rg --files -0 examples | sort -z | xargs -0 -r sha256sum | sha256sum
+  if [[ -f "$chart" ]]; then sha256sum "$chart"; else find "$chart" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum; fi
+  helm show chart "$chart"
+  # Image ID is the Docker configuration digest, not the registry manifest digest.
+  docker image inspect --format 'image={{.RepoTags}} config_digest={{.Id}} registry_digests={{.RepoDigests}}' "$image" "$connector_image"
+  printf 'node=%s\nsandbox=%s sha256=%s\noperator_upgrade_from=%s\n' "$node" "$upstream_version" "$upstream_sha" "${E2E_UPGRADE_FROM:-none}"
+  "$KIND" version
+} > "$logs/inputs.txt"
 if "$KIND" get clusters | grep -Fxq "$cluster"; then
   echo "Test cluster name already exists: $cluster" >&2
   exit 1
@@ -154,10 +211,18 @@ export E2E_DIGEST_IMAGE
 E2E_DIGEST_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/library/busybox:1.37.0)
 load_image docker.io/library/busybox:1.37.0
 upstream="$temporary/upstream.yaml"
-curl -fsSL --retry 3 https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml -o "$upstream"
-echo "b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970  $upstream" | sha256sum --check
+download_upstream() {
+  curl -fsSL --retry 3 "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/$1/sandbox-with-extensions.yaml" -o "$3"
+  echo "$2  $3" | sha256sum --check
+}
+download_upstream "$upstream_version" "$upstream_sha" "$upstream"
 kubectl apply --server-side -f "$upstream"
 kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=240s
+if [[ "$E2E_PROFILE" == sandbox-upgrade ]]; then
+  export E2E_SANDBOX_UPGRADE_MANIFEST="$temporary/upstream-target.yaml"
+  download_upstream "$SANDBOX_VERSION" "$SANDBOX_SHA256" "$E2E_SANDBOX_UPGRADE_MANIFEST"
+  printf 'sandbox_upgrade_to=%s sha256=%s\n' "$SANDBOX_VERSION" "$SANDBOX_SHA256" >> "$logs/inputs.txt"
+fi
 
 if [[ -n ${E2E_UPGRADE_FROM:-} ]]; then
   # Start with the published release, including its CRDs and image defaults.
@@ -167,9 +232,23 @@ if [[ -n ${E2E_UPGRADE_FROM:-} ]]; then
   previous_image="ghcr.io/chizhang21/agentrally-operator:v$E2E_UPGRADE_FROM"
   docker pull --platform="$platform" "$previous_image"
   load_image "$previous_image"
+  if [[ ${E2E_UPGRADE_CONNECTOR:-false} == true ]]; then
+    previous_connector="ghcr.io/chizhang21/agentrally-connector:v$E2E_UPGRADE_FROM"
+    docker pull --platform="$platform" "$previous_connector"
+    load_image "$previous_connector"
+    docker image inspect --format 'previous_connector={{.RepoTags}} config_digest={{.Id}} registry_digests={{.RepoDigests}}' "$previous_connector" >> "$logs/inputs.txt"
+  fi
+  sha256sum "$E2E_PREVIOUS_CHART" >> "$logs/inputs.txt"
+  docker image inspect --format 'previous_image={{.RepoTags}} config_digest={{.Id}} registry_digests={{.RepoDigests}}' "$previous_image" >> "$logs/inputs.txt"
   helm install agentrally-operator "$E2E_PREVIOUS_CHART" -n agentrally-system --create-namespace \
     --set image.pullPolicy=IfNotPresent --wait --timeout=240s
   export E2E_TEST=${E2E_TEST:-^TestChartUpgrade$}
+elif [[ ${E2E_PUBLIC_RELEASE:-false} == true ]]; then
+  helm install agentrally-operator "$chart" -n agentrally-system --create-namespace --wait --timeout=240s
+  actual_image=$(kubectl -n agentrally-system get deployment agentrally-operator -o jsonpath='{.spec.template.spec.containers[0].image}')
+  if [[ "$actual_image" != "$image" ]]; then
+    echo "Published Chart selects an unexpected Operator image: $actual_image" >&2; exit 1
+  fi
 else
   helm install agentrally-operator "$chart" -n agentrally-system --create-namespace \
     --set-string image.repository="${image%:*}" --set-string image.tag="${image##*:}" \
@@ -180,12 +259,22 @@ fi
 export E2E_IMAGE="$image" E2E_CONNECTOR_IMAGE="$connector_image"
 set +e
 AGENTRALLY_E2E_KUBECONFIG="$KUBECONFIG" GOWORK=off \
-  go test -p=1 -tags=e2e ./cmd/... ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=35m -v 2>&1 \
+  go test -p=1 -tags=e2e ./cmd/... ./tests/e2e -run "${E2E_TEST:-.}" -count=1 -timeout=50m -v 2>&1 \
   | tee "$logs/lifecycle.log"
 test_results=("${PIPESTATUS[@]}")
 set -e
 if (( test_results[0] != 0 )); then exit "${test_results[0]}"; fi
 if (( test_results[1] != 0 )); then exit "${test_results[1]}"; fi
+# Explicit selections cannot succeed through a skip. Optional platform cases in
+# the default suite are visible in the log but do not count as compatibility proof.
+if [[ -n ${E2E_TEST:-} ]] && grep -Eq '^[[:space:]]*--- SKIP:' "$logs/lifecycle.log"; then
+  echo 'An explicitly selected E2E scenario skipped.' >&2; exit 1
+fi
+for name in $required; do
+  if ! grep -Eq "^--- PASS: $name " "$logs/lifecycle.log" || grep -Eq "^[[:space:]]*--- SKIP: $name(/| )" "$logs/lifecycle.log"; then
+    echo "Required E2E scenario did not fully pass: $name" >&2; exit 1
+  fi
+done
 # A passing parent whose children all skipped is not an executed scenario.
 if ! awk '
   /^[[:space:]]*--- (PASS|FAIL|SKIP): Test/ {

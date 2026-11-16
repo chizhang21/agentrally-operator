@@ -16,14 +16,11 @@ import (
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/connector"
-	"agentrally/operator/internal/sandbox"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -51,29 +48,8 @@ func TestChartUpgrade(t *testing.T) {
 			t.Fatalf("helm upgrade: %v\n%s", err, out)
 		}
 	}
-	group := readyGroup(t, ctx, kube, "chart-upgrade")
-	definition, instance := testAgent(group, "retained", agentCommand("upgrade"))
-	instance.Spec.Workspace = &v1.WorkspaceMount{MountPath: "/workspace", VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{
-		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-		Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("32Mi")}},
-	}}
-	create(t, ctx, kube, definition)
-	create(t, ctx, kube, instance)
-	readyAgent(t, ctx, kube, instance)
-	pvc := allocatedWorkspace(t, ctx, kube, instance)
-	execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "sh", "-c", "printf retained-through-upgrade > /workspace/session")
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: instance.Namespace, Name: instance.Status.PodName}}
-	workload := sandbox.Object()
-	workload.SetNamespace(instance.Namespace)
-	workload.SetName(instance.Status.SandboxName)
-	crd := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "apiextensions.k8s.io/v1", "kind": "CustomResourceDefinition"}}
-	crd.SetName("agentinstances.arally.io")
-	retained := []client.Object{group, definition, instance, pvc, workload, crd, pod}
-	for _, object := range retained {
-		if err := kube.Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
-			t.Fatal(err)
-		}
-	}
+	fixture := prepareComponentUpgrade(t, kube, kubeconfig)
+	group := fixture.group
 
 	verifyConnector := func(string) {}
 	connectorEnabled := os.Getenv("E2E_UPGRADE_CONNECTOR") == "true"
@@ -152,8 +128,7 @@ func TestChartUpgrade(t *testing.T) {
 	}
 	t.Log("Upgrade the published release with its existing explicit values")
 	helmUpgrade(chart, append(imageValues("image", image), imageValues("connector.image", relayImage)...)...)
-	// Helm can return while old Pods are terminating. Wait until the integrated
-	// Connector is gone so the next response must come from the new Deployment.
+	// Wait for the previous Operator Pods to terminate before verifying the candidate.
 	await(t, "only candidate Operator Pods remain", func() (bool, error) {
 		var pods corev1.PodList
 		if err := kube.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{
@@ -174,41 +149,24 @@ func TestChartUpgrade(t *testing.T) {
 		if err != nil || relay.Status.ReadyReplicas != 1 || relay.Spec.Template.Spec.Containers[0].Image != relayImage {
 			t.Fatal("separate Connector is not running the candidate image", err)
 		}
+		await(t, "only candidate Connector Pods remain", func() (bool, error) {
+			var pods corev1.PodList
+			if err := kube.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{
+				"app.kubernetes.io/name": "agentrally-connector", "app.kubernetes.io/instance": release,
+			}); err != nil {
+				return false, err
+			}
+			for _, pod := range pods.Items {
+				if pod.DeletionTimestamp != nil || pod.Spec.Containers[0].Image != relayImage {
+					return false, nil
+				}
+			}
+			return len(pods.Items) > 0, nil
+		})
 		verifyConnector("after-upgrade")
 	} else if !apierrors.IsNotFound(err) {
 		t.Fatal("disabled Connector has a Deployment", err)
 	}
-	for _, before := range retained {
-		after := before.DeepCopyObject().(client.Object)
-		if err := kube.Get(ctx, client.ObjectKeyFromObject(after), after); err != nil {
-			t.Fatal(err)
-		}
-		if after.GetUID() != before.GetUID() {
-			t.Fatalf("upgrade replaced %T %s", before, before.GetName())
-		}
-	}
-	verifyData := func() {
-		t.Helper()
-		if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/session"); got != "retained-through-upgrade" {
-			t.Fatalf("workspace changed: %q", got)
-		}
-		if current := allocatedWorkspace(t, ctx, kube, instance); current.UID != pvc.UID {
-			t.Fatal("workspace PVC was replaced")
-		}
-	}
-	verifyData()
-	t.Log("Suspend and resume the retained Agent with the upgraded Operator")
-	instance.Spec.OperatingMode = "Suspended"
-	update(t, ctx, kube, instance)
-	await(t, "retained Agent suspended", func() (bool, error) {
-		err := kube.Get(ctx, client.ObjectKeyFromObject(instance), instance)
-		return conditionTrue(instance.Status.Conditions, "Suspended", instance.Generation), err
-	})
-	instance.Spec.OperatingMode = "Running"
-	update(t, ctx, kube, instance)
-	readyAgent(t, ctx, kube, instance)
-	if instance.Status.PodUID == string(pod.UID) || instance.Status.PodUID == "" {
-		t.Fatal("resume did not create a new Pod")
-	}
-	verifyData()
+	fixture.verify(t, kube, kubeconfig)
+	fixture.verifyResume(t, kube, kubeconfig)
 }

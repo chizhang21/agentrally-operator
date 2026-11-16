@@ -41,4 +41,21 @@ func TestPublishedRevisionRoundTrip(t *testing.T) {
 	if !equality.Semantic.DeepEqual(stored.Spec, object.Spec) || stored.Template.GetName() != published.Template.GetName() {
 		t.Fatal("reading the published revision changed its configuration or identity")
 	}
+	// An upstream CRD upgrade defaults existing templates on read. That must
+	// neither change their publication identity nor permit a real policy change.
+	stored.Template.Object["spec"].(map[string]interface{})["failedPodPolicy"] = "Retain"
+	if err := kube.Update(t.Context(), stored.Template); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := definition.Read(t.Context(), kube, object, published.ID); err != nil {
+		t.Fatal("upstream default invalidated an accepted revision", err)
+	}
+	republished, err := definition.Publish(t.Context(), kube, kube, scheme, object)
+	if err != nil || republished.ID != published.ID {
+		t.Fatal("upstream default changed publication", err)
+	}
+	stored.Template.Object["spec"].(map[string]interface{})["failedPodPolicy"] = "Recreate"
+	if _, err := definition.Verify(object, stored.Template, published.ID); err == nil {
+		t.Fatal("a non-default policy change bypassed revision integrity")
+	}
 }

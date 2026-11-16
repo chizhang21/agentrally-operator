@@ -346,6 +346,8 @@ func allocationSpecsMatch(current, desired *unstructured.Unstructured) bool {
 		return false
 	}
 	if desired.GetKind() == "SandboxTemplate" {
+		sandbox.NormalizeTemplateDefaults(actual)
+		sandbox.NormalizeTemplateDefaults(wanted)
 		actualClaims, actualErr := sandbox.TemplateVolumeClaims(current)
 		wantedClaims, wantedErr := sandbox.TemplateVolumeClaims(desired)
 		if actualErr != nil || wantedErr != nil || !equality.Semantic.DeepEqual(actualClaims, wantedClaims) {

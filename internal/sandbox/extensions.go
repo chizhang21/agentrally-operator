@@ -58,6 +58,16 @@ func ClaimSandboxName(claim *unstructured.Unstructured) (string, error) {
 	return name, err
 }
 
+// NormalizeTemplateDefaults operates on a copied spec for identity/comparison.
+// v1.0.11 materializes Retain, which was also the behavior before this field
+// existed. Keep that default out of hashes so upgrading CRDs preserves revisions.
+// Non-default policies remain material configuration.
+func NormalizeTemplateDefaults(spec map[string]interface{}) {
+	if policy, ok := spec["failedPodPolicy"].(string); ok && policy == "Retain" {
+		delete(spec, "failedPodPolicy")
+	}
+}
+
 // TemplatePod decodes only the native Pod template portion of a SandboxTemplate.
 // The presence flag distinguishes a missing template from an invalid Pod value.
 func TemplatePod(template *unstructured.Unstructured) (*corev1.PodTemplateSpec, bool, error) {

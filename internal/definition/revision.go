@@ -136,7 +136,7 @@ func Publish(ctx context.Context, c client.Client, reader client.Reader, scheme 
 	if err := controller.CheckOwner(existing, object); err != nil {
 		return nil, err
 	}
-	if existing.GetDeletionTimestamp() != nil || existing.GetAnnotations()[SpecAnnotation] != string(spec) || existing.GetAnnotations()[RevisionAnnotation] != id || !equality.Semantic.DeepEqual(existing.Object["spec"], result.Object["spec"]) {
+	if existing.GetDeletionTimestamp() != nil || existing.GetAnnotations()[SpecAnnotation] != string(spec) || existing.GetAnnotations()[RevisionAnnotation] != id || !equality.Semantic.DeepEqual(normalizedNativeSpec(existing.Object["spec"]), normalizedNativeSpec(result.Object["spec"])) {
 		return nil, diagnostics.New("DefinitionRevisionConflict", "A published configuration revision has been changed or is terminating", nil)
 	}
 	result = existing
@@ -183,10 +183,18 @@ func revisionID(spec json.RawMessage, native any) (string, error) {
 	input, err := json.Marshal(struct {
 		Definition json.RawMessage
 		Native     any
-	}{spec, native})
+	}{spec, normalizedNativeSpec(native)})
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(input)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func normalizedNativeSpec(native any) any {
+	copy := runtime.DeepCopyJSONValue(native)
+	if spec, ok := copy.(map[string]interface{}); ok {
+		sandbox.NormalizeTemplateDefaults(spec)
+	}
+	return copy
 }

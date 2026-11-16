@@ -143,20 +143,23 @@ For concurrency changes, also run `go test -race ./internal/...`.
 
 ### Kind E2E
 
-Run `make e2e` with Docker 28+, kubectl, Helm, Go and curl.
-The [driver](../tests/e2e/run.sh) pins Kind, Kubernetes and upstream controller versions.
+Run `make e2e` with Docker 28+, kubectl, Helm, Go, curl and ripgrep.
+The [driver](../tests/e2e/run.sh) uses the pinned inputs in
+[versions.env](../tests/e2e/versions.env) and Kind from `mk/tools.mk`.
 It builds the production Containerfile, creates a disposable cluster and installs
 Core, Extensions and AgentRally through the normal chart.
 It never uses the caller's current kubeconfig.
+Run profiles sequentially on a shared Docker host; CI matrix jobs use separate runners.
 
 | Setting | Purpose |
 | --- | --- |
-| `E2E_TEST` | Select Go test names; default runs `cmd/...` and `tests/e2e` suites |
+| `E2E_PROFILE` | `baseline` (default), `newer-kubernetes`, `operator-upgrade`, `connector-upgrade` or `sandbox-upgrade` |
+| `E2E_TEST` | Override the selected Go tests; any skip in an explicit selection fails the run |
 | `E2E_IMAGE=repository:tag` | Use an already built local Operator image; no publication |
 | `E2E_CONNECTOR_IMAGE=repository:tag` | Use an already built local Connector image; no publication |
 | `E2E_CHART=/path/to/chart.tgz` | Install a packaged Chart |
-| `E2E_UPGRADE_FROM=0.0.4` | Install the published release, then test upgrading to the candidate Chart and images |
-| `E2E_UPGRADE_CONNECTOR=true` | Include the old integrated Connector and verify management requests after upgrading |
+| `E2E_UPGRADE_FROM=0.0.6` | Override the published Operator upgrade source; the upgrade profiles use the pinned source by default |
+| `E2E_UPGRADE_CONNECTOR=true` | Include Connector when overriding the upgrade source in the baseline profile |
 | `E2E_CNI=cilium` | Install Cilium and execute ingress, ConnectorOnly and native egress traffic tests |
 | `E2E_SNAPSHOTS=true` | Install CSI snapshot fixtures and test workspace initialization |
 | `E2E_LOG_DIR` | Select the local log directory |
@@ -165,8 +168,10 @@ It never uses the caller's current kubeconfig.
 make e2e
 E2E_CNI=cilium make e2e
 E2E_SNAPSHOTS=true make e2e
-E2E_UPGRADE_FROM=0.0.4 make e2e
-E2E_UPGRADE_FROM=0.0.4 E2E_UPGRADE_CONNECTOR=true make e2e
+E2E_PROFILE=newer-kubernetes make e2e
+E2E_PROFILE=operator-upgrade make e2e
+E2E_PROFILE=connector-upgrade make e2e
+E2E_PROFILE=sandbox-upgrade make e2e
 ```
 
 The suite covers publication/revision pinning, dependency rotation, Group policies,
@@ -176,9 +181,16 @@ Workspace checks distinguish execution-private volumes from externally managed P
 Connector management uses its dedicated rendered RBAC rather than administrator permissions.
 It checks scoped metadata reads, write-result retries and guarded Secret/ConfigMap deletion.
 Startup tests verify leader handoff against the Kind API.
-CI runs the lifecycle suite and both upgrade scenarios separately.
-Upgrade tests retain existing CRDs, Agents and PVC data, then exercise suspend/resume.
-The Connector scenario verifies management requests before and after the split into a separate Deployment.
+Before a release candidate, review `versions.env` against the published releases.
+Keep the Operator upgrade source pinned to the latest release preceding that candidate.
+CI runs all five profiles separately using the same candidate artifacts.
+Component upgrade tests start with a running private workspace and an already
+suspended instance using an external PVC.
+They check Instance, Claim, Sandbox and PVC identity, accepted revision, file read/write
+and application responses before and after explicit resume.
+The Connector profile verifies scoped requests before and after its upgrade.
+The public-example test applies the repository YAML unchanged and checks the demo
+reply, suspend/resume, persistent files, restart, explicit revision update and cleanup.
 Deployment tests exercise backend connectivity, outage isolation, Pod replacement and cleanup on disable.
 The Helm lifecycle test restores the selected Chart and values after checking CRD retention.
 Resource aggregation rules run in a pinned Prometheus engine with small attribution fixtures.
@@ -200,11 +212,20 @@ An explicitly requested infrastructure profile must pass; missing infrastructure
 
 Every initialized Kind run has a new directory under `.cache/e2e/`.
 Go test output appears in the terminal and is saved to `lifecycle.log`.
-A run must pass at least one scenario beyond the target guard.
-Empty selections and skipped-only runs fail.
+Each profile has required scenarios; a missing, failed or skipped required case fails the run.
+Default baseline runs may skip unselected Kata, Cilium, snapshot and upgrade cases.
+Those skips remain visible and provide no compatibility evidence.
+An explicit `E2E_TEST` selection must execute at least one scenario beyond the target
+guard and cannot contain a skipped case.
 Test and cleanup failures return a nonzero exit code.
 Failed runs also save controller logs and resource dumps locally.
-CI results are available in the job logs.
+`inputs.txt` records the source commit and worktree fingerprint, Chart checksum/version,
+image configuration digests and available registry digests, examples fingerprint,
+node image and upstream manifest versions/checksums.
+Docker configuration digests are distinct from registry manifest digests.
+CI uploads evidence from successful and failed runs as `e2e-<scenario>` artifacts.
+For support claims, use the tested source revision and matching artifact, not results
+from an earlier build.
 
 Go cleanup and driver EXIT handle ordinary completion and catchable interruption;
 SIGKILL or runner loss can prevent cleanup.
@@ -212,7 +233,10 @@ SIGKILL or runner loss can prevent cleanup.
 The [E2E workflow](../.github/workflows/e2e.yml) supports manual dispatch.
 Tag releases test the same image archives and Chart artifact selected for publication.
 OCI publication follows packaging without waiting for E2E.
-GitHub Release publication waits for E2E and OCI publication to succeed.
+After OCI publication, a separate job anonymously downloads both images and the Chart.
+It checks them against the candidate artifacts and runs the public examples again.
+GitHub Release publication waits for the E2E matrix and that public smoke test.
+This does not verify applications maintained in the separate examples repository.
 PR/main, tag releases and manual E2E workflow dispatches run Kind tests.
 
 ### Optional Kata runtime profile

@@ -17,6 +17,32 @@ kubectl apply -f examples/02-group.yaml && kubectl wait agentgroup/demo --for=co
 kubectl apply -f examples/03-definition.yaml -f examples/04-instance-basic.yaml && kubectl -n agentrally-demo wait agentinstance/demo-agent --for=condition=Ready --timeout=300s
 ```
 
+Verify the demo through its Pod:
+
+```sh
+POD=$(kubectl -n agentrally-demo get agentinstance demo-agent -o jsonpath='{.status.podName}')
+kubectl -n agentrally-demo port-forward "pod/$POD" 8080:8080
+```
+
+In another terminal:
+
+```sh
+curl -fsS http://127.0.0.1:8080/chat -H 'Content-Type: application/json' -d '{"message":"Hello"}'
+```
+
+Expect `{"response":"AgentRally demo agent is ready.","mode":"demo"}`.
+This validates the deployment without model credentials or a model-provider call.
+
+For a persistent workspace, apply `examples/04-instance-full.yaml` after the same
+Group and Definition.
+It requests a 20 GiB filesystem PVC from the default StorageClass.
+Set `storageClassName` or adjust capacity to match the cluster before applying.
+The commented HTTPRoute requires Gateway API and the referenced Gateway only if enabled.
+Use the full Instance's `status.podName` for access and repeat port-forward after any
+operation that replaces its Pod.
+Deleting the full Instance also deletes its template-created workspace PVC.
+An `existingClaimRef` PVC is independently owned and remains after Instance deletion.
+
 For a complete application walkthrough, choose an example from
 [Start an Agent](../README.md#2-start-an-agent).
 See [Lifecycle](#lifecycle) to suspend, resume and clean up the resources above.

@@ -12,10 +12,34 @@ For the current source checkout, use the
 
 Version-tag releases publish the Operator image, Connector image and OCI Chart to GHCR as soon as
 packaging succeeds.
-Checks and E2E run independently of publication.
+Checks and E2E run independently of OCI publication.
+GitHub Release publication additionally waits for anonymous artifact retrieval and
+the public-example smoke test.
 PR and main-branch CI retain build artifacts without publishing them.
 See the [release workflow](../.github/workflows/release.yml) or [manual uploads](development.md#upload-images-and-chart).
 The OCI commands below require an accessible, published Chart version.
+
+## Compatibility
+
+These are representative Kind configurations for this source revision, not a claim
+that every Kubernetes, CNI, CSI or RuntimeClass combination has been tested.
+The exact node images and manifest checksums are pinned in
+[versions.env](../tests/e2e/versions.env).
+
+| Scenario | Kubernetes | agent-sandbox | Result |
+| --- | --- | --- | --- |
+| Baseline lifecycle and public examples | 1.34.11 | 1.0.11 | Passed locally |
+| Newer Kubernetes sample | 1.37.0 | 1.0.11 | Passed locally |
+| Operator 0.0.6 → this candidate, Connector off/on | 1.34.11 | 1.0.5 | Passed locally |
+| Upstream upgrade with this candidate fixed | 1.34.11 | 1.0.5 → 1.0.11 | Passed locally |
+| Packaged Chart defaults and public examples | 1.34.11 | 1.0.5 | Passed locally |
+
+These scenarios use runc, kindnet and local-path storage.
+They do not establish Kubernetes cluster upgrade compatibility, or validate OKD,
+Kata, gVisor, EFS or another storage backend.
+The upgrade source is the latest published Operator version selected for this candidate;
+older sources require their own verification.
+Anonymous retrieval of the candidate artifacts is checked by the tag workflow after publication.
 
 ## Standard installation
 
@@ -31,7 +55,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/
 
 This creates the `agent-sandbox-system` namespace, four CRDs, RBAC and one controller
 with Extensions enabled.
-AgentRally's API adapter uses v1.0.5.
+AgentRally uses the upstream `agents.x-k8s.io/v1beta1` APIs.
 
 Helm does not install or check these dependencies.
 Missing `Sandbox` or `SandboxTemplate` APIs prevent normal Operator startup;
@@ -130,6 +154,29 @@ No separate `kubectl apply` of AgentRally CRDs is needed.
 Uninstall retains CRDs and Agent resources.
 Clean up Agents and Groups while the Operator is still running; see
 [Lifecycle](usage.md#lifecycle).
+
+### Upgrade agent-sandbox
+
+Upgrade AgentRally to a build containing this compatibility fix **before** upgrading
+agent-sandbox from 1.0.5 to 1.0.11.
+Operator 0.0.6 does not support the new template default added by agent-sandbox 1.0.11;
+it can reject existing revisions with `DefinitionRevisionConflict`.
+The quick-start dependency remains 1.0.5 for the published Operator 0.0.6.
+
+After upgrading AgentRally, apply the target manifest in place:
+
+```sh
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.11/sandbox-with-extensions.yaml && kubectl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller --timeout=180s
+```
+
+The manifest updates CRDs, RBAC and the Core/Extensions controller together.
+Do not uninstall the dependency or delete its CRDs as an upgrade step.
+
+The upgrade test checks the CRD update and controller rollout separately.
+It verifies the original Instance, Claim, Sandbox and PVC UIDs and accepted revision.
+Running Agents remain usable; suspended Agents stay stopped until explicitly resumed.
+Both private and external PVC files must remain readable and writable after resume.
+A controller's readiness alone does not verify this contract.
 
 ## Local development and testing
 

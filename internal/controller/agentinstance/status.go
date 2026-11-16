@@ -2,6 +2,8 @@ package agentinstance
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	v1 "agentrally/operator/api/v1alpha1"
 	"agentrally/operator/internal/controller"
@@ -150,6 +152,14 @@ func currentCoreCondition(current *sandbox.Sandbox, kind string, generation, tar
 	condition.ObservedGeneration = targetGeneration
 	if condition.Reason == "" {
 		condition.Reason = "SandboxObserved"
+	}
+	// Core errors can include arbitrary admission or workload text. Keep the
+	// current condition semantics while leaving raw detail on the owned Sandbox.
+	condition.Message = fmt.Sprintf("Core Sandbox reports %s=%s; inspect Sandbox conditions, Events and Core controller logs for details", kind, source.Status)
+	if kind == controller.ConditionReady && source.Status == metav1.ConditionFalse && source.Reason == "ReconcilerError" &&
+		strings.Contains(source.Message, "is forbidden: violates PodSecurity ") {
+		condition.Reason = "PodAdmissionDenied"
+		condition.Message = "Pod creation was rejected by namespace Pod Security admission; inspect Sandbox Events and the declared container security settings"
 	}
 	return &condition
 }

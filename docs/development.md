@@ -149,6 +149,9 @@ The [driver](../tests/e2e/run.sh) uses the pinned inputs in
 It builds the production Containerfile, creates a disposable cluster and installs
 Core, Extensions and AgentRally through the normal chart.
 It never uses the caller's current kubeconfig.
+On Linux, it uses kubectl from the pinned Kind node image to match the API server.
+On other hosts, install kubectl [within one minor version](https://kubernetes.io/releases/version-skew-policy/#kubectl)
+of the selected Kubernetes version.
 Run profiles sequentially on a shared Docker host; CI matrix jobs use separate runners.
 
 | Setting | Purpose |
@@ -179,6 +182,13 @@ The suite covers publication/revision pinning, dependency rotation, Group polici
 allocation, prewarming, suspend/resume, storage-preserving revision updates, task completion and ownership cleanup.
 Generic native-template tasks verify completion diagnostics and explicit cleanup.
 Workspace checks distinguish execution-private volumes from externally managed PVCs.
+Runtime cases check default and explicit selection, missing/disallowed classes,
+Unknown classification and real kubelet failure for an absent handler without fallback.
+Security cases cover native main, sidecar and init containers under Restricted admission,
+digest policy, and root bootstrap in a separate Baseline Group.
+They execute process checks and verify real admission rejection, unchanged Group policies
+and recovery after correcting the template.
+Both cases are required in baseline and newer-kubernetes; runc aliases are not Kata or gVisor evidence.
 Connector management uses its dedicated rendered RBAC rather than administrator permissions.
 It checks scoped metadata reads, write-result retries and guarded Secret/ConfigMap deletion.
 Startup tests verify leader handoff against the Kind API.

@@ -38,6 +38,7 @@ The exact node images and manifest checksums are pinned in
 | Upstream upgrade with this candidate fixed | 1.34.11 | 1.0.5 → 1.0.11 | Passed locally |
 | Packaged Chart defaults and public examples | 1.34.11 | 1.0.11 | Passed locally |
 | Private workspaces and shared read-only NFS content | 1.34.11 | 1.0.11 | Passed locally |
+| Runtime selection, failure diagnostics and Group security boundaries | 1.34.11 / 1.37.0 | 1.0.11 | Passed locally |
 
 These scenarios use runc and kindnet.
 Storage uses local-path, except for the dedicated NFS scenario.

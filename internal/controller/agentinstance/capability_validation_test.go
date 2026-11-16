@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -353,7 +354,7 @@ func TestSandboxSchedulingFeedbackIsCurrentAndIndependentOfReady(t *testing.T) {
 	}
 	object = getSandbox(t, c, w)
 	status := []metav1.Condition{
-		{Type: "PodScheduled", Status: metav1.ConditionFalse, ObservedGeneration: 3, Reason: "Unschedulable", Message: "insufficient cpu", LastTransitionTime: metav1.Now()},
+		{Type: "PodScheduled", Status: metav1.ConditionFalse, ObservedGeneration: 3, Reason: "Unschedulable", Message: "untrusted scheduling detail", LastTransitionTime: metav1.Now()},
 		{Type: "Ready", Status: metav1.ConditionUnknown, ObservedGeneration: 3, Reason: "WaitingForPod", LastTransitionTime: metav1.Now()},
 	}
 	current, err := sandbox.Decode(object)
@@ -374,7 +375,7 @@ func TestSandboxSchedulingFeedbackIsCurrentAndIndependentOfReady(t *testing.T) {
 	testutil.Condition(t, observed.Status.Conditions, "PodScheduled", metav1.ConditionFalse)
 	testutil.Condition(t, observed.Status.Conditions, "Ready", metav1.ConditionUnknown)
 	scheduled := meta.FindStatusCondition(observed.Status.Conditions, "PodScheduled")
-	if scheduled.Reason != "Unschedulable" || scheduled.Message != "insufficient cpu" || scheduled.ObservedGeneration != w.Generation {
+	if scheduled.Reason != "Unschedulable" || scheduled.Message == "" || strings.Contains(scheduled.Message, "untrusted scheduling detail") || scheduled.ObservedGeneration != w.Generation {
 		t.Fatalf("feedback lost: %+v", scheduled)
 	}
 	reconcileWithUpstreamSimulation(t, r, w)

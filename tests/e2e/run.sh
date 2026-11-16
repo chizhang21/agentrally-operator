@@ -13,13 +13,13 @@ explicit_test=${E2E_TEST:+true}
 node=$KIND_NODE_BASELINE
 upstream_version=$SANDBOX_VERSION
 upstream_sha=$SANDBOX_SHA256
-required='TestPublishedExamples TestStableRevisionUpdates TestRetainedWorkspaceUpgrade TestOperatorLifecycle TestRuntimePolicyAndExplicitLifecycle TestConnectorManagement'
+required='TestPublishedExamples TestStableRevisionUpdates TestRetainedWorkspaceUpgrade TestOperatorLifecycle TestRuntimePolicyAndExplicitLifecycle TestRuntimeSelectionAndFailures TestGroupSecurityBoundaries TestConnectorManagement'
 case "$E2E_PROFILE" in
   baseline) ;;
   newer-kubernetes)
     node=$KIND_NODE_NEWER
-    required='TestPublishedExamples TestStableRevisionUpdates TestRetainedWorkspaceUpgrade TestRuntimePolicyAndExplicitLifecycle'
-    export E2E_TEST=${E2E_TEST:-'^(TestPublishedExamples|TestStableRevisionUpdates|TestRetainedWorkspaceUpgrade|TestRuntimePolicyAndExplicitLifecycle)$'}
+    required='TestPublishedExamples TestStableRevisionUpdates TestRetainedWorkspaceUpgrade TestRuntimePolicyAndExplicitLifecycle TestRuntimeSelectionAndFailures TestGroupSecurityBoundaries'
+    export E2E_TEST=${E2E_TEST:-'^(TestPublishedExamples|TestStableRevisionUpdates|TestRetainedWorkspaceUpgrade|TestRuntimePolicyAndExplicitLifecycle|TestRuntimeSelectionAndFailures|TestGroupSecurityBoundaries)$'}
     ;;
   operator-upgrade|connector-upgrade)
     export E2E_UPGRADE_FROM=${E2E_UPGRADE_FROM:-$OPERATOR_PREVIOUS_VERSION}
@@ -184,15 +184,25 @@ networking:
   disableDefaultCNI: true
 YAML
   "$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --config "$temporary/kind.yaml"
+else
+  kind_options=()
+  if [[ -n ${E2E_KIND_CONFIG:-} ]]; then kind_options+=(--config "$E2E_KIND_CONFIG"); fi
+  "$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --wait 180s "${kind_options[@]}"
+fi
+# Linux CI and local runs use the CLI from the same pinned image as the API server.
+# Other hosts retain their native kubectl binary.
+if [[ "$(go env GOHOSTOS)" == linux ]]; then
+  mkdir -p "$temporary/bin"
+  docker cp -L "$cluster-control-plane:/usr/bin/kubectl" "$temporary/bin/kubectl"
+  export PATH="$temporary/bin:$PATH"
+fi
+kubectl version --client -o yaml >> "$logs/inputs.txt"
+if [[ "$E2E_CNI" == cilium ]]; then
   # Nodes become Ready only after the replacement CNI is installed.
   helm install cilium oci://quay.io/cilium/charts/cilium --version 1.20.3 -n kube-system \
     --set ipam.mode=kubernetes --set operator.replicas=1 \
     --set kubeProxyReplacement=false --set socketLB.enabled=false --wait --timeout=360s
   kubectl -n kube-system rollout status daemonset/cilium --timeout=240s
-else
-  kind_options=()
-  if [[ -n ${E2E_KIND_CONFIG:-} ]]; then kind_options+=(--config "$E2E_KIND_CONFIG"); fi
-  "$KIND" create cluster --name "$cluster" --image "$node" --kubeconfig "$KUBECONFIG" --wait 180s "${kind_options[@]}"
 fi
 if [[ -n ${E2E_RUNTIME_MANIFEST:-} ]]; then
   kubectl apply --server-side -f "$E2E_RUNTIME_MANIFEST"

@@ -11,6 +11,7 @@ spec:
   template: generic
   # Optional alternative: remove template and container, then use templateRef.
   # If using a native source, refer to sandbox-template.yaml and apply it first.
+  # Omit security below to preserve its security contexts; Group admission still applies.
   # That example also requires a prepared shared-content PVC; see docs/usage.md.
   # templateRef:
   #   name: custom-agent
@@ -23,7 +24,8 @@ spec:
     # Optional entrypoint overrides for your own image.
     # command: [/bin/agent]
     # args: [serve, --port, "8080"]
-    # Optional: select an installed RuntimeClass; omitted uses the node default.
+    # Optional unless the Group has a runtime allowlist; omitted uses the node default.
+    # The RuntimeClass and its node handler must both be installed.
     # runtimeClassName: your-runtime-class
     # Optional registry credentials in this namespace.
     # imagePullSecrets:
@@ -70,8 +72,8 @@ spec:
       periodSeconds: 30
       failureThreshold: 3
   security:
-    # AnyUID allows root and runtime-default capabilities; requires a Baseline
-    # AgentGroup and a dedicated ServiceAccount.
+    # AnyUID allows root and runtime-default capabilities; requires a separate
+    # Baseline AgentGroup and an existing dedicated ServiceAccount.
     profile: Restricted
     # Optional existing ServiceAccount; the built-in default has no API token mount.
     # serviceAccountName: agent-runtime

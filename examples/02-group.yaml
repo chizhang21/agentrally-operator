@@ -5,6 +5,7 @@ metadata:
   name: demo
 spec:
   namespace: agentrally-demo
+  # Use a separate Baseline Group for root exceptions; keep ordinary Agents here.
   podSecurity: Restricted
   allocationPaused: false
   quota:
@@ -25,6 +26,7 @@ spec:
     idleTTLSeconds: 300
   executionPolicy:
     requireImageDigest: false
+    # A nonempty allowlist requires an explicit selection; there is no fallback.
     # allowedRuntimeClasses: [your-runtime-class]
   invocationAccess:
     mode: Disabled

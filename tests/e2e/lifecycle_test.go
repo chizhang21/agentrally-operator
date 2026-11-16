@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -601,9 +602,14 @@ func execPod(t *testing.T, kubeconfig, namespace, pod string, args ...string) st
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "kubectl", append([]string{"--kubeconfig", kubeconfig, "-n", namespace, "exec", pod, "--"}, args...)...)
-	output, err := command.CombinedOutput()
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("exec test Pod: %v\n%s", err, output)
+		t.Fatalf("exec test Pod: %v\n%s\n%s", err, output, stderr.String())
+	}
+	if stderr.Len() > 0 {
+		t.Logf("exec test Pod stderr: %s", stderr.String())
 	}
 	return strings.TrimSpace(string(output))
 }
@@ -613,9 +619,14 @@ func kubectl(t *testing.T, kubeconfig string, args ...string) string {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, "kubectl", append([]string{"--kubeconfig", kubeconfig}, args...)...)
-	output, err := command.CombinedOutput()
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("kubectl %v: %v\n%s", args, err, output)
+		t.Fatalf("kubectl %v: %v\n%s\n%s", args, err, output, stderr.String())
+	}
+	if stderr.Len() > 0 {
+		t.Logf("kubectl stderr: %s", stderr.String())
 	}
 	return string(output)
 }

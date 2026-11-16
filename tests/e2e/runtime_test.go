@@ -49,10 +49,7 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 		condition := meta.FindStatusCondition(instance.Status.Conditions, "CapabilityValidated")
 		return condition != nil && condition.Reason == "RuntimeClassDenied" && instance.Status.Provisioning == nil, err
 	})
-	digest := os.Getenv("E2E_DIGEST_IMAGE")
-	if !strings.Contains(digest, "@sha256:") {
-		t.Fatal("driver must provide the pulled workload image digest")
-	}
+	digest := workloadDigest(t)
 	definition.Spec.Container.RuntimeClassName, definition.Spec.Container.Image = &class.Name, digest
 	update(t, ctx, kube, definition)
 	previous := instance.Status.Definition.Revision
@@ -119,43 +116,105 @@ func TestRuntimePolicyAndExplicitLifecycle(t *testing.T) {
 	awaitDeleted(t, ctx, kube, group)
 }
 
-func TestBuiltInRootBootstrap(t *testing.T) {
+func TestRuntimeSelectionAndFailures(t *testing.T) {
 	kube, kubeconfig := e2eClient(t)
 	ctx := t.Context()
-	group := readyGroup(t, ctx, kube, "root-bootstrap")
-	group.Spec.PodSecurity = "Baseline"
-	update(t, ctx, kube, group)
-	await(t, "Baseline namespace prepared", func() (bool, error) {
-		err := kube.Get(ctx, client.ObjectKeyFromObject(group), group)
-		return conditionTrue(group.Status.Conditions, "Ready", group.Generation), err
-	})
-	account := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "bootstrap", Namespace: group.Status.Namespace}}
-	create(t, ctx, kube, account)
-	definition, instance := testAgent(group, "bootstrap", `test "$(id -u)" = 0
-mkdir -p /workspace/bootstrap
-chown 65534:65534 /workspace/bootstrap
-exec su -s /bin/sh -c 'id -u > /workspace/bootstrap/uid; exec sleep 3600' nobody`)
-	definition.Spec.Template = "assistant"
-	definition.Spec.Security = &v1.AgentSecurity{Profile: "AnyUID", ServiceAccountName: account.Name, RunAsUser: ptr.To(int64(0))}
-	definition.Spec.Container.ReadinessProbe = &corev1.Probe{
-		ProbeHandler:  corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-ec", `test "$(cat /workspace/bootstrap/uid)" = 65534`}}},
-		PeriodSeconds: 1,
-	}
+	group := readyGroup(t, ctx, kube, "runtime-selection")
+
+	t.Log("No RuntimeClass selection uses the actual node default")
+	definition, instance := testAgent(group, "node-default", "sleep 3600")
 	create(t, ctx, kube, definition)
 	create(t, ctx, kube, instance)
 	readyAgent(t, ctx, kube, instance)
-	if got := execPod(t, kubeconfig, instance.Namespace, instance.Status.PodName, "cat", "/workspace/bootstrap/uid"); got != "65534" {
-		t.Fatal("root initialization did not drop to the application user", got)
-	}
-	if err := kube.Delete(ctx, instance); err != nil {
+	pod := &corev1.Pod{}
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, pod); err != nil {
 		t.Fatal(err)
 	}
-	awaitDeleted(t, ctx, kube, instance)
-	deleteDefinitions(t, ctx, kube, group)
-	if err := kube.Delete(ctx, group); err != nil {
+	if pod.Spec.RuntimeClassName != nil || string(pod.UID) != instance.Status.PodUID {
+		t.Fatal("default execution was assigned a different RuntimeClass or Pod")
+	}
+	verifyRestrictedProcess(t, kubeconfig, instance)
+
+	t.Log("Missing and disallowed RuntimeClasses fail before allocation")
+	definition, instance = testAgent(group, "missing-runtime", "sleep 3600")
+	definition.Spec.Container.RuntimeClassName = ptr.To("not-installed")
+	create(t, ctx, kube, definition)
+	create(t, ctx, kube, instance)
+	waitInstanceReason(t, kube, instance, "RuntimeClassNotFound")
+	assertNoAllocation(t, kube, instance)
+	usable := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "opaque-runc", Annotations: map[string]string{
+		"arally.io/runtime-classification": `{"version":"v1","family":"test-runc","category":"Unknown","imageContract":"LinuxOCI"}`,
+	}}, Handler: "runc"}
+	broken := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "unavailable-handler"}, Handler: "agentrally-uninstalled"}
+	outside := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "outside-policy"}, Handler: "runc"}
+	for _, class := range []*nodev1.RuntimeClass{usable, broken, outside} {
+		create(t, ctx, kube, class)
+	}
+	group.Spec.ExecutionPolicy = &v1.ExecutionPolicy{AllowedRuntimeClasses: []string{usable.Name, broken.Name}}
+	update(t, ctx, kube, group)
+	definition, instance = testAgent(group, "disallowed-runtime", "sleep 3600")
+	definition.Spec.Container.RuntimeClassName = &outside.Name
+	create(t, ctx, kube, definition)
+	create(t, ctx, kube, instance)
+	waitInstanceReason(t, kube, instance, "RuntimeClassDenied")
+	assertNoAllocation(t, kube, instance)
+
+	t.Log("Unknown isolation classification does not block an allowed, working handler")
+	report := &v1.ClusterCapabilities{}
+	await(t, "Unknown runtime classification observed", func() (bool, error) {
+		if err := kube.Get(ctx, client.ObjectKey{Name: "cluster"}, report); err != nil {
+			return false, err
+		}
+		for _, observed := range report.Status.Runtimes {
+			if observed.Name == usable.Name {
+				return observed.Category == "Unknown" && observed.Status == "Unknown", nil
+			}
+		}
+		return false, nil
+	})
+	definition, instance = testAgent(group, "selected-runtime", "sleep 3600")
+	definition.Spec.Container.RuntimeClassName = &usable.Name
+	create(t, ctx, kube, definition)
+	create(t, ctx, kube, instance)
+	readyAgent(t, ctx, kube, instance)
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, pod); err != nil {
 		t.Fatal(err)
 	}
-	awaitDeleted(t, ctx, kube, group)
+	if string(pod.UID) != instance.Status.PodUID || ptr.Deref(pod.Spec.RuntimeClassName, "") != usable.Name {
+		t.Fatal("selected RuntimeClass was not preserved on the actual Pod")
+	}
+	verifyRestrictedProcess(t, kubeconfig, instance)
+
+	t.Log("A configured but absent handler produces a real kubelet failure without fallback")
+	definition, instance = testAgent(group, "unavailable-runtime", "sleep 3600")
+	definition.Spec.Container.RuntimeClassName = &broken.Name
+	create(t, ctx, kube, definition)
+	create(t, ctx, kube, instance)
+	waitInstanceReason(t, kube, instance, "PodSandboxCreationFailed")
+	if err := kube.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: instance.Status.PodName}, pod); err != nil {
+		t.Fatal(err)
+	}
+	if string(pod.UID) != instance.Status.PodUID || ptr.Deref(pod.Spec.RuntimeClassName, "") != broken.Name || pod.Status.Phase != corev1.PodPending {
+		t.Fatal("failed runtime execution was replaced, changed class or started", pod.Status.Phase)
+	}
+	await(t, "kubelet failure belongs to the observed Pod UID", func() (bool, error) {
+		events := &corev1.EventList{}
+		if err := kube.List(ctx, events, client.InNamespace(instance.Namespace)); err != nil {
+			return false, err
+		}
+		for _, event := range events.Items {
+			if event.InvolvedObject.UID == pod.UID && (event.Reason == "FailedCreatePodSandBox" || event.Reason == "FailedCreatePodSandbox") {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	removeScenarioGroup(t, kube, group)
+	for _, class := range []*nodev1.RuntimeClass{usable, broken, outside} {
+		if err := kube.Delete(ctx, class); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestGroupSpareBudget(t *testing.T) {

@@ -152,8 +152,14 @@ See the [Kubernetes NetworkPolicy semantics](https://kubernetes.io/docs/concepts
 Use `spec.executionPolicy.allowedRuntimeClasses` to require an explicitly selected runtime from an administrator's list.
 Use `spec.executionPolicy.requireImageDigest: true` to require digest-pinned regular and init containers.
 Both constraints apply to the final resolved Pod, including custom templates.
-An omitted policy preserves existing behavior.
-RuntimeClass selection is configuration evidence; it does not attest the node runtime.
+
+Without a runtime allowlist, omitting RuntimeClass uses the node's default runtime.
+A nonempty allowlist requires an explicit selection.
+Missing or disallowed RuntimeClasses block new allocation; AgentRally does not select a fallback.
+
+An allowed RuntimeClass is passed unchanged to the Pod.
+Unknown discovery classification does not block execution or prove isolation.
+The node must have the selected handler installed; a RuntimeClass object alone does not make it runnable.
 Policy checks gate new AgentRally allocations and resumes.
 Already submitted allocations and running executions may continue after a policy change.
 Existing native pool snapshots are not rewritten by this policy.
@@ -186,13 +192,13 @@ Retrying an unfinished allocation waits for unpause.
 ### Agent process identity
 
 Built-in environments default to `security.profile: Restricted`, requiring non-root
-execution and dropping all Linux capabilities.
+execution, dropping all Linux capabilities and preventing privilege escalation.
 Set `AgentDefinition.spec.security.runAsUser` for an explicit UID, or omit it to use the
 image or admission default.
 
 `security.serviceAccountName` selects an existing namespaced ServiceAccount.
 
-For images requiring UID 0 or runtime-default capabilities, an administrator prepares an AgentGroup with
+For images requiring UID 0 or runtime-default capabilities, an administrator prepares a separate AgentGroup with
 `spec.podSecurity: Baseline` and a dedicated ServiceAccount.
 The AgentDefinition can then use a built-in environment with AnyUID:
 
@@ -205,8 +211,21 @@ security:
 ```
 
 AnyUID leaves built-in capabilities at the container runtime defaults.
-Native SandboxTemplate capability settings remain as declared.
-Namespace policy and ServiceAccount authorization remain administrator-managed.
+It requires the dedicated ServiceAccount to exist before allocation.
+The Operator does not create that account or grant it additional permissions.
+
+With a native SandboxTemplate, omit `AgentDefinition.spec.security` to preserve the
+template's security contexts.
+An explicit `security` override applies its UID and non-root settings to every regular
+and init container; native capability settings remain as declared.
+AgentRally defaults API token automount to false when the native template leaves it unset.
+
+Every resulting Pod remains subject to the Group namespace's Pod Security admission
+and other platform admission controls.
+This includes native sidecars and init containers.
+RuntimeClass selection does not change Group policy or configure admission exemptions.
+Baseline permits root but still rejects privileged containers.
+Keep ordinary Agents in their Restricted Group; do not relax that Group for an exception.
 
 ## Interaction endpoint
 
@@ -537,6 +556,10 @@ Credential values and application content are never metric labels.
 | `AllocationPaused` | The Group has paused new allocations. Unpause it to begin a new request. |
 | `PoolConfigurationUnverified` | An external pool must reference the matching Group-owned AgentRally snapshot. |
 | `SnapshotAPIUnavailable`, `SnapshotNotFound`, `SnapshotNotReady`, `SnapshotCapacityInsufficient` | Snapshot API/CSI prerequisites, source readiness and PVC restore capacity. |
+| `RuntimeClassNotFound`, `RuntimeClassDenied` | The selected RuntimeClass must exist and satisfy the Group allowlist. A nonempty allowlist requires an explicit selection. |
+| `SecurityAccountRequired`, `SecurityPolicyDenied` | Built-in AnyUID requires a separate Baseline Group and a dedicated ServiceAccount. |
+| `ImageDigestRequired` | Pin every regular and init container image to a digest, including native sidecars. |
+| `PodAdmissionDenied` | Pod Security rejected the requested Pod. Inspect the named Sandbox and its Events; no Pod may exist yet. Correct the template or use an administrator-prepared Group appropriate for the workload. |
 | `Unschedulable` | CPU/memory requests, node availability, taints, affinity and PVC binding. Recognized scheduler messages identify CPU, memory or taint constraints. |
 | `ErrImagePull`, `ImagePullBackOff`, `InvalidImageName` | Image reference, registry access and imagePullSecrets. |
 | `CreateContainerConfigError` | Secret/ConfigMap references and container security settings. |
@@ -551,7 +574,8 @@ Credential values and application content are never metric labels.
 
 Five-minute stalls add diagnostics without forcing deletion or restart.
 Inspect the named Pod and its events for original errors; AgentRally does not publish raw
-container/Event messages or Secret values.
+container, admission or Event messages in Instance conditions.
+Upstream controller errors remain on the Sandbox conditions and Events.
 More detail is in
 [reconciliation and status](architecture.md#reconciliation-and-status).
 
